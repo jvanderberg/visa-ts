@@ -943,6 +943,9 @@ interface SessionManagerOptions {
   /** Auto-reconnect on disconnect (default: true) */
   autoReconnect?: boolean;
 
+  /** Max time (ms) to wait for reconnection in execute() (default: 30000) */
+  reconnectTimeout?: number;
+
   /**
    * Filter which devices to connect to. Can be:
    * - VISA pattern string: 'USB?*::INSTR', 'ASRL?*::INSTR'
@@ -991,6 +994,15 @@ function createSessionManager(options?: SessionManagerOptions): SessionManager;
 ```typescript
 type SessionState = 'connecting' | 'connected' | 'polling' | 'disconnected' | 'error';
 
+interface ExecuteOptions {
+  /**
+   * Max time (ms) to wait for reconnection if disconnected.
+   * Default: uses SessionManagerOptions.reconnectTimeout (30000ms)
+   * Set to 0 to fail immediately if disconnected.
+   */
+  reconnectTimeout?: number;
+}
+
 interface DeviceSession {
   /** The underlying resource (null if disconnected) */
   readonly resource: MessageBasedResource | null;
@@ -1010,8 +1022,15 @@ interface DeviceSession {
   /** Subscribe to status updates */
   onStatus(handler: (status: unknown) => void): () => void;
 
-  /** Execute a command (queued, handles reconnection) */
-  execute<T>(fn: (resource: MessageBasedResource) => Promise<T>): Promise<Result<T, Error>>;
+  /**
+   * Execute a command (queued, handles reconnection).
+   * @param fn - Function to execute with the resource
+   * @param options - Execution options
+   */
+  execute<T>(
+    fn: (resource: MessageBasedResource) => Promise<T>,
+    options?: ExecuteOptions
+  ): Promise<Result<T, Error>>;
 
   /** Manually trigger reconnection attempt */
   reconnect(): Promise<Result<void, Error>>;
@@ -1125,6 +1144,7 @@ export type {
   DeviceSession,
   SessionState,
   ResourceFilter,
+  ExecuteOptions,
 } from './sessions/types';
 
 // Types
