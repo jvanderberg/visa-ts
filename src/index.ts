@@ -60,4 +60,11 @@ export { createMessageBasedResource } from './resources/message-based.js';
 export type { MessageBasedResource } from './resources/message-based.js';
 
 // SCPI utilities
-export { ScpiParser } from './util/scpi-parser.js';
+export {
+  parseScpiNumber,
+  parseScpiBool,
+  parseScpiEnum,
+  parseDefiniteLengthBlock,
+  parseArbitraryBlock,
+} from './util/scpi-parser.js';
+export type { ScpiBlockInfo } from './util/scpi-parser.js';
