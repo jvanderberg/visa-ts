@@ -58,3 +58,6 @@ export type { UsbtmcTransportConfig } from './transports/usbtmc.js';
 // Resource layer
 export { createMessageBasedResource } from './resources/message-based.js';
 export type { MessageBasedResource } from './resources/message-based.js';
+
+// SCPI utilities
+export { ScpiParser } from './util/scpi-parser.js';
