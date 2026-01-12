@@ -187,6 +187,14 @@ function openPort(path: string): Result<SerialPort, Error> {
 }
 ```
 
+### File Size and Modularity
+
+- **Keep files under 300 lines** - If a file exceeds this, split it
+- Extract reusable utilities to `src/util/` (e.g., `binary-block.ts`, `ascii-values.ts`)
+- Each file should have a single, clear responsibility
+- Prefer many small, focused modules over few large ones
+- When in doubt, split it out
+
 ### Naming Conventions
 
 - **Files**: `kebab-case.ts`

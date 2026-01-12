@@ -132,3 +132,11 @@ describe('parseResourceString', () => {
   - Use closures for private state, not private class fields
   - Return plain objects implementing interfaces
   - This improves tree-shaking, testing, and composition
+
+## File Size and Modularity
+
+- **Keep files under 300 lines** - Files exceeding this should be split
+- Extract reusable utilities to `src/util/` (e.g., `binary-block.ts`, `ascii-values.ts`)
+- Interfaces can live in their own files or in `types.ts`
+- Each file should have a single, clear responsibility
+- Prefer many small, focused modules over few large ones
