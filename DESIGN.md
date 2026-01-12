@@ -36,8 +36,7 @@ function Err<E>(error: E): Result<never, E>;
 function isOk<T, E>(result: Result<T, E>): result is { ok: true; value: T };
 function isErr<T, E>(result: Result<T, E>): result is { ok: false; error: E };
 
-// Unwrap helpers
-function unwrap<T>(result: Result<T, Error>): T;  // throws if Err
+// Unwrap helpers (never throw)
 function unwrapOr<T>(result: Result<T, Error>, defaultValue: T): T;
 function unwrapOrElse<T>(result: Result<T, Error>, fn: (error: Error) => T): T;
 
@@ -610,7 +609,11 @@ async function main() {
     }
   });
 
-  if (!result.ok) throw result.error;
+  if (!result.ok) {
+    console.error('Failed to open PSU:', result.error);
+    await rm.close();
+    return;
+  }
   const psu = result.value;
 
   // Set voltage and current limits
@@ -647,7 +650,11 @@ async function main() {
     { transport: { quirks: 'rigol' } }
   );
 
-  if (!result.ok) throw result.error;
+  if (!result.ok) {
+    console.error('Failed to open scope:', result.error);
+    await rm.close();
+    return;
+  }
   const scope = result.value;
   scope.timeout = 10000;
 
@@ -785,15 +792,11 @@ if (result.ok) {
   console.error('Query failed:', result.error.message);
 }
 
-// Pattern 2: Use unwrap (throws on error)
-import { unwrap } from 'visa-ts';
-const idn = unwrap(await instr.query('*IDN?'));
-
-// Pattern 3: Use unwrapOr for default values
+// Pattern 2: Use unwrapOr for default values
 import { unwrapOr } from 'visa-ts';
 const voltage = unwrapOr(await instr.query(':MEAS:VOLT?'), '0.0');
 
-// Pattern 4: Chain operations with map
+// Pattern 3: Chain operations with map
 import { map } from 'visa-ts';
 const numericVoltage = map(
   await instr.query(':MEAS:VOLT?'),
@@ -860,43 +863,58 @@ async function queryWithRetry(
 ### Instrument Wrapper Factory
 
 ```typescript
-import { createResourceManager, MessageBasedResource, unwrap } from 'visa-ts';
+import { createResourceManager, MessageBasedResource, Result, Ok, Err, unwrapOr } from 'visa-ts';
 
 interface Multimeter {
-  measureVoltage(range?: 'AUTO' | number): Promise<number>;
-  measureCurrent(range?: 'AUTO' | number): Promise<number>;
+  measureVoltage(range?: 'AUTO' | number): Promise<Result<number, Error>>;
+  measureCurrent(range?: 'AUTO' | number): Promise<Result<number, Error>>;
   close(): Promise<void>;
 }
 
-async function createMultimeter(resourceString: string): Promise<Multimeter> {
+async function createMultimeter(resourceString: string): Promise<Result<Multimeter, Error>> {
   const rm = createResourceManager();
-  const instr = unwrap(await rm.openResource(resourceString));
+  const openResult = await rm.openResource(resourceString);
 
-  return {
-    async measureVoltage(range: 'AUTO' | number = 'AUTO'): Promise<number> {
+  if (!openResult.ok) {
+    await rm.close();
+    return Err(openResult.error);
+  }
+  const instr = openResult.value;
+
+  return Ok({
+    async measureVoltage(range: 'AUTO' | number = 'AUTO'): Promise<Result<number, Error>> {
       if (range !== 'AUTO') {
-        await instr.write(`:SENS:VOLT:DC:RANG ${range}`);
+        const setResult = await instr.write(`:SENS:VOLT:DC:RANG ${range}`);
+        if (!setResult.ok) return Err(setResult.error);
       }
-      const result = unwrap(await instr.query(':MEAS:VOLT:DC?'));
-      return parseFloat(result);
+      const result = await instr.query(':MEAS:VOLT:DC?');
+      if (!result.ok) return Err(result.error);
+      return Ok(parseFloat(result.value));
     },
 
-    async measureCurrent(range: 'AUTO' | number = 'AUTO'): Promise<number> {
-      const result = unwrap(await instr.query(':MEAS:CURR:DC?'));
-      return parseFloat(result);
+    async measureCurrent(range: 'AUTO' | number = 'AUTO'): Promise<Result<number, Error>> {
+      const result = await instr.query(':MEAS:CURR:DC?');
+      if (!result.ok) return Err(result.error);
+      return Ok(parseFloat(result.value));
     },
 
     async close(): Promise<void> {
       await instr.close();
       await rm.close();
     },
-  };
+  });
 }
 
 // Usage
-const dmm = await createMultimeter('USB0::0x1234::0x5678::SN123::INSTR');
-console.log('Voltage:', await dmm.measureVoltage());
-await dmm.close();
+const dmmResult = await createMultimeter('USB0::0x1234::0x5678::SN123::INSTR');
+if (dmmResult.ok) {
+  const dmm = dmmResult.value;
+  const voltage = await dmm.measureVoltage();
+  if (voltage.ok) {
+    console.log('Voltage:', voltage.value);
+  }
+  await dmm.close();
+}
 ```
 
 ---
@@ -1096,8 +1114,8 @@ export { createResourceManager } from './resource-manager';
 export type { ResourceManager } from './resource-manager';
 export type { MessageBasedResource } from './resources/message-based';
 
-// Result type and helpers
-export { Result, Ok, Err, isOk, isErr, unwrap, unwrapOr, unwrapOrElse, map, mapErr } from './result';
+// Result type and helpers (never throw)
+export { Result, Ok, Err, isOk, isErr, unwrapOr, unwrapOrElse, map, mapErr } from './result';
 
 // Session management (visa-ts/sessions) — optional
 export { createSessionManager } from './sessions/session-manager';

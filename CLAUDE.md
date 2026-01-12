@@ -81,7 +81,10 @@ npm run lint         # Run linter
 ## Code Style
 
 - Use TypeScript strict mode
-- Prefer `Result<T, E>` over exceptions for expected errors
+- **NEVER THROW** - All errors must be returned via `Result<T, Error>`
+  - No `throw` statements anywhere in the codebase
+  - No relying on exceptions from dependencies - wrap in try/catch and return `Err()`
+  - This makes error handling explicit and composable
 - All public APIs should be documented with JSDoc
 - **AVOID CLASSES** - Use factory functions and interfaces instead
   - Use `createResourceManager()` not `new ResourceManager()`

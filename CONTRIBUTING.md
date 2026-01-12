@@ -57,23 +57,43 @@ npm run lint:fix  # Auto-fix issues
 
 ### Error Handling
 
-Use the `Result<T, E>` pattern instead of throwing exceptions:
+**NEVER THROW.** All errors must be returned via `Result<T, Error>`. This is a strict rule - no exceptions.
 
 ```typescript
-// Good
+// CORRECT - Return errors via Result
 async function query(cmd: string): Promise<Result<string, Error>> {
   try {
-    const response = await this.transport.query(cmd);
+    const response = await transport.query(cmd);
     return Ok(response);
   } catch (e) {
+    // Wrap any exceptions from dependencies
     return Err(e instanceof Error ? e : new Error(String(e)));
   }
 }
 
-// Avoid
+// WRONG - Never throw
 async function query(cmd: string): Promise<string> {
-  // Throwing exceptions for expected errors
-  throw new Error('Connection failed');
+  throw new Error('Connection failed');  // ❌ NEVER DO THIS
+}
+
+// WRONG - Never let exceptions propagate
+async function query(cmd: string): Promise<Result<string, Error>> {
+  const response = await transport.query(cmd);  // ❌ Could throw!
+  return Ok(response);
+}
+```
+
+When calling external libraries that may throw, always wrap in try/catch:
+
+```typescript
+// Wrap external library calls
+function openPort(path: string): Result<SerialPort, Error> {
+  try {
+    const port = new SerialPort({ path, baudRate: 9600 });
+    return Ok(port);
+  } catch (e) {
+    return Err(e instanceof Error ? e : new Error(String(e)));
+  }
 }
 ```
 

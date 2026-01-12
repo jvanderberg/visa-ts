@@ -64,7 +64,7 @@ visa-ts/
 
 2. **`src/result.ts`** - Error handling
    - `Result<T,E>`, `Ok()`, `Err()` types
-   - Helper functions: `isOk()`, `isErr()`, `unwrap()`, `unwrapOr()`
+   - Helper functions: `isOk()`, `isErr()`, `unwrapOr()`, `unwrapOrElse()`
 
 3. **`src/resource-string.ts`** - VISA resource string support
    - Parse: `"USB0::0x1AB1::0x04CE::DS1ZA123456789::INSTR"` → structured object
@@ -306,7 +306,11 @@ console.log(resources);
 
 // Open instrument
 const result = await rm.openResource('USB0::0x1AB1::0x04CE::DS1ZA123456789::INSTR');
-if (!result.ok) throw result.error;
+if (!result.ok) {
+  console.error('Failed to open:', result.error);
+  await rm.close();
+  return;
+}
 const instr = result.value;
 
 // Configure
