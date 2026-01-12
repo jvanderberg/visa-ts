@@ -943,9 +943,6 @@ interface SessionManagerOptions {
   /** Auto-reconnect on disconnect (default: true) */
   autoReconnect?: boolean;
 
-  /** Max time (ms) to wait for reconnection in execute() (default: 30000) */
-  reconnectTimeout?: number;
-
   /**
    * Filter which devices to connect to. Can be:
    * - VISA pattern string: 'USB?*::INSTR', 'ASRL?*::INSTR'
@@ -996,11 +993,10 @@ type SessionState = 'connecting' | 'connected' | 'polling' | 'disconnected' | 'e
 
 interface ExecuteOptions {
   /**
-   * Max time (ms) to wait for reconnection if disconnected.
-   * Default: uses SessionManagerOptions.reconnectTimeout (30000ms)
-   * Set to 0 to fail immediately if disconnected.
+   * Max time (ms) for the entire operation (including any reconnect wait).
+   * Default: 30000ms
    */
-  reconnectTimeout?: number;
+  timeout?: number;
 }
 
 interface DeviceSession {
