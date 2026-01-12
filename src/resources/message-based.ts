@@ -262,6 +262,14 @@ export interface MessageBasedResource {
 }
 
 /**
+ * Default read buffer size in bytes.
+ * 64KB is a reasonable balance between efficiency (fewer reads for waveform data)
+ * and memory usage. This matches common instrument buffer sizes and is a power
+ * of 2 for efficient allocation.
+ */
+const DEFAULT_CHUNK_SIZE = 65536;
+
+/**
  * Binary datatype element sizes in bytes
  */
 const ELEMENT_SIZES: Record<BinaryDatatype, number> = {
@@ -555,7 +563,7 @@ export function createMessageBasedResource(
   transport: Transport,
   resourceInfo: ResourceInfo
 ): MessageBasedResource {
-  let chunkSize = 65536;
+  let chunkSize = DEFAULT_CHUNK_SIZE;
 
   const resource: MessageBasedResource = {
     get resourceString() {
