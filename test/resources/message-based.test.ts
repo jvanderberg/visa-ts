@@ -1241,4 +1241,153 @@ describe('MessageBasedResource', () => {
       }
     });
   });
+
+  describe('large binary transfers (multi-read)', () => {
+    it('reads binary data larger than initial chunk via queryBinaryValues', async () => {
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+      resource.chunkSize = 100; // Small chunk size to trigger multi-read
+
+      // Header indicates 200 bytes of data: #3200
+      const header = Buffer.from('#3200');
+      const fullData = Buffer.alloc(200);
+      for (let i = 0; i < 200; i++) {
+        fullData[i] = i % 256;
+      }
+
+      // Initial read returns header + partial data (100 bytes total, so ~95 bytes of data after header)
+      const initialChunk = Buffer.concat([header, fullData.subarray(0, 95)]);
+      // Remaining read returns the rest (105 bytes)
+      const remainingData = fullData.subarray(95);
+
+      vi.mocked(mockTransport.write).mockResolvedValue(Ok(undefined));
+      vi.mocked(mockTransport.readRaw).mockResolvedValue(Ok(initialChunk));
+      vi.mocked(mockTransport.readBytes).mockResolvedValue(Ok(remainingData));
+
+      const result = await resource.queryBinaryValues(':WAV:DATA?', 'B');
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.length).toBe(200);
+        // Verify first and last values
+        expect(result.value[0]).toBe(0);
+        expect(result.value[199]).toBe(199);
+      }
+      expect(mockTransport.readBytes).toHaveBeenCalledWith(105);
+    });
+
+    it('reads binary data larger than initial chunk via queryBinary', async () => {
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+      resource.chunkSize = 50;
+
+      // Header indicates 150 bytes of data: #3150
+      const header = Buffer.from('#3150');
+      const fullData = Buffer.alloc(150, 0x42);
+
+      // Initial read returns header + partial data
+      const initialChunk = Buffer.concat([header, fullData.subarray(0, 45)]);
+      const remainingData = fullData.subarray(45);
+
+      vi.mocked(mockTransport.write).mockResolvedValue(Ok(undefined));
+      vi.mocked(mockTransport.readRaw).mockResolvedValue(Ok(initialChunk));
+      vi.mocked(mockTransport.readBytes).mockResolvedValue(Ok(remainingData));
+
+      const result = await resource.queryBinary(':WAV:DATA?');
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.length).toBe(150);
+        expect(result.value).toEqual(fullData);
+      }
+    });
+
+    it('reads binary data larger than initial chunk via readBinary', async () => {
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+      resource.chunkSize = 30;
+
+      // Header indicates 100 bytes: #3100
+      const header = Buffer.from('#3100');
+      const fullData = Buffer.alloc(100, 0xab);
+
+      // Initial read returns header + partial data
+      const initialChunk = Buffer.concat([header, fullData.subarray(0, 25)]);
+      const remainingData = fullData.subarray(25);
+
+      vi.mocked(mockTransport.readRaw).mockResolvedValue(Ok(initialChunk));
+      vi.mocked(mockTransport.readBytes).mockResolvedValue(Ok(remainingData));
+
+      const result = await resource.readBinary();
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.length).toBe(100);
+        expect(result.value).toEqual(fullData);
+      }
+    });
+
+    it('does not call readBytes when initial read contains all data', async () => {
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+      resource.chunkSize = 1000; // Large enough to contain all data
+
+      const header = Buffer.from('#15');
+      const data = Buffer.from([1, 2, 3, 4, 5]);
+      const block = Buffer.concat([header, data]);
+
+      vi.mocked(mockTransport.write).mockResolvedValue(Ok(undefined));
+      vi.mocked(mockTransport.readRaw).mockResolvedValue(Ok(block));
+
+      const result = await resource.queryBinary(':WAV:DATA?');
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toEqual(data);
+      }
+      // readBytes should not have been called since all data was in initial read
+      expect(mockTransport.readBytes).not.toHaveBeenCalled();
+    });
+
+    it('returns Err when readBytes fails during multi-read', async () => {
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+      resource.chunkSize = 50;
+
+      // Header indicates 100 bytes
+      const header = Buffer.from('#3100');
+      const partialData = Buffer.alloc(45, 0x42);
+      const initialChunk = Buffer.concat([header, partialData]);
+
+      vi.mocked(mockTransport.write).mockResolvedValue(Ok(undefined));
+      vi.mocked(mockTransport.readRaw).mockResolvedValue(Ok(initialChunk));
+      vi.mocked(mockTransport.readBytes).mockResolvedValue(Err(new Error('Read timeout')));
+
+      const result = await resource.queryBinary(':WAV:DATA?');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toBe('Read timeout');
+      }
+    });
+
+    it('handles queryBinaryValues with buffer container for large data', async () => {
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+      resource.chunkSize = 50;
+
+      const header = Buffer.from('#3100');
+      const fullData = Buffer.alloc(100, 0x55);
+
+      const initialChunk = Buffer.concat([header, fullData.subarray(0, 45)]);
+      const remainingData = fullData.subarray(45);
+
+      vi.mocked(mockTransport.write).mockResolvedValue(Ok(undefined));
+      vi.mocked(mockTransport.readRaw).mockResolvedValue(Ok(initialChunk));
+      vi.mocked(mockTransport.readBytes).mockResolvedValue(Ok(remainingData));
+
+      const result = await resource.queryBinaryValues(':WAV:DATA?', 'B', 'buffer');
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBeInstanceOf(Buffer);
+        expect(result.value.length).toBe(100);
+        expect(result.value).toEqual(fullData);
+      }
+    });
+  });
 });
