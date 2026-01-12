@@ -5,6 +5,9 @@
  */
 
 import type { BinaryDatatype } from '../types.js';
+import type { Transport } from '../transports/transport.js';
+import type { Result } from '../result.js';
+import { Ok, Err } from '../result.js';
 
 /**
  * Binary datatype element sizes in bytes
@@ -228,4 +231,56 @@ export function arrayToBinary(values: number[], datatype: BinaryDatatype): Buffe
   }
 
   return buffer;
+}
+
+/**
+ * Reads a complete IEEE 488.2 binary block from the transport.
+ * Handles both definite length (#N...) and indefinite length (#0) blocks.
+ * Automatically reads multiple chunks if data exceeds initial read size.
+ *
+ * @param transport - Transport to read from
+ * @param initialChunkSize - Size of initial read
+ * @returns Buffer containing the binary data (header stripped)
+ */
+export async function readBinaryBlock(
+  transport: Transport,
+  initialChunkSize: number
+): Promise<Result<Buffer, Error>> {
+  // Read initial chunk to get the header
+  const initialResult = await transport.readRaw(initialChunkSize);
+  if (!initialResult.ok) {
+    return initialResult;
+  }
+
+  const initialBuffer = initialResult.value;
+
+  // Parse the IEEE 488.2 block header
+  const headerInfo = parseBlockHeader(initialBuffer);
+  if (!headerInfo) {
+    return Err(new Error('Invalid IEEE 488.2 block header'));
+  }
+
+  const { headerLength, dataLength } = headerInfo;
+  const totalExpected = headerLength + dataLength;
+
+  // Check if we already have all the data
+  if (initialBuffer.length >= totalExpected) {
+    // All data received in initial read
+    return Ok(initialBuffer.subarray(headerLength, totalExpected));
+  }
+
+  // Need to read more data - calculate how much
+  const remainingBytes = totalExpected - initialBuffer.length;
+
+  // Read the remaining bytes
+  const remainingResult = await transport.readBytes(remainingBytes);
+  if (!remainingResult.ok) {
+    return remainingResult;
+  }
+
+  // Concatenate initial data (after header) with remaining data
+  const initialData = initialBuffer.subarray(headerLength);
+  const fullData = Buffer.concat([initialData, remainingResult.value]);
+
+  return Ok(fullData);
 }
