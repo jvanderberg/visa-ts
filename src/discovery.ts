@@ -21,25 +21,18 @@ export interface UsbDeviceInfo {
 }
 
 /**
- * Default serial port listing implementation.
- * Uses serialport package if available.
+ * SerialPort-like interface for discovery
+ * @internal
  */
-export async function listSerialPorts(): Promise<SerialPortInfo[]> {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-    const { SerialPort } = require('serialport') as {
-      SerialPort: { list(): Promise<Array<{ path: string }>> };
-    };
-    const ports = await SerialPort.list();
-    return ports.map((p) => ({ path: p.path }));
-  } catch {
-    // serialport not available
-    return [];
-  }
+export interface SerialPortModule {
+  list(): Promise<Array<{ path: string }>>;
 }
 
-// USB device type for the usb package
-interface UsbDevice {
+/**
+ * USB device type for the usb package
+ * @internal
+ */
+export interface UsbDevice {
   deviceDescriptor: {
     idVendor: number;
     idProduct: number;
@@ -55,10 +48,59 @@ interface UsbDevice {
 }
 
 /**
+ * USB module interface for discovery
+ * @internal
+ */
+export interface UsbModule {
+  getDeviceList(): UsbDevice[];
+}
+
+/**
+ * Options for listSerialPorts (for testing)
+ * @internal
+ */
+export interface ListSerialPortsOptions {
+  /** @internal Injected SerialPort module for testing */
+  _serialPort?: SerialPortModule;
+}
+
+/**
+ * Options for listUsbDevices (for testing)
+ * @internal
+ */
+export interface ListUsbDevicesOptions {
+  /** @internal Injected usb module for testing */
+  _usb?: UsbModule;
+}
+
+/**
+ * Default serial port listing implementation.
+ * Uses serialport package if available.
+ *
+ * @param options - Internal options for testing
+ */
+export async function listSerialPorts(options?: ListSerialPortsOptions): Promise<SerialPortInfo[]> {
+  try {
+    let SerialPort: SerialPortModule;
+    if (options?._serialPort) {
+      SerialPort = options._serialPort;
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      SerialPort = (require('serialport') as { SerialPort: SerialPortModule }).SerialPort;
+    }
+    const ports = await SerialPort.list();
+    return ports.map((p) => ({ path: p.path }));
+  } catch {
+    // serialport not available
+    return [];
+  }
+}
+
+/**
  * Get the serial number string from a USB device.
  * Opens the device, reads the descriptor, and closes it.
  */
-async function getUsbSerialNumber(device: UsbDevice): Promise<string | undefined> {
+export async function getUsbSerialNumber(device: UsbDevice): Promise<string | undefined> {
   const iSerialNumber = device.deviceDescriptor.iSerialNumber;
   if (iSerialNumber === 0) {
     return undefined;
@@ -87,15 +129,37 @@ async function getUsbSerialNumber(device: UsbDevice): Promise<string | undefined
 }
 
 /**
+ * Check if a device is a known USB-TMC device by vendor ID.
+ * This is a simplified check - in production we'd enumerate interfaces.
+ */
+export function isKnownTmcDevice(vendorId: number): boolean {
+  // Known USB-TMC vendor IDs
+  const knownVendors = [
+    0x1ab1, // Rigol
+    0x0957, // Agilent/Keysight
+    0x0699, // Tektronix
+    0x0b21, // Yokogawa
+    0x164e, // Siglent
+  ];
+
+  return knownVendors.includes(vendorId);
+}
+
+/**
  * Default USB device listing implementation.
  * Uses usb package if available.
+ *
+ * @param options - Internal options for testing
  */
-export async function listUsbDevices(): Promise<UsbDeviceInfo[]> {
+export async function listUsbDevices(options?: ListUsbDevicesOptions): Promise<UsbDeviceInfo[]> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-    const usb = require('usb') as {
-      getDeviceList(): UsbDevice[];
-    };
+    let usb: UsbModule;
+    if (options?._usb) {
+      usb = options._usb;
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      usb = require('usb') as UsbModule;
+    }
 
     const devices = usb.getDeviceList();
     const tmcDevices: UsbDeviceInfo[] = [];
@@ -118,21 +182,4 @@ export async function listUsbDevices(): Promise<UsbDeviceInfo[]> {
     // usb not available
     return [];
   }
-}
-
-/**
- * Check if a device is a known USB-TMC device by vendor ID.
- * This is a simplified check - in production we'd enumerate interfaces.
- */
-function isKnownTmcDevice(vendorId: number): boolean {
-  // Known USB-TMC vendor IDs
-  const knownVendors = [
-    0x1ab1, // Rigol
-    0x0957, // Agilent/Keysight
-    0x0699, // Tektronix
-    0x0b21, // Yokogawa
-    0x164e, // Siglent
-  ];
-
-  return knownVendors.includes(vendorId);
 }
