@@ -255,13 +255,17 @@ interface MessageBasedResource {
   /**
    * Write a command and read the response.
    * @param command - Command string (termination added automatically)
+   * @param options - Query options
    * @returns Response string (termination stripped)
    *
    * @example
    * const idn = await instr.query('*IDN?');
    * if (idn.ok) console.log(idn.value);
+   *
+   * // With delay (some instruments need time between write and read)
+   * const value = await instr.query(':MEAS:VOLT?', { delay: 100 });
    */
-  query(command: string): Promise<Result<string, Error>>;
+  query(command: string, options?: QueryOptions): Promise<Result<string, Error>>;
 
   /**
    * Write a command (no response expected).
@@ -347,6 +351,73 @@ interface MessageBasedResource {
   readBinary(): Promise<Result<Buffer, Error>>;
 
   // ─────────────────────────────────────────────────────────────────
+  // ASCII Values (comma/whitespace separated numbers)
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Query and parse ASCII numeric values.
+   * @param command - Command string
+   * @param options - Parse options
+   * @returns Array of numbers
+   *
+   * @example
+   * // Response: "1.23,4.56,7.89"
+   * const values = await instr.queryAsciiValues(':DATA?');
+   * // values.value = [1.23, 4.56, 7.89]
+   *
+   * // Custom separator
+   * const values = await instr.queryAsciiValues(':DATA?', { separator: ';' });
+   */
+  queryAsciiValues(
+    command: string,
+    options?: AsciiValuesOptions
+  ): Promise<Result<number[], Error>>;
+
+  /**
+   * Read and parse ASCII numeric values.
+   */
+  readAsciiValues(options?: AsciiValuesOptions): Promise<Result<number[], Error>>;
+
+  /**
+   * Write ASCII values to instrument.
+   * @param command - Command prefix
+   * @param values - Array of numbers to write
+   * @param options - Format options
+   *
+   * @example
+   * await instr.writeAsciiValues(':DATA', [1.0, 2.0, 3.0]);
+   * // Sends: ":DATA 1,2,3\n"
+   */
+  writeAsciiValues(
+    command: string,
+    values: number[],
+    options?: AsciiValuesOptions
+  ): Promise<Result<void, Error>>;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Raw I/O (bytes without termination handling)
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Write raw bytes to instrument (no termination added).
+   * @param data - Bytes to write
+   * @returns Number of bytes written
+   */
+  writeRaw(data: Buffer): Promise<Result<number, Error>>;
+
+  /**
+   * Read raw bytes from instrument (no termination handling).
+   * @param size - Max bytes to read (default: chunkSize)
+   */
+  readRaw(size?: number): Promise<Result<Buffer, Error>>;
+
+  /**
+   * Read exact number of bytes from instrument.
+   * @param count - Exact number of bytes to read
+   */
+  readBytes(count: number): Promise<Result<Buffer, Error>>;
+
+  // ─────────────────────────────────────────────────────────────────
   // Control
   // ─────────────────────────────────────────────────────────────────
 
@@ -378,6 +449,19 @@ interface MessageBasedResource {
 
 // Note: MessageBasedResource instances are created internally by
 // ResourceManager.openResource() - there is no public factory function.
+
+interface QueryOptions {
+  /** Delay in ms between write and read (some instruments need this) */
+  delay?: number;
+}
+
+interface AsciiValuesOptions {
+  /** Value separator (default: ',' - also handles whitespace) */
+  separator?: string | RegExp;
+
+  /** Custom converter function (default: parseFloat) */
+  converter?: (s: string) => number;
+}
 
 type BinaryDatatype =
   | 'b' | 'B'           // int8, uint8
@@ -1145,6 +1229,9 @@ export type {
 
 // Types
 export type {
+  QueryOptions,
+  AsciiValuesOptions,
+  BinaryDatatype,
   ResourceInfo,
   USBResourceInfo,
   SerialResourceInfo,
