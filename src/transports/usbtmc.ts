@@ -85,6 +85,14 @@ export interface UsbtmcTransportConfig extends TransportConfig {
   _usbModule?: UsbModule;
 }
 
+/**
+ * USB-TMC transport with additional quirks property
+ */
+export interface UsbtmcTransport extends Transport {
+  /** Current quirks mode */
+  readonly quirks: 'rigol' | 'none';
+}
+
 const DEFAULT_TIMEOUT = 2000;
 const DEFAULT_CHUNK_SIZE = 65536;
 const USB_TMC_HEADER_SIZE = 12;
@@ -108,8 +116,7 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
   let writeTermination = config.writeTermination ?? '\n';
 
   const interfaceNumber = config.interfaceNumber ?? 0;
-  // Note: quirks support (e.g., 'rigol') can be added here when needed
-  // const quirks = config.quirks ?? 'none';
+  const quirks = config.quirks ?? 'none';
 
   function nextTag(): number {
     const tag = bTag;
@@ -230,7 +237,7 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
     });
   }
 
-  const transport: Transport = {
+  const transport: UsbtmcTransport = {
     get state() {
       return state;
     },
@@ -263,9 +270,32 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
       writeTermination = value;
     },
 
+    get quirks() {
+      return quirks;
+    },
+
     async open(): Promise<Result<void, Error>> {
       if (state === 'open') {
         return Err(new Error('Transport is already open'));
+      }
+
+      // Input validation
+      if (config.vendorId < 0 || config.vendorId > 0xffff) {
+        return Err(
+          new Error(
+            `Invalid vendorId: 0x${config.vendorId.toString(16)}. Must be 16-bit (0x0000-0xFFFF)`
+          )
+        );
+      }
+      if (config.productId < 0 || config.productId > 0xffff) {
+        return Err(
+          new Error(
+            `Invalid productId: 0x${config.productId.toString(16)}. Must be 16-bit (0x0000-0xFFFF)`
+          )
+        );
+      }
+      if (timeout <= 0) {
+        return Err(new Error(`Invalid timeout: ${timeout}. Must be positive`));
       }
 
       state = 'opening';
@@ -436,39 +466,63 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
         return Err(new Error('Transport is not open'));
       }
 
-      // Request data
-      const requestHeader = createBulkOutHeader(DEV_DEP_MSG_IN, DEFAULT_CHUNK_SIZE, false);
-      requestHeader[8] = 0x00; // Request attributes
-      requestHeader[9] = 0x00; // TermChar (not used when bit 1 of attributes is 0)
+      const chunks: Buffer[] = [];
+      let isComplete = false;
 
-      const sendResult = await bulkOut(requestHeader);
-      if (!sendResult.ok) {
-        return sendResult;
+      while (!isComplete) {
+        // Request data
+        const requestHeader = createBulkOutHeader(DEV_DEP_MSG_IN, DEFAULT_CHUNK_SIZE, false);
+        requestHeader[8] = 0x00; // Request attributes
+        requestHeader[9] = 0x00; // TermChar (not used when bit 1 of attributes is 0)
+
+        const sendResult = await bulkOut(requestHeader);
+        if (!sendResult.ok) {
+          return sendResult;
+        }
+
+        // Read response
+        const readResult = await bulkIn(DEFAULT_CHUNK_SIZE);
+        if (!readResult.ok) {
+          return readResult;
+        }
+
+        const response = readResult.value;
+        if (response.length < USB_TMC_HEADER_SIZE) {
+          return Err(new Error('Invalid USB-TMC response: too short'));
+        }
+
+        const header = parseBulkInHeader(response);
+        if (header.msgType !== DEV_DEP_MSG_IN) {
+          return Err(new Error(`Unexpected USB-TMC message type: ${header.msgType}`));
+        }
+
+        const payload = response.subarray(
+          USB_TMC_HEADER_SIZE,
+          USB_TMC_HEADER_SIZE + header.transferSize
+        );
+
+        chunks.push(payload);
+
+        // In rigol mode, continue reading until EOM is set
+        // In normal mode, a single read is sufficient
+        if (quirks === 'rigol') {
+          isComplete = header.isEom;
+        } else {
+          isComplete = true;
+        }
       }
 
-      // Read response
-      const readResult = await bulkIn(DEFAULT_CHUNK_SIZE);
-      if (!readResult.ok) {
-        return readResult;
-      }
+      // Combine all chunks
+      const fullPayload = Buffer.concat(chunks);
+      let result = fullPayload.toString();
 
-      const response = readResult.value;
-      if (response.length < USB_TMC_HEADER_SIZE) {
-        return Err(new Error('Invalid USB-TMC response: too short'));
+      // In rigol mode, strip trailing null bytes first (before termination check)
+      // Rigol devices often pad responses with nulls after the termination
+      if (quirks === 'rigol') {
+        result = result.replace(/\0+$/, '');
       }
-
-      const header = parseBulkInHeader(response);
-      if (header.msgType !== DEV_DEP_MSG_IN) {
-        return Err(new Error(`Unexpected USB-TMC message type: ${header.msgType}`));
-      }
-
-      const payload = response.subarray(
-        USB_TMC_HEADER_SIZE,
-        USB_TMC_HEADER_SIZE + header.transferSize
-      );
 
       // Strip termination
-      let result = payload.toString();
       if (result.endsWith(readTermination)) {
         result = result.slice(0, -readTermination.length);
       }

@@ -28,12 +28,23 @@ export interface TcpipTransportConfig extends TransportConfig {
   keepAlive?: boolean;
   /** Keepalive interval in ms (default: 10000) */
   keepAliveInterval?: number;
+  /** Maximum read buffer size in bytes (default: 1048576 = 1MB) */
+  maxBufferSize?: number;
+}
+
+/**
+ * TCP/IP transport with additional maxBufferSize property
+ */
+export interface TcpipTransport extends Transport {
+  /** Maximum read buffer size in bytes */
+  readonly maxBufferSize: number;
 }
 
 const DEFAULT_TIMEOUT = 2000;
 const DEFAULT_CONNECT_TIMEOUT = 5000;
 const DEFAULT_KEEPALIVE_INTERVAL = 10000;
 const DEFAULT_CHUNK_SIZE = 65536;
+const DEFAULT_MAX_BUFFER_SIZE = 1048576; // 1MB
 
 /**
  * Creates a TCP/IP socket transport for communicating with LXI instruments.
@@ -41,7 +52,7 @@ const DEFAULT_CHUNK_SIZE = 65536;
  * @param config - Transport configuration
  * @returns Transport instance
  */
-export function createTcpipTransport(config: TcpipTransportConfig): Transport {
+export function createTcpipTransport(config: TcpipTransportConfig): TcpipTransport {
   let state: TransportState = 'closed';
   let socket: net.Socket | null = null;
   let readBuffer = Buffer.alloc(0);
@@ -60,8 +71,24 @@ export function createTcpipTransport(config: TcpipTransportConfig): Transport {
   const connectTimeout = config.connectTimeout ?? DEFAULT_CONNECT_TIMEOUT;
   const keepAlive = config.keepAlive ?? true;
   const keepAliveInterval = config.keepAliveInterval ?? DEFAULT_KEEPALIVE_INTERVAL;
+  const maxBufferSize = config.maxBufferSize ?? DEFAULT_MAX_BUFFER_SIZE;
 
   function handleData(data: Buffer): void {
+    // Check for buffer overflow before adding data
+    if (readBuffer.length + data.length > maxBufferSize) {
+      // Trigger buffer overflow error
+      if (pendingRead) {
+        if (pendingRead.timeoutId) {
+          clearTimeout(pendingRead.timeoutId);
+        }
+        const pending = pendingRead;
+        pendingRead = null;
+        readBuffer = Buffer.alloc(0); // Clear buffer
+        pending.resolve(Err(new Error(`Read buffer overflow: exceeded ${maxBufferSize} bytes`)));
+      }
+      return;
+    }
+
     readBuffer = Buffer.concat([readBuffer, data]);
 
     if (pendingRead) {
@@ -148,7 +175,7 @@ export function createTcpipTransport(config: TcpipTransportConfig): Transport {
     }
   }
 
-  const transport: Transport = {
+  const transport: TcpipTransport = {
     get state() {
       return state;
     },
@@ -181,9 +208,24 @@ export function createTcpipTransport(config: TcpipTransportConfig): Transport {
       writeTermination = value;
     },
 
+    get maxBufferSize() {
+      return maxBufferSize;
+    },
+
     async open(): Promise<Result<void, Error>> {
       if (state === 'open') {
         return Err(new Error('Transport is already open'));
+      }
+
+      // Input validation
+      if (config.port < 1 || config.port > 65535) {
+        return Err(new Error(`Invalid port: ${config.port}. Must be between 1 and 65535`));
+      }
+      if (timeout <= 0) {
+        return Err(new Error(`Invalid timeout: ${timeout}. Must be positive`));
+      }
+      if (connectTimeout <= 0) {
+        return Err(new Error(`Invalid connectTimeout: ${connectTimeout}. Must be positive`));
       }
 
       state = 'opening';

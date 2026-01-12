@@ -56,8 +56,18 @@ export interface SerialTransportConfig extends TransportConfig {
   parity?: 'none' | 'even' | 'odd' | 'mark' | 'space';
   /** Delay between commands in ms (default: 0) */
   commandDelay?: number;
+  /** Maximum read buffer size in bytes (default: 1048576 = 1MB) */
+  maxBufferSize?: number;
   /** @internal SerialPort class for testing - do not use in production */
   _serialPortClass?: SerialPortConstructor;
+}
+
+/**
+ * Serial transport with additional maxBufferSize property
+ */
+export interface SerialTransport extends Transport {
+  /** Maximum read buffer size in bytes */
+  readonly maxBufferSize: number;
 }
 
 const DEFAULT_TIMEOUT = 2000;
@@ -66,6 +76,7 @@ const DEFAULT_DATA_BITS = 8;
 const DEFAULT_STOP_BITS = 1;
 const DEFAULT_PARITY = 'none' as const;
 const DEFAULT_CHUNK_SIZE = 65536;
+const DEFAULT_MAX_BUFFER_SIZE = 1048576; // 1MB
 
 /**
  * Creates a Serial transport for communicating with instruments over RS-232/USB-serial.
@@ -73,7 +84,7 @@ const DEFAULT_CHUNK_SIZE = 65536;
  * @param config - Transport configuration
  * @returns Transport instance
  */
-export function createSerialTransport(config: SerialTransportConfig): Transport {
+export function createSerialTransport(config: SerialTransportConfig): SerialTransport {
   let state: TransportState = 'closed';
   let port: SerialPortLike | null = null;
   let readBuffer = Buffer.alloc(0);
@@ -94,8 +105,24 @@ export function createSerialTransport(config: SerialTransportConfig): Transport 
   const dataBits = config.dataBits ?? DEFAULT_DATA_BITS;
   const stopBits = config.stopBits ?? DEFAULT_STOP_BITS;
   const parity = config.parity ?? DEFAULT_PARITY;
+  const maxBufferSize = config.maxBufferSize ?? DEFAULT_MAX_BUFFER_SIZE;
 
   function handleData(data: Buffer): void {
+    // Check for buffer overflow before adding data
+    if (readBuffer.length + data.length > maxBufferSize) {
+      // Trigger buffer overflow error
+      if (pendingRead) {
+        if (pendingRead.timeoutId) {
+          clearTimeout(pendingRead.timeoutId);
+        }
+        const pending = pendingRead;
+        pendingRead = null;
+        readBuffer = Buffer.alloc(0); // Clear buffer
+        pending.resolve(Err(new Error(`Read buffer overflow: exceeded ${maxBufferSize} bytes`)));
+      }
+      return;
+    }
+
     readBuffer = Buffer.concat([readBuffer, data]);
 
     if (pendingRead) {
@@ -188,7 +215,7 @@ export function createSerialTransport(config: SerialTransportConfig): Transport 
     }
   }
 
-  const transport: Transport = {
+  const transport: SerialTransport = {
     get state() {
       return state;
     },
@@ -221,9 +248,24 @@ export function createSerialTransport(config: SerialTransportConfig): Transport 
       writeTermination = value;
     },
 
+    get maxBufferSize() {
+      return maxBufferSize;
+    },
+
     async open(): Promise<Result<void, Error>> {
       if (state === 'open') {
         return Err(new Error('Transport is already open'));
+      }
+
+      // Input validation
+      if (baudRate <= 0) {
+        return Err(new Error(`Invalid baudRate: ${baudRate}. Must be positive`));
+      }
+      if (timeout <= 0) {
+        return Err(new Error(`Invalid timeout: ${timeout}. Must be positive`));
+      }
+      if (commandDelay < 0) {
+        return Err(new Error(`Invalid commandDelay: ${commandDelay}. Must be non-negative`));
       }
 
       state = 'opening';

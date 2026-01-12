@@ -698,16 +698,156 @@ describe('USB-TMC Transport', () => {
     });
   });
 
+  describe('input validation', () => {
+    it('returns Err on open when vendorId exceeds 16 bits', async () => {
+      const config = createConfig({ vendorId: 0x10000 });
+      const transport = createUsbtmcTransport(config);
+
+      const result = await transport.open();
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('vendorId');
+      }
+    });
+
+    it('returns Err on open when productId exceeds 16 bits', async () => {
+      const config = createConfig({ productId: 0x10000 });
+      const transport = createUsbtmcTransport(config);
+
+      const result = await transport.open();
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('productId');
+      }
+    });
+
+    it('returns Err on open when timeout is not positive', async () => {
+      const config = createConfig({ timeout: 0 });
+      const transport = createUsbtmcTransport(config);
+
+      const result = await transport.open();
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('timeout');
+      }
+    });
+  });
+
   describe('Rigol quirks mode', () => {
-    it('handles Rigol-specific binary transfer quirks', async () => {
+    it('strips trailing null bytes from responses in rigol mode', async () => {
       const config = createConfig({ quirks: 'rigol' });
       const transport = createUsbtmcTransport(config);
 
       await transport.open();
 
-      // Rigol devices sometimes need special handling for binary data
-      // This test verifies the quirks mode is recognized
-      expect(transport.isOpen).toBe(true);
+      // Rigol devices sometimes add trailing null bytes
+      const responseWithNulls = Buffer.alloc(24);
+      responseWithNulls[0] = 2; // DEV_DEP_MSG_IN
+      responseWithNulls[4] = 12; // Transfer size (includes nulls)
+      responseWithNulls[8] = 0x01; // EOM
+      // Payload: "RIGOL\n" followed by null bytes
+      Buffer.from('RIGOL\n\0\0\0\0\0\0').copy(responseWithNulls, 12);
+
+      mockInEndpoint.transfer.mockImplementationOnce(
+        (_length: number, callback: (err: Error | null, data?: Buffer) => void) => {
+          callback(null, responseWithNulls);
+        }
+      );
+
+      const result = await transport.read();
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        // In rigol mode, trailing nulls should be stripped
+        expect(result.value).toBe('RIGOL');
+        expect(result.value).not.toContain('\0');
+      }
+    });
+
+    it('does not strip trailing nulls in normal mode', async () => {
+      const config = createConfig({ quirks: 'none' });
+      const transport = createUsbtmcTransport(config);
+
+      await transport.open();
+
+      // Response with embedded null bytes followed by termination
+      const responseWithNulls = Buffer.alloc(24);
+      responseWithNulls[0] = 2; // DEV_DEP_MSG_IN
+      responseWithNulls[4] = 9; // Transfer size: "DATA\0\0\0\0\n" = 9 bytes
+      responseWithNulls[8] = 0x01; // EOM
+      // Payload: "DATA\0\0\0\0\n" - nulls embedded in data, termination at end
+      Buffer.from('DATA\0\0\0\0\n').copy(responseWithNulls, 12);
+
+      mockInEndpoint.transfer.mockImplementationOnce(
+        (_length: number, callback: (err: Error | null, data?: Buffer) => void) => {
+          callback(null, responseWithNulls);
+        }
+      );
+
+      const result = await transport.read();
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        // In normal mode, embedded nulls are preserved (only termination stripped)
+        expect(result.value).toBe('DATA\0\0\0\0');
+      }
+    });
+
+    it('continues reading when EOM is false in rigol mode', async () => {
+      const config = createConfig({ quirks: 'rigol', timeout: 5000 });
+      const transport = createUsbtmcTransport(config);
+
+      await transport.open();
+
+      // First response: partial data, EOM = false
+      const response1 = Buffer.alloc(20);
+      response1[0] = 2; // DEV_DEP_MSG_IN
+      response1[4] = 5; // Transfer size
+      response1[8] = 0x00; // EOM = false (more data coming)
+      Buffer.from('HELLO').copy(response1, 12);
+
+      // Second response: remaining data with termination, EOM = true
+      const response2 = Buffer.alloc(20);
+      response2[0] = 2; // DEV_DEP_MSG_IN
+      response2[4] = 7; // Transfer size
+      response2[8] = 0x01; // EOM = true
+      Buffer.from(' WORLD\n').copy(response2, 12);
+
+      let readCount = 0;
+      mockInEndpoint.transfer.mockImplementation(
+        (_length: number, callback: (err: Error | null, data?: Buffer) => void) => {
+          readCount++;
+          if (readCount === 1) {
+            callback(null, response1);
+          } else {
+            callback(null, response2);
+          }
+        }
+      );
+
+      const result = await transport.read();
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe('HELLO WORLD');
+      }
+    });
+
+    it('exposes quirks mode via getter', () => {
+      const rigolConfig = createConfig({ quirks: 'rigol' });
+      const normalConfig = createConfig({ quirks: 'none' });
+      const defaultConfig = createConfig();
+
+      const rigolTransport = createUsbtmcTransport(rigolConfig);
+      const normalTransport = createUsbtmcTransport(normalConfig);
+      const defaultTransport = createUsbtmcTransport(defaultConfig);
+
+      expect(rigolTransport.quirks).toBe('rigol');
+      expect(normalTransport.quirks).toBe('none');
+      expect(defaultTransport.quirks).toBe('none');
     });
   });
 

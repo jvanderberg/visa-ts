@@ -884,4 +884,144 @@ describe('TCP/IP Transport', () => {
       expect(transport.writeTermination).toBe('\r\n');
     });
   });
+
+  describe('input validation', () => {
+    it('returns Err on open when port is less than 1', async () => {
+      const config: TcpipTransportConfig = {
+        host: '192.168.1.100',
+        port: 0,
+      };
+      const transport = createTcpipTransport(config);
+
+      const result = await transport.open();
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('port');
+      }
+    });
+
+    it('returns Err on open when port is greater than 65535', async () => {
+      const config: TcpipTransportConfig = {
+        host: '192.168.1.100',
+        port: 65536,
+      };
+      const transport = createTcpipTransport(config);
+
+      const result = await transport.open();
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('port');
+      }
+    });
+
+    it('returns Err on open when timeout is not positive', async () => {
+      const config: TcpipTransportConfig = {
+        host: '192.168.1.100',
+        port: 5025,
+        timeout: 0,
+      };
+      const transport = createTcpipTransport(config);
+
+      const result = await transport.open();
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('timeout');
+      }
+    });
+
+    it('returns Err on open when connectTimeout is not positive', async () => {
+      const config: TcpipTransportConfig = {
+        host: '192.168.1.100',
+        port: 5025,
+        connectTimeout: -1,
+      };
+      const transport = createTcpipTransport(config);
+
+      const result = await transport.open();
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('connectTimeout');
+      }
+    });
+  });
+
+  describe('max buffer size protection', () => {
+    it('returns Err when buffer exceeds maxBufferSize during read', async () => {
+      const config: TcpipTransportConfig = {
+        host: '192.168.1.100',
+        port: 5025,
+        maxBufferSize: 100,
+      };
+      const transport = createTcpipTransport(config);
+
+      const openPromise = transport.open();
+      eventHandlers['connect']?.();
+      await openPromise;
+
+      const readPromise = transport.read();
+
+      // Send data that exceeds buffer limit without termination
+      const largeData = Buffer.alloc(150, 'X');
+      eventHandlers['data']?.(largeData);
+
+      const result = await readPromise;
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('buffer');
+        expect(result.error.message.toLowerCase()).toContain('overflow');
+      }
+    });
+
+    it('uses default maxBufferSize of 1MB when not specified', () => {
+      const config: TcpipTransportConfig = {
+        host: '192.168.1.100',
+        port: 5025,
+      };
+      const transport = createTcpipTransport(config);
+
+      expect(transport.maxBufferSize).toBe(1048576);
+    });
+
+    it('exposes maxBufferSize via getter', () => {
+      const config: TcpipTransportConfig = {
+        host: '192.168.1.100',
+        port: 5025,
+        maxBufferSize: 500000,
+      };
+      const transport = createTcpipTransport(config);
+
+      expect(transport.maxBufferSize).toBe(500000);
+    });
+
+    it('allows data up to maxBufferSize', async () => {
+      const config: TcpipTransportConfig = {
+        host: '192.168.1.100',
+        port: 5025,
+        maxBufferSize: 100,
+      };
+      const transport = createTcpipTransport(config);
+
+      const openPromise = transport.open();
+      eventHandlers['connect']?.();
+      await openPromise;
+
+      const readPromise = transport.read();
+
+      // Send data within limit with termination
+      const data = Buffer.from('X'.repeat(50) + '\n');
+      eventHandlers['data']?.(data);
+
+      const result = await readPromise;
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.length).toBe(50);
+      }
+    });
+  });
 });
