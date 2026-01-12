@@ -16,6 +16,9 @@ interface SerialPortOptions {
   stopBits?: 1 | 1.5 | 2;
   parity?: 'none' | 'even' | 'odd' | 'mark' | 'space';
   autoOpen?: boolean;
+  rtscts?: boolean;
+  xon?: boolean;
+  xoff?: boolean;
 }
 
 interface SerialPortLike {
@@ -54,6 +57,8 @@ export interface SerialTransportConfig extends TransportConfig {
   stopBits?: 1 | 1.5 | 2;
   /** Parity (default: 'none') */
   parity?: 'none' | 'even' | 'odd' | 'mark' | 'space';
+  /** Flow control (default: 'none') */
+  flowControl?: 'none' | 'hardware' | 'software';
   /** Delay between commands in ms (default: 0) */
   commandDelay?: number;
   /** Maximum read buffer size in bytes (default: 1048576 = 1MB) */
@@ -105,6 +110,7 @@ export function createSerialTransport(config: SerialTransportConfig): SerialTran
   const dataBits = config.dataBits ?? DEFAULT_DATA_BITS;
   const stopBits = config.stopBits ?? DEFAULT_STOP_BITS;
   const parity = config.parity ?? DEFAULT_PARITY;
+  const flowControl = config.flowControl ?? 'none';
   const maxBufferSize = config.maxBufferSize ?? DEFAULT_MAX_BUFFER_SIZE;
 
   function handleData(data: Buffer): void {
@@ -290,6 +296,9 @@ export function createSerialTransport(config: SerialTransportConfig): SerialTran
             stopBits,
             parity,
             autoOpen: false,
+            rtscts: flowControl === 'hardware',
+            xon: flowControl === 'software',
+            xoff: flowControl === 'software',
           });
 
           port.on('data', handleData);

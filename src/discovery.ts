@@ -38,6 +38,54 @@ export async function listSerialPorts(): Promise<SerialPortInfo[]> {
   }
 }
 
+// USB device type for the usb package
+interface UsbDevice {
+  deviceDescriptor: {
+    idVendor: number;
+    idProduct: number;
+    bDeviceClass: number;
+    iSerialNumber: number;
+  };
+  open(): void;
+  close(): void;
+  getStringDescriptor(
+    index: number,
+    callback: (error: Error | undefined, data?: string) => void
+  ): void;
+}
+
+/**
+ * Get the serial number string from a USB device.
+ * Opens the device, reads the descriptor, and closes it.
+ */
+async function getUsbSerialNumber(device: UsbDevice): Promise<string | undefined> {
+  const iSerialNumber = device.deviceDescriptor.iSerialNumber;
+  if (iSerialNumber === 0) {
+    return undefined;
+  }
+
+  return new Promise((resolve) => {
+    try {
+      device.open();
+      device.getStringDescriptor(iSerialNumber, (error, data) => {
+        try {
+          device.close();
+        } catch {
+          // Ignore close errors
+        }
+        if (error || !data) {
+          resolve(undefined);
+        } else {
+          resolve(data);
+        }
+      });
+    } catch {
+      // Failed to open device - might be in use
+      resolve(undefined);
+    }
+  });
+}
+
 /**
  * Default USB device listing implementation.
  * Uses usb package if available.
@@ -46,29 +94,21 @@ export async function listUsbDevices(): Promise<UsbDeviceInfo[]> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
     const usb = require('usb') as {
-      getDeviceList(): Array<{
-        deviceDescriptor: {
-          idVendor: number;
-          idProduct: number;
-          bDeviceClass: number;
-          iSerialNumber: number;
-        };
-      }>;
+      getDeviceList(): UsbDevice[];
     };
 
     const devices = usb.getDeviceList();
     const tmcDevices: UsbDeviceInfo[] = [];
 
-    // Filter for USB-TMC devices (class 0xFE, subclass 0x03)
+    // Filter for USB-TMC devices
     for (const device of devices) {
       const desc = device.deviceDescriptor;
-      // USB-TMC class is 0xFE (Application Specific)
-      // For now, we look for common test equipment vendors
-      // In production, we'd check interface descriptors for TMC subclass
       if (isKnownTmcDevice(desc.idVendor)) {
+        const serialNumber = await getUsbSerialNumber(device);
         tmcDevices.push({
           vendorId: desc.idVendor,
           productId: desc.idProduct,
+          serialNumber,
         });
       }
     }

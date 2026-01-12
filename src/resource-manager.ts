@@ -45,6 +45,8 @@ export type { ResourceManager, ResourceManagerOptions } from './resource-manager
  */
 export function createResourceManager(options?: ResourceManagerOptions): ResourceManager {
   const openResourcesList: MessageBasedResource[] = [];
+  const exclusiveResources = new Set<string>(); // Resource strings opened exclusively
+  const openCounts = new Map<string, number>(); // Count of non-exclusive opens per resource
 
   const tcpipFactory = options?._createTcpipTransport ?? createTcpipTransport;
   const serialFactory = options?._createSerialTransport ?? createSerialTransport;
@@ -52,21 +54,36 @@ export function createResourceManager(options?: ResourceManagerOptions): Resourc
   const listSerialPorts = options?._listSerialPorts ?? defaultListSerialPorts;
   const listUsbDevices = options?._listUsbDevices ?? defaultListUsbDevices;
 
-  function removeFromOpenList(resource: MessageBasedResource): void {
+  function removeFromOpenList(resource: MessageBasedResource, isExclusive: boolean): void {
     const index = openResourcesList.indexOf(resource);
     if (index !== -1) {
       openResourcesList.splice(index, 1);
     }
+    const rs = resource.resourceString;
+    if (isExclusive) {
+      exclusiveResources.delete(rs);
+    } else {
+      const count = openCounts.get(rs) ?? 0;
+      if (count <= 1) {
+        openCounts.delete(rs);
+      } else {
+        openCounts.set(rs, count - 1);
+      }
+    }
   }
 
-  function wrapResource(transport: Transport, resourceInfo: ResourceInfo): MessageBasedResource {
+  function wrapResource(
+    transport: Transport,
+    resourceInfo: ResourceInfo,
+    isExclusive: boolean
+  ): MessageBasedResource {
     const baseResource = createMessageBasedResource(transport, resourceInfo);
     const originalClose = baseResource.close.bind(baseResource);
     const wrappedResource: MessageBasedResource = {
       ...baseResource,
       async close(): Promise<Result<void, Error>> {
         const result = await originalClose();
-        removeFromOpenList(wrappedResource);
+        removeFromOpenList(wrappedResource, isExclusive);
         return result;
       },
     };
@@ -153,6 +170,18 @@ export function createResourceManager(options?: ResourceManagerOptions): Resourc
         return parseResult;
       }
 
+      const isExclusive = openOptions?.exclusive ?? false;
+
+      // Check exclusive mode constraints
+      if (exclusiveResources.has(resourceString)) {
+        return Err(new Error(`Resource ${resourceString} is already open in exclusive mode`));
+      }
+      if (isExclusive && (openCounts.get(resourceString) ?? 0) > 0) {
+        return Err(
+          new Error(`Cannot open ${resourceString} exclusively: resource is already open`)
+        );
+      }
+
       const parsed = parseResult.value;
       let transport: Transport;
       let resourceInfo: ResourceInfo;
@@ -195,6 +224,7 @@ export function createResourceManager(options?: ResourceManagerOptions): Resourc
             dataBits: serialOptions?.dataBits,
             stopBits: serialOptions?.stopBits,
             parity: serialOptions?.parity,
+            flowControl: serialOptions?.flowControl,
             commandDelay: serialOptions?.commandDelay,
           });
           resourceInfo = {
@@ -253,7 +283,14 @@ export function createResourceManager(options?: ResourceManagerOptions): Resourc
         transport.writeTermination = openOptions.writeTermination;
       }
 
-      const resource = wrapResource(transport, resourceInfo);
+      // Track exclusive mode
+      if (isExclusive) {
+        exclusiveResources.add(resourceString);
+      } else {
+        openCounts.set(resourceString, (openCounts.get(resourceString) ?? 0) + 1);
+      }
+
+      const resource = wrapResource(transport, resourceInfo, isExclusive);
       openResourcesList.push(resource);
 
       return Ok(resource);

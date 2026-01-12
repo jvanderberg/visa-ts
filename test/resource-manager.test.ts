@@ -576,6 +576,7 @@ describe('ResourceManager', () => {
           dataBits: 8,
           stopBits: 1,
           parity: 'none',
+          flowControl: 'hardware',
           commandDelay: 50,
         },
       });
@@ -586,6 +587,7 @@ describe('ResourceManager', () => {
       expect(capturedConfig!.dataBits).toBe(8);
       expect(capturedConfig!.stopBits).toBe(1);
       expect(capturedConfig!.parity).toBe('none');
+      expect(capturedConfig!.flowControl).toBe('hardware');
       expect(capturedConfig!.commandDelay).toBe(50);
     });
 
@@ -613,6 +615,109 @@ describe('ResourceManager', () => {
       expect(capturedConfig!.vendorId).toBe(0x1ab1);
       expect(capturedConfig!.productId).toBe(0x04ce);
       expect(capturedConfig!.serialNumber).toBe('DS1ZA123');
+    });
+  });
+
+  describe('exclusive mode', () => {
+    it('allows opening resource in exclusive mode', async () => {
+      const { createResourceManager } = await import('../src/resource-manager.js');
+      const mockTransport = createMockTransport();
+
+      const rm = createResourceManager({
+        _createTcpipTransport: () => mockTransport,
+      });
+
+      const result = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET', {
+        exclusive: true,
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.isOpen).toBe(true);
+      }
+    });
+
+    it('prevents second connection when first is exclusive', async () => {
+      const { createResourceManager } = await import('../src/resource-manager.js');
+
+      const rm = createResourceManager({
+        _createTcpipTransport: () => createMockTransport(),
+      });
+
+      // First open with exclusive
+      const result1 = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET', {
+        exclusive: true,
+      });
+      expect(result1.ok).toBe(true);
+
+      // Second open should fail
+      const result2 = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
+      expect(result2.ok).toBe(false);
+      if (!result2.ok) {
+        expect(result2.error.message).toContain('exclusive');
+      }
+    });
+
+    it('prevents exclusive connection when resource already open', async () => {
+      const { createResourceManager } = await import('../src/resource-manager.js');
+
+      const rm = createResourceManager({
+        _createTcpipTransport: () => createMockTransport(),
+      });
+
+      // First open without exclusive
+      const result1 = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
+      expect(result1.ok).toBe(true);
+
+      // Second open with exclusive should fail
+      const result2 = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET', {
+        exclusive: true,
+      });
+      expect(result2.ok).toBe(false);
+      if (!result2.ok) {
+        expect(result2.error.message).toContain('already open');
+      }
+    });
+
+    it('allows reopening after exclusive connection is closed', async () => {
+      const { createResourceManager } = await import('../src/resource-manager.js');
+
+      const rm = createResourceManager({
+        _createTcpipTransport: () => createMockTransport(),
+      });
+
+      // First open with exclusive
+      const result1 = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET', {
+        exclusive: true,
+      });
+      expect(result1.ok).toBe(true);
+
+      // Close it
+      if (result1.ok) {
+        await result1.value.close();
+      }
+
+      // Should be able to open again
+      const result2 = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
+      expect(result2.ok).toBe(true);
+    });
+
+    it('tracks exclusive mode per resource string', async () => {
+      const { createResourceManager } = await import('../src/resource-manager.js');
+
+      const rm = createResourceManager({
+        _createTcpipTransport: () => createMockTransport(),
+      });
+
+      // Open first resource exclusively
+      const result1 = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET', {
+        exclusive: true,
+      });
+      expect(result1.ok).toBe(true);
+
+      // Should be able to open different resource
+      const result2 = await rm.openResource('TCPIP0::192.168.1.101::5025::SOCKET');
+      expect(result2.ok).toBe(true);
     });
   });
 });

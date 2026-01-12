@@ -144,6 +144,48 @@ describe('Serial Transport', () => {
       );
     });
 
+    it('applies hardware flow control when specified', async () => {
+      const config = createConfig({ flowControl: 'hardware' });
+      const transport = createSerialTransport(config);
+
+      await transport.open();
+
+      expect(MockSerialPortClass).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rtscts: true,
+        })
+      );
+    });
+
+    it('applies software flow control when specified', async () => {
+      const config = createConfig({ flowControl: 'software' });
+      const transport = createSerialTransport(config);
+
+      await transport.open();
+
+      expect(MockSerialPortClass).toHaveBeenCalledWith(
+        expect.objectContaining({
+          xon: true,
+          xoff: true,
+        })
+      );
+    });
+
+    it('does not apply flow control by default', async () => {
+      const config = createConfig();
+      const transport = createSerialTransport(config);
+
+      await transport.open();
+
+      expect(MockSerialPortClass).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rtscts: false,
+          xon: false,
+          xoff: false,
+        })
+      );
+    });
+
     it('returns Err when port is not found', async () => {
       mockPort.open.mockImplementationOnce((callback?: (err?: Error | null) => void) => {
         const error = new Error('Port not found: /dev/ttyUSB99');
