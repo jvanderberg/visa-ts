@@ -149,21 +149,36 @@ The main entry point for discovering and opening instrument connections.
 class ResourceManager {
   /**
    * Create a new ResourceManager.
-   * @param visaLibrary - Optional backend selector ('@usb', '@serial', '@sim')
+   *
+   * A single ResourceManager handles ALL transport types. The resource string
+   * determines which transport is used when opening a connection.
    */
-  constructor(visaLibrary?: string);
+  constructor();
 
   /**
    * List available resources matching a pattern.
+   *
+   * Searches across ALL available transports (USB, Serial, TCP/IP) and returns
+   * resources matching the pattern.
+   *
    * @param query - VISA resource pattern (default: '?*::INSTR')
    * @returns Array of resource strings
    *
    * @example
-   * // List all USB instruments
+   * // List ALL instruments across all transports
+   * await rm.listResources()
+   * // ['USB0::0x1AB1::0x04CE::DS1ZA123::INSTR',
+   * //  'ASRL/dev/ttyUSB0::INSTR',
+   * //  'ASRL/dev/ttyUSB1::INSTR']
+   *
+   * // List only USB instruments
    * await rm.listResources('USB?*::INSTR')
    *
-   * // List all resources
-   * await rm.listResources()
+   * // List only serial ports
+   * await rm.listResources('ASRL?*::INSTR')
+   *
+   * // TCP/IP requires known address - no auto-discovery
+   * // Use openResource() directly with the IP
    */
   listResources(query?: string): Promise<string[]>;
 
@@ -688,45 +703,62 @@ async function main() {
 }
 ```
 
-### Example 5: Multiple Instruments
+### Example 5: Multiple Instruments Across Transports
+
+A single ResourceManager handles USB, Serial, AND TCP/IP instruments simultaneously.
 
 ```typescript
 import { ResourceManager } from 'visa-ts';
 
 async function main() {
+  // ONE ResourceManager for ALL transports
   const rm = new ResourceManager();
 
-  // Open multiple instruments
-  const [psuResult, loadResult] = await Promise.all([
-    rm.openResource('USB0::0x1AB1::0x0E11::DL3A123456789::INSTR'),
-    rm.openResource('ASRL/dev/ttyUSB0::INSTR', {
-      transport: { baudRate: 115200 }
+  // Discover what's available (USB + Serial)
+  const allResources = await rm.listResources();
+  console.log('Found:', allResources);
+  // ['USB0::0x1AB1::0x04CE::DS1ZA123::INSTR',
+  //  'USB0::0x1AB1::0x0E11::DL3A456::INSTR',
+  //  'ASRL/dev/ttyUSB0::INSTR']
+
+  // Open instruments across different transports
+  const [scopeResult, loadResult, psuResult, dmmResult] = await Promise.all([
+    // USB-TMC oscilloscope
+    rm.openResource('USB0::0x1AB1::0x04CE::DS1ZA123::INSTR', {
+      transport: { quirks: 'rigol' }
     }),
+
+    // USB-TMC electronic load
+    rm.openResource('USB0::0x1AB1::0x0E11::DL3A456::INSTR'),
+
+    // Serial power supply
+    rm.openResource('ASRL/dev/ttyUSB0::INSTR', {
+      transport: { baudRate: 115200, commandDelay: 50 }
+    }),
+
+    // TCP/IP multimeter (LXI) - no discovery, known IP
+    rm.openResource('TCPIP0::192.168.1.50::5025::SOCKET'),
   ]);
 
-  if (!psuResult.ok || !loadResult.ok) {
-    console.error('Failed to open instruments');
-    await rm.close();
-    return;
+  // Use them all together
+  const scope = scopeResult.ok ? scopeResult.value : null;
+  const load = loadResult.ok ? loadResult.value : null;
+  const psu = psuResult.ok ? psuResult.value : null;
+  const dmm = dmmResult.ok ? dmmResult.value : null;
+
+  // Example: Automated test sequence using all instruments
+  if (psu && load && dmm) {
+    await psu.write(':SOUR:VOLT 12.0');
+    await psu.write(':OUTP ON');
+
+    await load.write(':SOUR:CURR 1.0');
+    await load.write(':INP ON');
+
+    const voltage = await dmm.query(':MEAS:VOLT:DC?');
+    console.log('Measured voltage:', voltage.value);
   }
 
-  const psu = psuResult.value;
-  const load = loadResult.value;
-
-  // Configure both
-  await psu.write(':SOUR:VOLT 24.0');
-  await psu.write(':OUTP ON');
-
-  await load.write(':SOUR:CURR 0.5');
-  await load.write(':INP ON');
-
-  // Measure
-  const psuVoltage = await psu.query(':MEAS:VOLT?');
-  const loadCurrent = await load.query(':MEAS:CURR?');
-
-  console.log(`PSU: ${psuVoltage.value}V, Load: ${loadCurrent.value}A`);
-
-  // Cleanup - rm.close() closes all open resources
+  // Close everything
   await rm.close();
 }
 ```
