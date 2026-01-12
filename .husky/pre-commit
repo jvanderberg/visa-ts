@@ -1,0 +1,5 @@
+# Run typecheck on the whole project (fast, ~1s)
+npm run typecheck
+
+# Run lint-staged on staged files only
+npx lint-staged

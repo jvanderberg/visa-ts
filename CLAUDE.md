@@ -72,7 +72,48 @@ npm run test         # Run tests
 npm run lint         # Run linter
 ```
 
-## Testing
+## Testing - CRITICAL DIRECTIVE
+
+**This project follows strict Red/Green TDD. This is non-negotiable.**
+
+### Red/Green/Refactor Cycle
+
+1. **RED**: Write a failing test first. The test must fail for the right reason.
+2. **GREEN**: Write the minimum code to make the test pass.
+3. **REFACTOR**: Clean up the code while keeping tests green.
+
+**Never write implementation code without a failing test first.**
+
+### Test Requirements
+
+- **Test behavior, not implementation** - Tests should verify what the code does, not how it does it
+- **No snapshot tests** - Every assertion must be intentional and meaningful
+- **Cover all code paths** - Including error cases, edge cases, and corner cases
+- **Test error handling explicitly** - Every `Err()` return path needs a test
+- **Use descriptive test names** - `it('returns Err when device disconnects during read')`
+
+### Test Structure
+
+```typescript
+describe('parseResourceString', () => {
+  describe('USB resources', () => {
+    it('parses valid USB resource string with all fields', () => {
+      const result = parseResourceString('USB0::0x1AB1::0x04CE::DS1ZA123::INSTR');
+      expect(result.ok).toBe(true);
+      expect(result.value.type).toBe('USB');
+      expect(result.value.vendorId).toBe(0x1AB1);
+    });
+
+    it('returns Err for malformed USB resource string', () => {
+      const result = parseResourceString('USB0::invalid');
+      expect(result.ok).toBe(false);
+      expect(result.error.message).toContain('Invalid USB resource');
+    });
+  });
+});
+```
+
+### Tools
 
 - Unit tests use vitest
 - Mock transports available for testing without hardware

@@ -4,11 +4,11 @@ node_modules/
 # Build output
 dist/
 build/
-*.js
-*.d.ts
-*.js.map
-!jest.config.js
-!vitest.config.js
+
+# Keep config files
+!eslint.config.js
+!vitest.config.ts
+!prettier.config.js
 
 # IDE
 .idea/

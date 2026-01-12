@@ -47,6 +47,96 @@ npm run lint
 npm run lint:fix  # Auto-fix issues
 ```
 
+## Test-Driven Development (TDD) - CRITICAL
+
+**This project mandates strict Red/Green TDD. This is a non-negotiable requirement.**
+
+### The TDD Cycle
+
+Every feature and bug fix must follow this cycle:
+
+1. **RED** - Write a failing test first
+   - The test must fail
+   - The test must fail for the right reason (not syntax errors)
+   - Run the test and verify it fails
+
+2. **GREEN** - Write minimal code to pass
+   - Write only enough code to make the test pass
+   - Do not add extra functionality
+   - Run the test and verify it passes
+
+3. **REFACTOR** - Clean up while green
+   - Improve code quality
+   - Remove duplication
+   - Tests must stay green throughout
+
+### Test Quality Requirements
+
+Tests must be meaningful and comprehensive:
+
+```typescript
+// ✅ GOOD - Tests specific behavior
+it('returns Err when read times out after specified duration', async () => {
+  const transport = createMockTransport({ readDelay: 1000 });
+  const resource = createMessageBasedResource(transport, 'USB0::...');
+  resource.timeout = 100;
+
+  const result = await resource.read();
+
+  expect(result.ok).toBe(false);
+  expect(result.error.message).toContain('timeout');
+});
+
+// ✅ GOOD - Tests error path explicitly
+it('returns Err with device info when connection fails', async () => {
+  const result = await rm.openResource('USB0::0xFFFF::0xFFFF::INVALID::INSTR');
+
+  expect(result.ok).toBe(false);
+  expect(result.error.message).toContain('0xFFFF');
+});
+
+// ❌ BAD - Snapshot test (not meaningful)
+it('matches snapshot', () => {
+  expect(result).toMatchSnapshot();
+});
+
+// ❌ BAD - Tests implementation, not behavior
+it('calls internal method', () => {
+  expect(spy).toHaveBeenCalledTimes(1);
+});
+
+// ❌ BAD - No assertion on error content
+it('fails', async () => {
+  const result = await resource.read();
+  expect(result.ok).toBe(false);  // What error? Why?
+});
+```
+
+### Coverage Requirements
+
+Every function must have tests for:
+
+- **Happy path** - Normal successful operation
+- **Error cases** - Every `Err()` return must have a corresponding test
+- **Edge cases** - Empty inputs, boundary values, null/undefined
+- **Corner cases** - Unusual but valid combinations
+
+### Test File Organization
+
+```
+test/
+├── result.test.ts           # Unit tests for Result type
+├── resource-string.test.ts  # Unit tests for parser
+├── transports/
+│   ├── usbtmc.test.ts       # USB-TMC transport tests
+│   ├── serial.test.ts       # Serial transport tests
+│   └── tcpip.test.ts        # TCP/IP transport tests
+└── integration/
+    └── real-device.test.ts  # Hardware tests (optional)
+```
+
+---
+
 ## Code Guidelines
 
 ### TypeScript
@@ -150,11 +240,12 @@ export function createYourTransport(config: YourTransportConfig): Transport {
 
 ## Pull Request Process
 
-1. Ensure all tests pass
-2. Update documentation if needed
-3. Add tests for new functionality
-4. Follow the code style guidelines
-5. Write a clear PR description
+1. **Tests must exist first** - PRs without tests will be rejected
+2. Ensure all tests pass
+3. Tests must cover happy paths, error cases, and edge cases
+4. Update documentation if needed
+5. Follow the code style guidelines (no throw, no classes)
+6. Write a clear PR description
 
 ## Testing with Hardware
 
