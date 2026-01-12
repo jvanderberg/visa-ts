@@ -127,7 +127,7 @@ function parseNumericId(str: string): number | null {
   }
 
   // USB IDs must be unsigned 16-bit integers (0-65535)
-  if (isNaN(num) || num < 0 || num > 0xffff) {
+  if (Number.isNaN(num) || num < 0 || num > 0xffff) {
     return null;
   }
 
