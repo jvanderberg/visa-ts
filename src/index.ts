@@ -37,3 +37,20 @@ export type {
   ParsedTCPIPInstrResource,
   ParsedResource,
 } from './types.js';
+
+// Transport layer
+export type {
+  Transport,
+  TransportState,
+  TransportConfig,
+  TransportFactory,
+} from './transports/transport.js';
+
+export { createTcpipTransport } from './transports/tcpip.js';
+export type { TcpipTransportConfig } from './transports/tcpip.js';
+
+export { createSerialTransport } from './transports/serial.js';
+export type { SerialTransportConfig } from './transports/serial.js';
+
+export { createUsbtmcTransport } from './transports/usbtmc.js';
+export type { UsbtmcTransportConfig } from './transports/usbtmc.js';
