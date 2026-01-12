@@ -901,16 +901,144 @@ await dmm.close();
 
 ---
 
+## Session Management (Optional)
+
+An optional higher-level abstraction for applications that want managed connections with automatic reconnection, polling, and state tracking.
+
+```typescript
+import { createSessionManager } from 'visa-ts/sessions';
+```
+
+### SessionManager
+
+```typescript
+interface SessionManagerOptions {
+  /** How often to scan for new/reconnected devices (ms, default: 5000) */
+  scanInterval?: number;
+
+  /** How often to poll device status (ms, default: 250) */
+  pollInterval?: number;
+
+  /** Max consecutive errors before marking disconnected (default: 5) */
+  maxConsecutiveErrors?: number;
+
+  /** Auto-reconnect on disconnect (default: true) */
+  autoReconnect?: boolean;
+}
+
+interface SessionManager {
+  /** Start scanning and managing sessions */
+  start(): Promise<void>;
+
+  /** Stop all sessions and scanning */
+  stop(): Promise<void>;
+
+  /** Get all active sessions */
+  readonly sessions: Map<string, DeviceSession>;
+
+  /** Subscribe to session events */
+  on(event: 'session-added', handler: (session: DeviceSession) => void): void;
+  on(event: 'session-removed', handler: (resourceString: string) => void): void;
+  on(event: 'session-state-changed', handler: (session: DeviceSession) => void): void;
+}
+
+function createSessionManager(options?: SessionManagerOptions): SessionManager;
+```
+
+### DeviceSession
+
+```typescript
+type SessionState = 'connecting' | 'connected' | 'polling' | 'disconnected' | 'error';
+
+interface DeviceSession {
+  /** The underlying resource (null if disconnected) */
+  readonly resource: MessageBasedResource | null;
+
+  /** Resource string for this session */
+  readonly resourceString: string;
+
+  /** Current connection state */
+  readonly state: SessionState;
+
+  /** Last error if state is 'error' */
+  readonly lastError: Error | null;
+
+  /** Latest polled status (application-defined) */
+  readonly status: unknown;
+
+  /** Subscribe to status updates */
+  onStatus(handler: (status: unknown) => void): () => void;
+
+  /** Execute a command (queued, handles reconnection) */
+  execute<T>(fn: (resource: MessageBasedResource) => Promise<T>): Promise<Result<T, Error>>;
+
+  /** Manually trigger reconnection attempt */
+  reconnect(): Promise<Result<void, Error>>;
+}
+```
+
+### Example: Using Session Management
+
+```typescript
+import { createSessionManager } from 'visa-ts/sessions';
+
+const manager = createSessionManager({
+  scanInterval: 5000,
+  pollInterval: 250,
+  autoReconnect: true,
+});
+
+// React to devices connecting/disconnecting
+manager.on('session-added', (session) => {
+  console.log('Device connected:', session.resourceString);
+
+  session.onStatus((status) => {
+    console.log('Status update:', status);
+  });
+});
+
+manager.on('session-removed', (resourceString) => {
+  console.log('Device disconnected:', resourceString);
+});
+
+// Start scanning
+await manager.start();
+
+// Execute commands through session (handles disconnection gracefully)
+const session = manager.sessions.get('USB0::0x1AB1::0x04CE::DS1ZA123::INSTR');
+if (session) {
+  const result = await session.execute(async (resource) => {
+    return resource.query(':MEAS:VOLT?');
+  });
+}
+
+// Cleanup
+await manager.stop();
+```
+
+### Design Notes
+
+- **Optional import** — Core visa-ts has no session management, import from `visa-ts/sessions` if needed
+- **Polling is application-defined** — Session provides the infrastructure, app defines what to poll
+- **Queued execution** — `session.execute()` queues commands and handles reconnection
+- **Event-based** — Subscribe to state changes instead of polling session state
+
+---
+
 ## Exports Summary
 
 ```typescript
-// Main entry point
+// Main entry point (visa-ts)
 export { createResourceManager } from './resource-manager';
 export type { ResourceManager } from './resource-manager';
 export type { MessageBasedResource } from './resources/message-based';
 
 // Result type and helpers
 export { Result, Ok, Err, isOk, isErr, unwrap, unwrapOr, unwrapOrElse, map, mapErr } from './result';
+
+// Session management (visa-ts/sessions) — optional
+export { createSessionManager } from './sessions/session-manager';
+export type { SessionManager, SessionManagerOptions, DeviceSession, SessionState } from './sessions/types';
 
 // Types
 export type {

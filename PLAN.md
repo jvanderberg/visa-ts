@@ -36,8 +36,13 @@ visa-ts/
 │   │   ├── usbtmc.ts               # USB-TMC implementation
 │   │   ├── serial.ts               # Serial implementation
 │   │   └── tcpip.ts                # TCP/IP socket (LXI)
-│   └── util/
-│       └── scpi-parser.ts          # SCPI response parsing
+│   ├── util/
+│   │   └── scpi-parser.ts          # SCPI response parsing
+│   └── sessions/                    # Optional session management
+│       ├── index.ts                 # Session exports
+│       ├── types.ts                 # Session interfaces
+│       ├── session-manager.ts       # SessionManager factory
+│       └── device-session.ts        # DeviceSession factory
 └── test/
     ├── resource-string.test.ts
     ├── usbtmc.test.ts
@@ -230,6 +235,7 @@ const lxiDevices = await rm.listResources('TCPIP?*::INSTR');  // Optional enhanc
      "types": "dist/index.d.ts",
      "exports": {
        ".": "./dist/index.js",
+       "./sessions": "./dist/sessions/index.js",
        "./transports/usbtmc": "./dist/transports/usbtmc.js",
        "./transports/serial": "./dist/transports/serial.js"
      },
@@ -241,6 +247,45 @@ const lxiDevices = await rm.listResources('TCPIP?*::INSTR');  // Optional enhanc
    ```
 
 2. **`tsconfig.json`** - TypeScript config for library
+
+---
+
+### Phase 7: Session Management (Optional Layer)
+
+**Files to create:**
+
+1. **`src/sessions/types.ts`** - Session interfaces
+   ```typescript
+   type SessionState = 'connecting' | 'connected' | 'polling' | 'disconnected' | 'error';
+
+   interface SessionManagerOptions {
+     scanInterval?: number;      // Default: 5000ms
+     pollInterval?: number;      // Default: 250ms
+     maxConsecutiveErrors?: number;  // Default: 5
+     autoReconnect?: boolean;    // Default: true
+   }
+
+   interface DeviceSession { /* ... */ }
+   interface SessionManager { /* ... */ }
+   ```
+
+2. **`src/sessions/device-session.ts`** - Per-device session factory
+   - Connection state management
+   - Automatic reconnection
+   - Command queue with error handling
+   - Status polling infrastructure
+
+3. **`src/sessions/session-manager.ts`** - Central session manager factory
+   - Device scanning loop
+   - Session lifecycle (create/destroy)
+   - Event emission for state changes
+
+4. **`src/sessions/index.ts`** - Public exports
+
+**Source from signal-drift:**
+- `server/sessions/DeviceSession.ts` → Reconnection, polling, state
+- `server/sessions/SessionManager.ts` → Scanning, session lifecycle
+- `server/devices/scanner.ts` → Device enumeration loop
 
 ---
 
@@ -326,8 +371,9 @@ await rm.close();
 | 4 | ResourceManager | Medium |
 | 5 | SCPI Utilities | Low (mostly copy) |
 | 6 | Package & Docs | Low |
+| 7 | Session Management | Medium (from signal-drift) |
 
-Total: Medium complexity, mostly extraction with some new code for resource strings and PyVISA-compatible API.
+Total: Medium complexity. Phases 1-6 are the core library (like PyVISA). Phase 7 is an optional higher-level abstraction for session management.
 
 ---
 
@@ -340,3 +386,4 @@ Total: Medium complexity, mostly extraction with some new code for resource stri
 - [ ] Phase 4: ResourceManager
 - [ ] Phase 5: SCPI Utilities
 - [ ] Phase 6: Package Configuration
+- [ ] Phase 7: Session Management (optional layer)
