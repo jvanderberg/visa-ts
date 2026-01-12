@@ -109,6 +109,7 @@ function parseUSBResource(resourceString: string): Result<ParsedUSBResource, Err
 
 /**
  * Parse a numeric ID that can be in hex (0x prefix) or decimal format.
+ * USB IDs must be in the valid range (0-65535).
  */
 function parseNumericId(str: string): number | null {
   if (!str || str.trim() === '') {
@@ -117,13 +118,20 @@ function parseNumericId(str: string): number | null {
 
   const trimmed = str.trim().toLowerCase();
 
+  let num: number;
+
   if (trimmed.startsWith('0x')) {
-    const hex = parseInt(trimmed.slice(2), 16);
-    return isNaN(hex) ? null : hex;
+    num = parseInt(trimmed.slice(2), 16);
+  } else {
+    num = parseInt(trimmed, 10);
   }
 
-  const dec = parseInt(trimmed, 10);
-  return isNaN(dec) ? null : dec;
+  // USB IDs must be unsigned 16-bit integers (0-65535)
+  if (isNaN(num) || num < 0 || num > 0xffff) {
+    return null;
+  }
+
+  return num;
 }
 
 /**

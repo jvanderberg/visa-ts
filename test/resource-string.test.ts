@@ -132,6 +132,33 @@ describe('parseResourceString', () => {
         expect(parsed.productId).toBe(0x04ce);
       }
     });
+
+    it('returns Err for negative vendor ID', () => {
+      const result = parseResourceString('USB0::-1::0x04CE::INSTR');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('Invalid');
+      }
+    });
+
+    it('returns Err for vendor ID out of range', () => {
+      const result = parseResourceString('USB0::0x10000::0x04CE::INSTR');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('Invalid');
+      }
+    });
+
+    it('returns Err for product ID out of range', () => {
+      const result = parseResourceString('USB0::0x1AB1::70000::INSTR');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('Invalid');
+      }
+    });
   });
 
   describe('Serial (ASRL) resources', () => {
@@ -261,6 +288,16 @@ describe('parseResourceString', () => {
       if (result.ok) {
         const parsed = result.value as ParsedTCPIPSocketResource;
         expect(parsed.port).toBe(5555);
+      }
+    });
+
+    it('parses TCP/IP socket with port 0 (reserved port)', () => {
+      const result = parseResourceString('TCPIP0::192.168.1.100::0::SOCKET');
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const parsed = result.value as ParsedTCPIPSocketResource;
+        expect(parsed.port).toBe(0);
       }
     });
 
@@ -589,5 +626,81 @@ describe('matchResourcePattern', () => {
     const result = matchResourcePattern('USB0::0x1AB1::0x04CE::DS1ZA123::INSTR', 'usb?*::instr');
 
     expect(result).toBe(true);
+  });
+});
+
+describe('round-trip parsing', () => {
+  it('round-trips USB resource string with serial number', () => {
+    const original = 'USB0::0x1AB1::0x04CE::DS1ZA123456789::INSTR';
+    const parsed = parseResourceString(original);
+
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      const rebuilt = buildResourceString(parsed.value);
+      const reparsed = parseResourceString(rebuilt);
+
+      expect(reparsed.ok).toBe(true);
+      if (reparsed.ok) {
+        const p1 = parsed.value as ParsedUSBResource;
+        const p2 = reparsed.value as ParsedUSBResource;
+        expect(p2.vendorId).toBe(p1.vendorId);
+        expect(p2.productId).toBe(p1.productId);
+        expect(p2.serialNumber).toBe(p1.serialNumber);
+        expect(p2.resourceClass).toBe(p1.resourceClass);
+      }
+    }
+  });
+
+  it('round-trips USB resource string without serial number', () => {
+    const original = 'USB0::0x1AB1::0x04CE::INSTR';
+    const parsed = parseResourceString(original);
+
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      const rebuilt = buildResourceString(parsed.value);
+      const reparsed = parseResourceString(rebuilt);
+
+      expect(reparsed.ok).toBe(true);
+      if (reparsed.ok) {
+        const p1 = parsed.value as ParsedUSBResource;
+        const p2 = reparsed.value as ParsedUSBResource;
+        expect(p2.vendorId).toBe(p1.vendorId);
+        expect(p2.productId).toBe(p1.productId);
+        expect(p2.serialNumber).toBe(p1.serialNumber);
+      }
+    }
+  });
+
+  it('round-trips serial resource string', () => {
+    const original = 'ASRL/dev/ttyUSB0::INSTR';
+    const parsed = parseResourceString(original);
+
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      const rebuilt = buildResourceString(parsed.value);
+      expect(rebuilt).toBe(original);
+    }
+  });
+
+  it('round-trips TCP/IP socket resource string', () => {
+    const original = 'TCPIP0::192.168.1.100::5025::SOCKET';
+    const parsed = parseResourceString(original);
+
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      const rebuilt = buildResourceString(parsed.value);
+      expect(rebuilt).toBe(original);
+    }
+  });
+
+  it('round-trips TCP/IP INSTR resource string', () => {
+    const original = 'TCPIP0::192.168.1.100::inst0::INSTR';
+    const parsed = parseResourceString(original);
+
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      const rebuilt = buildResourceString(parsed.value);
+      expect(rebuilt).toBe(original);
+    }
   });
 });
