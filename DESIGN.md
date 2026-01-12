@@ -933,8 +933,14 @@ interface SessionManager {
   /** Stop all sessions and scanning */
   stop(): Promise<void>;
 
-  /** Get all active sessions */
+  /** Get all active sessions as a Map */
   readonly sessions: Map<string, DeviceSession>;
+
+  /** Get session by resource string */
+  getSession(resourceString: string): DeviceSession | undefined;
+
+  /** Get all resource strings for active sessions */
+  listSessions(): string[];
 
   /** Subscribe to session events */
   on(event: 'session-added', handler: (session: DeviceSession) => void): void;
@@ -1004,8 +1010,20 @@ manager.on('session-removed', (resourceString) => {
 // Start scanning
 await manager.start();
 
+// List all discovered sessions
+const sessionIds = manager.listSessions();
+console.log('Active sessions:', sessionIds);
+// ['USB0::0x1AB1::0x04CE::DS1ZA123::INSTR', 'ASRL/dev/ttyUSB0::INSTR']
+
+// Get a specific session
+const session = manager.getSession('USB0::0x1AB1::0x04CE::DS1ZA123::INSTR');
+
+// Or iterate all sessions
+for (const [resourceString, session] of manager.sessions) {
+  console.log(resourceString, session.state);
+}
+
 // Execute commands through session (handles disconnection gracefully)
-const session = manager.sessions.get('USB0::0x1AB1::0x04CE::DS1ZA123::INSTR');
 if (session) {
   const result = await session.execute(async (resource) => {
     return resource.query(':MEAS:VOLT?');
