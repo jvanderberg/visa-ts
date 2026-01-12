@@ -43,6 +43,18 @@ describe('ScpiParser', () => {
       expect(ScpiParser.parseNumber('-9.9E37')).toBe(-Infinity);
     });
 
+    it('returns Infinity for explicit plus sign +9.9E37', () => {
+      expect(ScpiParser.parseNumber('+9.9E37')).toBe(Infinity);
+    });
+
+    it('returns Infinity for lowercase overflow 9.9e37', () => {
+      expect(ScpiParser.parseNumber('9.9e37')).toBe(Infinity);
+    });
+
+    it('returns NaN for whitespace-only string', () => {
+      expect(ScpiParser.parseNumber('   ')).toBeNaN();
+    });
+
     it('returns NaN for asterisks (invalid measurement)', () => {
       expect(ScpiParser.parseNumber('****')).toBeNaN();
     });
@@ -200,6 +212,16 @@ describe('ScpiParser', () => {
       const buffer = Buffer.from('#a123');
       expect(ScpiParser.parseDefiniteLengthBlock(buffer)).toBeNull();
     });
+
+    it('returns null for buffer with only # character', () => {
+      const buffer = Buffer.from('#');
+      expect(ScpiParser.parseDefiniteLengthBlock(buffer)).toBeNull();
+    });
+
+    it('returns null when length digits contain non-numeric characters', () => {
+      const buffer = Buffer.from('#3abc'); // 3 digits but "abc" is not a number
+      expect(ScpiParser.parseDefiniteLengthBlock(buffer)).toBeNull();
+    });
   });
 
   describe('parseArbitraryBlock', () => {
@@ -233,6 +255,19 @@ describe('ScpiParser', () => {
     it('returns null for empty buffer', () => {
       const buffer = Buffer.alloc(0);
       expect(ScpiParser.parseArbitraryBlock(buffer)).toBeNull();
+    });
+
+    it('returns null for buffer with only # character', () => {
+      const buffer = Buffer.from('#');
+      expect(ScpiParser.parseArbitraryBlock(buffer)).toBeNull();
+    });
+
+    it('handles empty data in indefinite block (#0 followed by newline)', () => {
+      const buffer = Buffer.from('#0\n');
+      const result = ScpiParser.parseArbitraryBlock(buffer);
+      expect(result).not.toBeNull();
+      expect(result?.header).toBe(2);
+      expect(result?.length).toBe(0);
     });
   });
 });
