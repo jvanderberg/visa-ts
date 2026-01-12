@@ -45,3 +45,19 @@ export function unwrapOr<T, E>(result: Result<T, E>, defaultValue: T): T {
 export function unwrapOrElse<T, E>(result: Result<T, E>, fn: (error: E) => T): T {
   return result.ok ? result.value : fn(result.error);
 }
+
+/**
+ * Maps a Result<T, E> to Result<U, E> by applying a function to a contained Ok value,
+ * leaving an Err value untouched.
+ */
+export function map<T, U, E>(result: Result<T, E>, fn: (value: T) => U): Result<U, E> {
+  return result.ok ? Ok(fn(result.value)) : result;
+}
+
+/**
+ * Maps a Result<T, E> to Result<T, F> by applying a function to a contained Err value,
+ * leaving an Ok value untouched.
+ */
+export function mapErr<T, E, F>(result: Result<T, E>, fn: (error: E) => F): Result<T, F> {
+  return result.ok ? result : Err(fn(result.error));
+}

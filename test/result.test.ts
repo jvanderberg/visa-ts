@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Ok, Err, isOk, isErr, unwrapOr, unwrapOrElse } from '../src/result.js';
+import { Ok, Err, isOk, isErr, unwrapOr, unwrapOrElse, map, mapErr } from '../src/result.js';
 
 describe('Result', () => {
   describe('Ok', () => {
@@ -152,6 +152,102 @@ describe('Result', () => {
       });
 
       expect(receivedError).toBe(error);
+    });
+  });
+
+  describe('map', () => {
+    it('transforms the value when result is Ok', () => {
+      const result = Ok(5);
+
+      const mapped = map(result, (x) => x * 2);
+
+      expect(mapped.ok).toBe(true);
+      if (mapped.ok) {
+        expect(mapped.value).toBe(10);
+      }
+    });
+
+    it('preserves the error when result is Err', () => {
+      const error = new Error('fail');
+      const result = Err(error);
+
+      const mapped = map(result, (x: number) => x * 2);
+
+      expect(mapped.ok).toBe(false);
+      if (!mapped.ok) {
+        expect(mapped.error).toBe(error);
+      }
+    });
+
+    it('does not call the function when result is Err', () => {
+      const result = Err(new Error('fail'));
+      let called = false;
+
+      map(result, (x: number) => {
+        called = true;
+        return x * 2;
+      });
+
+      expect(called).toBe(false);
+    });
+
+    it('can change the value type', () => {
+      const result = Ok(42);
+
+      const mapped = map(result, (x) => x.toString());
+
+      expect(mapped.ok).toBe(true);
+      if (mapped.ok) {
+        expect(mapped.value).toBe('42');
+      }
+    });
+  });
+
+  describe('mapErr', () => {
+    it('transforms the error when result is Err', () => {
+      const result = Err(new Error('original'));
+
+      const mapped = mapErr(result, (e) => new Error(`wrapped: ${e.message}`));
+
+      expect(mapped.ok).toBe(false);
+      if (!mapped.ok) {
+        expect(mapped.error.message).toBe('wrapped: original');
+      }
+    });
+
+    it('preserves the value when result is Ok', () => {
+      const result = Ok(42);
+
+      const mapped = mapErr(result, (e: Error) => new Error(`wrapped: ${e.message}`));
+
+      expect(mapped.ok).toBe(true);
+      if (mapped.ok) {
+        expect(mapped.value).toBe(42);
+      }
+    });
+
+    it('does not call the function when result is Ok', () => {
+      const result = Ok(42);
+      let called = false;
+
+      mapErr(result, (e: Error) => {
+        called = true;
+        return new Error(`wrapped: ${e.message}`);
+      });
+
+      expect(called).toBe(false);
+    });
+
+    it('can change the error type', () => {
+      const result = Err('string error');
+
+      const mapped = mapErr(result, (e) => new Error(e));
+
+      expect(mapped.ok).toBe(false);
+      if (!mapped.ok) {
+        expect(mapped.error).toBeInstanceOf(Error);
+        expect(mapped.error.message).toBe('string error');
+      }
     });
   });
 });
