@@ -140,17 +140,17 @@ export interface AsciiValuesOptions {
 /**
  * Binary data type specifiers following IEEE 488.2 conventions.
  *
- * Base types:
+ * Base types (big-endian by default):
  *   'b' - signed 8-bit integer
  *   'B' - unsigned 8-bit integer
- *   'h' - signed 16-bit integer (big-endian)
- *   'H' - unsigned 16-bit integer (big-endian)
- *   'i' - signed 32-bit integer (big-endian)
- *   'I' - unsigned 32-bit integer (big-endian)
- *   'f' - 32-bit float (big-endian)
- *   'd' - 64-bit double (big-endian)
+ *   'h' - signed 16-bit integer
+ *   'H' - unsigned 16-bit integer
+ *   'i' - signed 32-bit integer
+ *   'I' - unsigned 32-bit integer
+ *   'f' - 32-bit IEEE 754 float
+ *   'd' - 64-bit IEEE 754 double
  *
- * Append '<' for little-endian variants.
+ * Append '<' for little-endian variants (e.g., 'h<', 'f<', 'd<').
  */
 export type BinaryDatatype =
   | 'b'
@@ -163,10 +163,10 @@ export type BinaryDatatype =
   | 'I' // int32, uint32 (big-endian)
   | 'i<'
   | 'I<' // int32, uint32 (little-endian)
-  | 'f'
-  | 'f<' // float32
-  | 'd'
-  | 'd<'; // float64
+  | 'f' // float32 (big-endian)
+  | 'f<' // float32 (little-endian)
+  | 'd' // float64 (big-endian)
+  | 'd<'; // float64 (little-endian)
 
 /**
  * Parsed VISA resource string components
