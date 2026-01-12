@@ -1,0 +1,271 @@
+/**
+ * ResourceManager - Main entry point for discovering and opening instrument connections.
+ *
+ * @packageDocumentation
+ */
+
+import type { Transport } from './transports/transport.js';
+import type {
+  ResourceInfo,
+  USBResourceInfo,
+  SerialResourceInfo,
+  TCPIPResourceInfo,
+  SerialOptions,
+  TCPIPOptions,
+  USBTMCOptions,
+  OpenOptions,
+} from './types.js';
+import type { Result } from './result.js';
+import { Ok, Err } from './result.js';
+import { parseResourceString, matchResourcePattern } from './resource-string.js';
+import { createMessageBasedResource } from './resources/message-based.js';
+import type { MessageBasedResource } from './resources/message-based-resource.js';
+import { createTcpipTransport } from './transports/tcpip.js';
+import { createSerialTransport } from './transports/serial.js';
+import { createUsbtmcTransport } from './transports/usbtmc.js';
+import {
+  listSerialPorts as defaultListSerialPorts,
+  listUsbDevices as defaultListUsbDevices,
+} from './discovery.js';
+import type { UsbDeviceInfo } from './discovery.js';
+import type { ResourceManager, ResourceManagerOptions } from './resource-manager-types.js';
+
+// Re-export types for convenience
+export type { ResourceManager, ResourceManagerOptions } from './resource-manager-types.js';
+
+/**
+ * Create a new ResourceManager.
+ *
+ * @param options - Internal options (primarily for testing)
+ * @returns ResourceManager instance
+ *
+ * @example
+ * const rm = createResourceManager();
+ * const resources = await rm.listResources();
+ */
+export function createResourceManager(options?: ResourceManagerOptions): ResourceManager {
+  const openResourcesList: MessageBasedResource[] = [];
+
+  const tcpipFactory = options?._createTcpipTransport ?? createTcpipTransport;
+  const serialFactory = options?._createSerialTransport ?? createSerialTransport;
+  const usbtmcFactory = options?._createUsbtmcTransport ?? createUsbtmcTransport;
+  const listSerialPorts = options?._listSerialPorts ?? defaultListSerialPorts;
+  const listUsbDevices = options?._listUsbDevices ?? defaultListUsbDevices;
+
+  function removeFromOpenList(resource: MessageBasedResource): void {
+    const index = openResourcesList.indexOf(resource);
+    if (index !== -1) {
+      openResourcesList.splice(index, 1);
+    }
+  }
+
+  function wrapResource(transport: Transport, resourceInfo: ResourceInfo): MessageBasedResource {
+    const baseResource = createMessageBasedResource(transport, resourceInfo);
+    const originalClose = baseResource.close.bind(baseResource);
+    const wrappedResource: MessageBasedResource = {
+      ...baseResource,
+      async close(): Promise<Result<void, Error>> {
+        const result = await originalClose();
+        removeFromOpenList(wrappedResource);
+        return result;
+      },
+    };
+    return wrappedResource;
+  }
+
+  function buildUsbResourceString(device: UsbDeviceInfo): string {
+    const vendorHex = `0x${device.vendorId.toString(16).toUpperCase().padStart(4, '0')}`;
+    const productHex = `0x${device.productId.toString(16).toUpperCase().padStart(4, '0')}`;
+    if (device.serialNumber) {
+      return `USB0::${vendorHex}::${productHex}::${device.serialNumber}::INSTR`;
+    }
+    return `USB0::${vendorHex}::${productHex}::INSTR`;
+  }
+
+  const manager: ResourceManager = {
+    get openResources(): MessageBasedResource[] {
+      return [...openResourcesList];
+    },
+
+    async listResources(query = '?*::INSTR'): Promise<string[]> {
+      const resources: string[] = [];
+
+      const serialPorts = await listSerialPorts();
+      for (const port of serialPorts) {
+        const resourceString = `ASRL${port.path}::INSTR`;
+        if (matchResourcePattern(resourceString, query)) {
+          resources.push(resourceString);
+        }
+      }
+
+      const usbDevices = await listUsbDevices();
+      for (const device of usbDevices) {
+        const resourceString = buildUsbResourceString(device);
+        if (matchResourcePattern(resourceString, query)) {
+          resources.push(resourceString);
+        }
+      }
+
+      return resources;
+    },
+
+    async listResourcesInfo(query = '?*::INSTR'): Promise<ResourceInfo[]> {
+      const infoList: ResourceInfo[] = [];
+
+      const serialPorts = await listSerialPorts();
+      for (const port of serialPorts) {
+        const resourceString = `ASRL${port.path}::INSTR`;
+        if (matchResourcePattern(resourceString, query)) {
+          const info: SerialResourceInfo = {
+            resourceString,
+            interfaceType: 'ASRL',
+            portPath: port.path,
+          };
+          infoList.push(info);
+        }
+      }
+
+      const usbDevices = await listUsbDevices();
+      for (const device of usbDevices) {
+        const resourceString = buildUsbResourceString(device);
+        if (matchResourcePattern(resourceString, query)) {
+          const info: USBResourceInfo = {
+            resourceString,
+            interfaceType: 'USB',
+            vendorId: device.vendorId,
+            productId: device.productId,
+            serialNumber: device.serialNumber,
+            usbClass: 0xfe,
+          };
+          infoList.push(info);
+        }
+      }
+
+      return infoList;
+    },
+
+    async openResource(
+      resourceString: string,
+      openOptions?: OpenOptions
+    ): Promise<Result<MessageBasedResource, Error>> {
+      const parseResult = parseResourceString(resourceString);
+      if (!parseResult.ok) {
+        return parseResult;
+      }
+
+      const parsed = parseResult.value;
+      let transport: Transport;
+      let resourceInfo: ResourceInfo;
+
+      switch (parsed.interfaceType) {
+        case 'TCPIP': {
+          if (parsed.resourceClass === 'INSTR') {
+            return Err(new Error('VXI-11 (TCPIP INSTR) is not supported. Use SOCKET instead.'));
+          }
+          const tcpipParsed = parsed as { host: string; port: number };
+          const tcpipOptions = openOptions?.transport as TCPIPOptions | undefined;
+          transport = tcpipFactory({
+            host: tcpipParsed.host,
+            port: tcpipParsed.port,
+            timeout: openOptions?.timeout,
+            readTermination: openOptions?.readTermination,
+            writeTermination: openOptions?.writeTermination,
+            connectTimeout: tcpipOptions?.connectTimeout,
+            keepAlive: tcpipOptions?.keepAlive,
+            keepAliveInterval: tcpipOptions?.keepAliveInterval,
+          });
+          resourceInfo = {
+            resourceString,
+            interfaceType: 'TCPIP',
+            host: tcpipParsed.host,
+            port: tcpipParsed.port,
+          } as TCPIPResourceInfo;
+          break;
+        }
+
+        case 'ASRL': {
+          const serialParsed = parsed as { portPath: string };
+          const serialOptions = openOptions?.transport as SerialOptions | undefined;
+          transport = serialFactory({
+            path: serialParsed.portPath,
+            timeout: openOptions?.timeout,
+            readTermination: openOptions?.readTermination,
+            writeTermination: openOptions?.writeTermination,
+            baudRate: serialOptions?.baudRate,
+            dataBits: serialOptions?.dataBits,
+            stopBits: serialOptions?.stopBits,
+            parity: serialOptions?.parity,
+            commandDelay: serialOptions?.commandDelay,
+          });
+          resourceInfo = {
+            resourceString,
+            interfaceType: 'ASRL',
+            portPath: serialParsed.portPath,
+          } as SerialResourceInfo;
+          break;
+        }
+
+        case 'USB': {
+          const usbParsed = parsed as {
+            vendorId: number;
+            productId: number;
+            serialNumber?: string;
+          };
+          const usbOptions = openOptions?.transport as USBTMCOptions | undefined;
+          transport = usbtmcFactory({
+            vendorId: usbParsed.vendorId,
+            productId: usbParsed.productId,
+            serialNumber: usbParsed.serialNumber,
+            timeout: openOptions?.timeout,
+            readTermination: openOptions?.readTermination,
+            writeTermination: openOptions?.writeTermination,
+            quirks: usbOptions?.quirks,
+          });
+          resourceInfo = {
+            resourceString,
+            interfaceType: 'USB',
+            vendorId: usbParsed.vendorId,
+            productId: usbParsed.productId,
+            serialNumber: usbParsed.serialNumber,
+            usbClass: 0xfe,
+          } as USBResourceInfo;
+          break;
+        }
+
+        default: {
+          const unsupportedType: string = (parsed as { interfaceType: string }).interfaceType;
+          return Err(new Error(`Unsupported interface type: ${unsupportedType}`));
+        }
+      }
+
+      const openResult = await transport.open();
+      if (!openResult.ok) {
+        return openResult;
+      }
+
+      if (openOptions?.timeout !== undefined) {
+        transport.timeout = openOptions.timeout;
+      }
+      if (openOptions?.readTermination !== undefined) {
+        transport.readTermination = openOptions.readTermination;
+      }
+      if (openOptions?.writeTermination !== undefined) {
+        transport.writeTermination = openOptions.writeTermination;
+      }
+
+      const resource = wrapResource(transport, resourceInfo);
+      openResourcesList.push(resource);
+
+      return Ok(resource);
+    },
+
+    async close(): Promise<void> {
+      const resourcesToClose = [...openResourcesList];
+      for (const resource of resourcesToClose) {
+        await resource.close();
+      }
+    },
+  };
+
+  return manager;
+}

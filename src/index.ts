@@ -58,3 +58,7 @@ export type { UsbtmcTransportConfig } from './transports/usbtmc.js';
 // Resource layer
 export { createMessageBasedResource } from './resources/message-based.js';
 export type { MessageBasedResource } from './resources/message-based.js';
+
+// Resource Manager
+export { createResourceManager } from './resource-manager.js';
+export type { ResourceManager, ResourceManagerOptions } from './resource-manager.js';
