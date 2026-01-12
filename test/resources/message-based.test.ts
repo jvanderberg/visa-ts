@@ -167,6 +167,18 @@ describe('MessageBasedResource', () => {
   });
 
   describe('query', () => {
+    it('returns response on success', async () => {
+      vi.mocked(mockTransport.query).mockResolvedValue(Ok('RIGOL TECHNOLOGIES,DS1054Z'));
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+
+      const result = await resource.query('*IDN?');
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe('RIGOL TECHNOLOGIES,DS1054Z');
+      }
+    });
+
     it('passes delay option to transport', async () => {
       vi.mocked(mockTransport.query).mockResolvedValue(Ok('1.234'));
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
@@ -190,6 +202,14 @@ describe('MessageBasedResource', () => {
   });
 
   describe('write', () => {
+    it('returns Ok on success', async () => {
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+
+      const result = await resource.write('*RST');
+
+      expect(result.ok).toBe(true);
+    });
+
     it('returns Err when transport returns Err', async () => {
       vi.mocked(mockTransport.write).mockResolvedValue(Err(new Error('Write failed')));
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
@@ -204,6 +224,18 @@ describe('MessageBasedResource', () => {
   });
 
   describe('read', () => {
+    it('returns response on success', async () => {
+      vi.mocked(mockTransport.read).mockResolvedValue(Ok('response data'));
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+
+      const result = await resource.read();
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe('response data');
+      }
+    });
+
     it('returns Err when transport returns Err', async () => {
       vi.mocked(mockTransport.read).mockResolvedValue(Err(new Error('Read timeout')));
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
@@ -218,6 +250,18 @@ describe('MessageBasedResource', () => {
   });
 
   describe('writeRaw', () => {
+    it('returns bytes written on success', async () => {
+      vi.mocked(mockTransport.writeRaw).mockResolvedValue(Ok(5));
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+
+      const result = await resource.writeRaw(Buffer.from([1, 2, 3, 4, 5]));
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe(5);
+      }
+    });
+
     it('returns Err when transport returns Err', async () => {
       vi.mocked(mockTransport.writeRaw).mockResolvedValue(Err(new Error('Write error')));
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
@@ -232,6 +276,19 @@ describe('MessageBasedResource', () => {
   });
 
   describe('readRaw', () => {
+    it('returns buffer on success', async () => {
+      const expectedBuffer = Buffer.from([1, 2, 3]);
+      vi.mocked(mockTransport.readRaw).mockResolvedValue(Ok(expectedBuffer));
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+
+      const result = await resource.readRaw(100);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toEqual(expectedBuffer);
+      }
+    });
+
     it('uses chunkSize as default size', async () => {
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
       resource.chunkSize = 4096;
@@ -255,6 +312,20 @@ describe('MessageBasedResource', () => {
   });
 
   describe('readBytes', () => {
+    it('returns exact number of bytes on success', async () => {
+      const expectedBuffer = Buffer.from([1, 2, 3, 4, 5]);
+      vi.mocked(mockTransport.readBytes).mockResolvedValue(Ok(expectedBuffer));
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+
+      const result = await resource.readBytes(5);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toEqual(expectedBuffer);
+        expect(result.value.length).toBe(5);
+      }
+    });
+
     it('returns Err when transport returns Err', async () => {
       vi.mocked(mockTransport.readBytes).mockResolvedValue(Err(new Error('Timeout')));
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
@@ -269,6 +340,14 @@ describe('MessageBasedResource', () => {
   });
 
   describe('clear', () => {
+    it('returns Ok on success', async () => {
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+
+      const result = await resource.clear();
+
+      expect(result.ok).toBe(true);
+    });
+
     it('returns Err when transport returns Err', async () => {
       vi.mocked(mockTransport.clear).mockResolvedValue(Err(new Error('Clear failed')));
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
@@ -283,6 +362,14 @@ describe('MessageBasedResource', () => {
   });
 
   describe('trigger', () => {
+    it('returns Ok on success', async () => {
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+
+      const result = await resource.trigger();
+
+      expect(result.ok).toBe(true);
+    });
+
     it('returns Err when transport returns Err', async () => {
       vi.mocked(mockTransport.trigger).mockResolvedValue(Err(new Error('Trigger failed')));
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
@@ -297,6 +384,18 @@ describe('MessageBasedResource', () => {
   });
 
   describe('readStb', () => {
+    it('returns status byte on success', async () => {
+      vi.mocked(mockTransport.readStb).mockResolvedValue(Ok(32));
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+
+      const result = await resource.readStb();
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe(32);
+      }
+    });
+
     it('returns Err when transport returns Err', async () => {
       vi.mocked(mockTransport.readStb).mockResolvedValue(Err(new Error('STB error')));
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
@@ -311,6 +410,14 @@ describe('MessageBasedResource', () => {
   });
 
   describe('close', () => {
+    it('returns Ok on success', async () => {
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+
+      const result = await resource.close();
+
+      expect(result.ok).toBe(true);
+    });
+
     it('returns Err when transport returns Err', async () => {
       vi.mocked(mockTransport.close).mockResolvedValue(Err(new Error('Close failed')));
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
@@ -935,6 +1042,22 @@ describe('MessageBasedResource', () => {
       expect(result.ok).toBe(true);
     });
 
+    it('writes little-endian 32-bit signed values', async () => {
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+
+      const result = await resource.writeBinaryValues(':DATA:DAC', [100000, -100000], 'i<');
+
+      expect(result.ok).toBe(true);
+    });
+
+    it('writes little-endian 32-bit unsigned values', async () => {
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+
+      const result = await resource.writeBinaryValues(':DATA:DAC', [100000, 200000], 'I<');
+
+      expect(result.ok).toBe(true);
+    });
+
     it('writes 32-bit float values', async () => {
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
 
@@ -943,10 +1066,26 @@ describe('MessageBasedResource', () => {
       expect(result.ok).toBe(true);
     });
 
+    it('writes little-endian 32-bit float values', async () => {
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+
+      const result = await resource.writeBinaryValues(':DATA:DAC', [1.5, -2.5], 'f<');
+
+      expect(result.ok).toBe(true);
+    });
+
     it('writes 64-bit double values', async () => {
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
 
       const result = await resource.writeBinaryValues(':DATA:DAC', [1.23456789, -9.87654321], 'd');
+
+      expect(result.ok).toBe(true);
+    });
+
+    it('writes little-endian 64-bit double values', async () => {
+      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
+
+      const result = await resource.writeBinaryValues(':DATA:DAC', [1.23456789, -9.87654321], 'd<');
 
       expect(result.ok).toBe(true);
     });
