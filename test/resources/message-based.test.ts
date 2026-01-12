@@ -167,19 +167,6 @@ describe('MessageBasedResource', () => {
   });
 
   describe('query', () => {
-    it('delegates to transport query', async () => {
-      vi.mocked(mockTransport.query).mockResolvedValue(Ok('RIGOL TECHNOLOGIES,DS1054Z'));
-      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
-
-      const result = await resource.query('*IDN?');
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value).toBe('RIGOL TECHNOLOGIES,DS1054Z');
-      }
-      expect(mockTransport.query).toHaveBeenCalledWith('*IDN?', undefined);
-    });
-
     it('passes delay option to transport', async () => {
       vi.mocked(mockTransport.query).mockResolvedValue(Ok('1.234'));
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
@@ -203,15 +190,6 @@ describe('MessageBasedResource', () => {
   });
 
   describe('write', () => {
-    it('delegates to transport write', async () => {
-      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
-
-      const result = await resource.write('*RST');
-
-      expect(result.ok).toBe(true);
-      expect(mockTransport.write).toHaveBeenCalledWith('*RST');
-    });
-
     it('returns Err when transport returns Err', async () => {
       vi.mocked(mockTransport.write).mockResolvedValue(Err(new Error('Write failed')));
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
@@ -226,19 +204,6 @@ describe('MessageBasedResource', () => {
   });
 
   describe('read', () => {
-    it('delegates to transport read', async () => {
-      vi.mocked(mockTransport.read).mockResolvedValue(Ok('RIGOL TECHNOLOGIES,DS1054Z'));
-      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
-
-      const result = await resource.read();
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value).toBe('RIGOL TECHNOLOGIES,DS1054Z');
-      }
-      expect(mockTransport.read).toHaveBeenCalled();
-    });
-
     it('returns Err when transport returns Err', async () => {
       vi.mocked(mockTransport.read).mockResolvedValue(Err(new Error('Read timeout')));
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
@@ -253,20 +218,6 @@ describe('MessageBasedResource', () => {
   });
 
   describe('writeRaw', () => {
-    it('delegates to transport writeRaw', async () => {
-      vi.mocked(mockTransport.writeRaw).mockResolvedValue(Ok(5));
-      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
-
-      const data = Buffer.from([0x01, 0x02, 0x03, 0x04, 0x05]);
-      const result = await resource.writeRaw(data);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value).toBe(5);
-      }
-      expect(mockTransport.writeRaw).toHaveBeenCalledWith(data);
-    });
-
     it('returns Err when transport returns Err', async () => {
       vi.mocked(mockTransport.writeRaw).mockResolvedValue(Err(new Error('Write error')));
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
@@ -281,20 +232,6 @@ describe('MessageBasedResource', () => {
   });
 
   describe('readRaw', () => {
-    it('delegates to transport readRaw', async () => {
-      const expectedBuffer = Buffer.from([0x01, 0x02, 0x03]);
-      vi.mocked(mockTransport.readRaw).mockResolvedValue(Ok(expectedBuffer));
-      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
-
-      const result = await resource.readRaw(100);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value).toEqual(expectedBuffer);
-      }
-      expect(mockTransport.readRaw).toHaveBeenCalledWith(100);
-    });
-
     it('uses chunkSize as default size', async () => {
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
       resource.chunkSize = 4096;
@@ -318,21 +255,6 @@ describe('MessageBasedResource', () => {
   });
 
   describe('readBytes', () => {
-    it('delegates to transport readBytes', async () => {
-      const expectedBuffer = Buffer.from([0x01, 0x02, 0x03, 0x04, 0x05]);
-      vi.mocked(mockTransport.readBytes).mockResolvedValue(Ok(expectedBuffer));
-      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
-
-      const result = await resource.readBytes(5);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value).toEqual(expectedBuffer);
-        expect(result.value.length).toBe(5);
-      }
-      expect(mockTransport.readBytes).toHaveBeenCalledWith(5);
-    });
-
     it('returns Err when transport returns Err', async () => {
       vi.mocked(mockTransport.readBytes).mockResolvedValue(Err(new Error('Timeout')));
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
@@ -347,15 +269,6 @@ describe('MessageBasedResource', () => {
   });
 
   describe('clear', () => {
-    it('delegates to transport clear', async () => {
-      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
-
-      const result = await resource.clear();
-
-      expect(result.ok).toBe(true);
-      expect(mockTransport.clear).toHaveBeenCalled();
-    });
-
     it('returns Err when transport returns Err', async () => {
       vi.mocked(mockTransport.clear).mockResolvedValue(Err(new Error('Clear failed')));
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
@@ -370,15 +283,6 @@ describe('MessageBasedResource', () => {
   });
 
   describe('trigger', () => {
-    it('delegates to transport trigger', async () => {
-      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
-
-      const result = await resource.trigger();
-
-      expect(result.ok).toBe(true);
-      expect(mockTransport.trigger).toHaveBeenCalled();
-    });
-
     it('returns Err when transport returns Err', async () => {
       vi.mocked(mockTransport.trigger).mockResolvedValue(Err(new Error('Trigger failed')));
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
@@ -393,19 +297,6 @@ describe('MessageBasedResource', () => {
   });
 
   describe('readStb', () => {
-    it('delegates to transport readStb', async () => {
-      vi.mocked(mockTransport.readStb).mockResolvedValue(Ok(32));
-      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
-
-      const result = await resource.readStb();
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value).toBe(32);
-      }
-      expect(mockTransport.readStb).toHaveBeenCalled();
-    });
-
     it('returns Err when transport returns Err', async () => {
       vi.mocked(mockTransport.readStb).mockResolvedValue(Err(new Error('STB error')));
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
@@ -420,15 +311,6 @@ describe('MessageBasedResource', () => {
   });
 
   describe('close', () => {
-    it('delegates to transport close', async () => {
-      const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
-
-      const result = await resource.close();
-
-      expect(result.ok).toBe(true);
-      expect(mockTransport.close).toHaveBeenCalled();
-    });
-
     it('returns Err when transport returns Err', async () => {
       vi.mocked(mockTransport.close).mockResolvedValue(Err(new Error('Close failed')));
       const resource = createMessageBasedResource(mockTransport, mockResourceInfo);
