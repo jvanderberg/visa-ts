@@ -83,4 +83,8 @@ npm run lint         # Run linter
 - Use TypeScript strict mode
 - Prefer `Result<T, E>` over exceptions for expected errors
 - All public APIs should be documented with JSDoc
-- Use factory functions over classes where appropriate
+- **AVOID CLASSES** - Use factory functions and interfaces instead
+  - Use `createResourceManager()` not `new ResourceManager()`
+  - Use closures for private state, not private class fields
+  - Return plain objects implementing interfaces
+  - This improves tree-shaking, testing, and composition

@@ -29,9 +29,8 @@ visa-ts/
 │   ├── resource-manager.ts         # ResourceManager (PyVISA equivalent)
 │   ├── resource-string.ts          # VISA resource string parser
 │   ├── resources/
-│   │   ├── base.ts                 # Resource base class
-│   │   ├── message-based.ts        # MessageBasedResource
-│   │   └── register-based.ts       # RegisterBasedResource (stub)
+│   │   ├── message-based.ts        # MessageBasedResource interface + factory
+│   │   └── register-based.ts       # RegisterBasedResource (stub for future)
 │   ├── transports/
 │   │   ├── transport.ts            # Transport interface
 │   │   ├── usbtmc.ts               # USB-TMC implementation
@@ -121,39 +120,31 @@ visa-ts/
 
 **Files to create:**
 
-1. **`src/resources/base.ts`** - Base Resource class
+1. **`src/resources/message-based.ts`** - MessageBasedResource interface and factory
    ```typescript
-   abstract class Resource {
+   interface MessageBasedResource {
      readonly resourceString: string;
-     readonly transport: Transport;
-
-     // Attributes (PyVISA style)
      timeout: number;
      readTermination: string;
      writeTermination: string;
 
-     abstract open(): Promise<Result<void, Error>>;
-     abstract close(): Promise<Result<void, Error>>;
-   }
-   ```
-
-2. **`src/resources/message-based.ts`** - MessageBasedResource
-   ```typescript
-   class MessageBasedResource extends Resource {
      query(cmd: string): Promise<Result<string, Error>>;
      queryBinaryValues(cmd: string, datatype?: string): Promise<Result<number[], Error>>;
      write(cmd: string): Promise<Result<void, Error>>;
      read(): Promise<Result<string, Error>>;
      readBinaryValues(datatype?: string): Promise<Result<number[], Error>>;
      clear(): Promise<Result<void, Error>>;
+     close(): Promise<Result<void, Error>>;
    }
+
+   // Internal factory - called by ResourceManager
+   function createMessageBasedResource(transport: Transport, resourceString: string): MessageBasedResource;
    ```
 
-3. **`src/resources/register-based.ts`** - RegisterBasedResource (stub for future)
+2. **`src/resources/register-based.ts`** - RegisterBasedResource (stub for future)
    - Placeholder for VXI/PXI register-based instruments
 
 **New code required:**
-- Attribute system implementation
 - Binary value encoding/decoding (IEEE 488.2 format)
 
 ---
@@ -164,21 +155,21 @@ visa-ts/
 
 1. **`src/resource-manager.ts`** - Main entry point
    ```typescript
-   class ResourceManager {
-     constructor(backend?: string);  // '@usb', '@serial', '@sim'
-
-     // Discovery
+   interface ResourceManager {
+     // Discovery (searches all transports)
      listResources(query?: string): Promise<string[]>;
 
-     // Connection
-     openResource(resourceString: string, options?: OpenOptions): Promise<MessageBasedResource>;
+     // Connection (transport determined by resource string)
+     openResource(resourceString: string, options?: OpenOptions): Promise<Result<MessageBasedResource, Error>>;
 
      // Lifecycle
      close(): Promise<void>;
 
-     // Backend registration
-     static registerBackend(name: string, factory: BackendFactory): void;
+     // Currently open resources
+     readonly openResources: MessageBasedResource[];
    }
+
+   function createResourceManager(): ResourceManager;
    ```
 
 **Source from signal-drift:**
@@ -258,18 +249,20 @@ const lxiDevices = await rm.listResources('TCPIP?*::INSTR');  // Optional enhanc
 ### Example Usage
 
 ```typescript
-import { ResourceManager } from 'visa-ts';
+import { createResourceManager } from 'visa-ts';
 
-// Create resource manager
-const rm = new ResourceManager();
+// Create resource manager (handles all transports)
+const rm = createResourceManager();
 
-// List connected instruments
+// List connected instruments (USB + Serial)
 const resources = await rm.listResources('USB?*::INSTR');
 console.log(resources);
 // ['USB0::0x1AB1::0x04CE::DS1ZA123456789::INSTR']
 
 // Open instrument
-const instr = await rm.openResource('USB0::0x1AB1::0x04CE::DS1ZA123456789::INSTR');
+const result = await rm.openResource('USB0::0x1AB1::0x04CE::DS1ZA123456789::INSTR');
+if (!result.ok) throw result.error;
+const instr = result.value;
 
 // Configure
 instr.timeout = 5000;
@@ -277,7 +270,7 @@ instr.readTermination = '\n';
 
 // Communicate
 const idn = await instr.query('*IDN?');
-console.log(idn.value);  // 'RIGOL TECHNOLOGIES,DS1054Z,...'
+if (idn.ok) console.log(idn.value);  // 'RIGOL TECHNOLOGIES,DS1054Z,...'
 
 // Binary data
 const waveform = await instr.queryBinaryValues(':WAV:DATA?', 'b');

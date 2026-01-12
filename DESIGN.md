@@ -146,15 +146,7 @@ interface TCPIPOptions {
 The main entry point for discovering and opening instrument connections.
 
 ```typescript
-class ResourceManager {
-  /**
-   * Create a new ResourceManager.
-   *
-   * A single ResourceManager handles ALL transport types. The resource string
-   * determines which transport is used when opening a connection.
-   */
-  constructor();
-
+interface ResourceManager {
   /**
    * List available resources matching a pattern.
    *
@@ -213,6 +205,18 @@ class ResourceManager {
    */
   readonly openResources: MessageBasedResource[];
 }
+
+/**
+ * Create a new ResourceManager.
+ *
+ * A single ResourceManager handles ALL transport types. The resource string
+ * determines which transport is used when opening a connection.
+ *
+ * @example
+ * const rm = createResourceManager();
+ * const resources = await rm.listResources();
+ */
+function createResourceManager(): ResourceManager;
 ```
 
 ---
@@ -222,7 +226,7 @@ class ResourceManager {
 Represents an open connection to a message-based instrument (most SCPI devices).
 
 ```typescript
-class MessageBasedResource {
+interface MessageBasedResource {
   /** The VISA resource string for this connection */
   readonly resourceString: string;
 
@@ -372,6 +376,9 @@ class MessageBasedResource {
    */
   readonly isOpen: boolean;
 }
+
+// Note: MessageBasedResource instances are created internally by
+// ResourceManager.openResource() - there is no public factory function.
 
 type BinaryDatatype =
   | 'b' | 'B'           // int8, uint8
@@ -551,10 +558,10 @@ ScpiParser.parseArbitraryBlock(buffer);
 ### Example 1: Query Instrument Identity (USB)
 
 ```typescript
-import { ResourceManager, unwrap } from 'visa-ts';
+import { createResourceManager, unwrap } from 'visa-ts';
 
 async function main() {
-  const rm = new ResourceManager();
+  const rm = createResourceManager();
 
   // Find USB instruments
   const resources = await rm.listResources('USB?*::INSTR');
@@ -590,10 +597,10 @@ async function main() {
 ### Example 2: Power Supply Control (Serial)
 
 ```typescript
-import { ResourceManager } from 'visa-ts';
+import { createResourceManager } from 'visa-ts';
 
 async function main() {
-  const rm = new ResourceManager();
+  const rm = createResourceManager();
 
   const result = await rm.openResource('ASRL/dev/ttyUSB0::INSTR', {
     timeout: 3000,
@@ -630,10 +637,10 @@ async function main() {
 ### Example 3: Oscilloscope Waveform Capture (USB with Binary)
 
 ```typescript
-import { ResourceManager, ScpiParser } from 'visa-ts';
+import { createResourceManager, ScpiParser } from 'visa-ts';
 
 async function main() {
-  const rm = new ResourceManager();
+  const rm = createResourceManager();
 
   const result = await rm.openResource(
     'USB0::0x1AB1::0x04CE::DS1ZA123456789::INSTR',
@@ -669,10 +676,10 @@ async function main() {
 ### Example 4: Network Instrument (TCP/IP LXI)
 
 ```typescript
-import { ResourceManager } from 'visa-ts';
+import { createResourceManager } from 'visa-ts';
 
 async function main() {
-  const rm = new ResourceManager();
+  const rm = createResourceManager();
 
   // Connect to instrument at known IP
   const result = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET', {
@@ -708,11 +715,11 @@ async function main() {
 A single ResourceManager handles USB, Serial, AND TCP/IP instruments simultaneously.
 
 ```typescript
-import { ResourceManager } from 'visa-ts';
+import { createResourceManager } from 'visa-ts';
 
 async function main() {
   // ONE ResourceManager for ALL transports
-  const rm = new ResourceManager();
+  const rm = createResourceManager();
 
   // Discover what's available (USB + Serial)
   const allResources = await rm.listResources();
@@ -850,40 +857,44 @@ async function queryWithRetry(
 }
 ```
 
-### Instrument Wrapper Class
+### Instrument Wrapper Factory
 
 ```typescript
-import { ResourceManager, MessageBasedResource, unwrap } from 'visa-ts';
+import { createResourceManager, MessageBasedResource, unwrap } from 'visa-ts';
 
-class Multimeter {
-  constructor(private instr: MessageBasedResource) {}
+interface Multimeter {
+  measureVoltage(range?: 'AUTO' | number): Promise<number>;
+  measureCurrent(range?: 'AUTO' | number): Promise<number>;
+  close(): Promise<void>;
+}
 
-  static async connect(resourceString: string): Promise<Multimeter> {
-    const rm = new ResourceManager();
-    const instr = unwrap(await rm.openResource(resourceString));
-    return new Multimeter(instr);
-  }
+async function createMultimeter(resourceString: string): Promise<Multimeter> {
+  const rm = createResourceManager();
+  const instr = unwrap(await rm.openResource(resourceString));
 
-  async measureVoltage(range: 'AUTO' | number = 'AUTO'): Promise<number> {
-    if (range !== 'AUTO') {
-      await this.instr.write(`:SENS:VOLT:DC:RANG ${range}`);
-    }
-    const result = unwrap(await this.instr.query(':MEAS:VOLT:DC?'));
-    return parseFloat(result);
-  }
+  return {
+    async measureVoltage(range: 'AUTO' | number = 'AUTO'): Promise<number> {
+      if (range !== 'AUTO') {
+        await instr.write(`:SENS:VOLT:DC:RANG ${range}`);
+      }
+      const result = unwrap(await instr.query(':MEAS:VOLT:DC?'));
+      return parseFloat(result);
+    },
 
-  async measureCurrent(range: 'AUTO' | number = 'AUTO'): Promise<number> {
-    const result = unwrap(await this.instr.query(':MEAS:CURR:DC?'));
-    return parseFloat(result);
-  }
+    async measureCurrent(range: 'AUTO' | number = 'AUTO'): Promise<number> {
+      const result = unwrap(await instr.query(':MEAS:CURR:DC?'));
+      return parseFloat(result);
+    },
 
-  async close(): Promise<void> {
-    await this.instr.close();
-  }
+    async close(): Promise<void> {
+      await instr.close();
+      await rm.close();
+    },
+  };
 }
 
 // Usage
-const dmm = await Multimeter.connect('USB0::0x1234::0x5678::SN123::INSTR');
+const dmm = await createMultimeter('USB0::0x1234::0x5678::SN123::INSTR');
 console.log('Voltage:', await dmm.measureVoltage());
 await dmm.close();
 ```
@@ -894,8 +905,9 @@ await dmm.close();
 
 ```typescript
 // Main entry point
-export { ResourceManager } from './resource-manager';
-export { MessageBasedResource } from './resources/message-based';
+export { createResourceManager } from './resource-manager';
+export type { ResourceManager } from './resource-manager';
+export type { MessageBasedResource } from './resources/message-based';
 
 // Result type and helpers
 export { Result, Ok, Err, isOk, isErr, unwrap, unwrapOr, unwrapOrElse, map, mapErr } from './result';
