@@ -924,7 +924,24 @@ interface SessionManagerOptions {
 
   /** Auto-reconnect on disconnect (default: true) */
   autoReconnect?: boolean;
+
+  /**
+   * Filter which devices to connect to. Can be:
+   * - VISA pattern string: 'USB?*::INSTR', 'ASRL?*::INSTR'
+   * - RegExp: /^USB.*0x1AB1/
+   * - Function: (resourceString, info?) => boolean
+   * - Array of patterns: ['USB?*::INSTR', 'TCPIP?*::INSTR']
+   *
+   * Default: undefined (connect to all discovered devices)
+   */
+  filter?: ResourceFilter;
 }
+
+type ResourceFilter =
+  | string                                           // VISA pattern
+  | RegExp                                           // RegExp match
+  | ((resourceString: string, info?: ResourceInfo) => boolean)  // Custom function
+  | string[];                                        // Array of VISA patterns
 
 interface SessionManager {
   /** Start scanning and managing sessions */
@@ -988,10 +1005,38 @@ interface DeviceSession {
 ```typescript
 import { createSessionManager } from 'visa-ts/sessions';
 
+// Connect to ALL discovered devices
+const manager = createSessionManager();
+
+// Only USB devices
+const usbOnly = createSessionManager({
+  filter: 'USB?*::INSTR',
+});
+
+// Only Rigol devices (by vendor ID)
+const rigolOnly = createSessionManager({
+  filter: /^USB.*0x1AB1/,
+});
+
+// USB and TCP/IP, but not serial
+const noSerial = createSessionManager({
+  filter: ['USB?*::INSTR', 'TCPIP?*::SOCKET'],
+});
+
+// Custom logic - only devices with specific serial numbers
+const specificDevices = createSessionManager({
+  filter: (resourceString, info) => {
+    const allowed = ['DS1ZA123', 'DL3A456'];
+    return info?.serialNumber ? allowed.includes(info.serialNumber) : false;
+  },
+});
+
+// Full options example
 const manager = createSessionManager({
   scanInterval: 5000,
   pollInterval: 250,
   autoReconnect: true,
+  filter: 'USB?*::INSTR',
 });
 
 // React to devices connecting/disconnecting
@@ -1056,7 +1101,13 @@ export { Result, Ok, Err, isOk, isErr, unwrap, unwrapOr, unwrapOrElse, map, mapE
 
 // Session management (visa-ts/sessions) — optional
 export { createSessionManager } from './sessions/session-manager';
-export type { SessionManager, SessionManagerOptions, DeviceSession, SessionState } from './sessions/types';
+export type {
+  SessionManager,
+  SessionManagerOptions,
+  DeviceSession,
+  SessionState,
+  ResourceFilter,
+} from './sessions/types';
 
 // Types
 export type {
