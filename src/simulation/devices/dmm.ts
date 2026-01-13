@@ -32,6 +32,9 @@ function parseFunction(match: RegExpMatchArray): string {
 
 /**
  * Parse range value from command (can be AUTO or numeric).
+ *
+ * Returns 'AUTO' normalized to uppercase, but preserves numeric values as-is
+ * to maintain user-specified precision (e.g., '10' stays as '10', not '10.000').
  */
 function parseRange(match: RegExpMatchArray): string {
   const val = (match[1] ?? '').toUpperCase();

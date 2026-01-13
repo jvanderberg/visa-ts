@@ -194,4 +194,37 @@ describe('simulatedOscilloscope', () => {
       expect(result.value).toBe('1');
     });
   });
+
+  describe('validation', () => {
+    it('rejects invalid vertical scale values', async () => {
+      // Scale must be between 0.001 and 10
+      const result = await transport.write('CHAN1:SCAL 100');
+      expect(result.ok).toBe(true); // Command is accepted
+
+      // Query should still return the previous valid value
+      const scaleResult = await transport.query('CHAN1:SCAL?');
+      expect(scaleResult.ok).toBe(true);
+      expect(scaleResult.value).toBe('1.000'); // Default, not 100
+    });
+
+    it('rejects invalid trigger level values', async () => {
+      // Trigger level must be between -100 and 100
+      const result = await transport.write('TRIG:LEV 200');
+      expect(result.ok).toBe(true);
+
+      // Query should still return the previous valid value
+      const levelResult = await transport.query('TRIG:LEV?');
+      expect(levelResult.ok).toBe(true);
+      expect(levelResult.value).toBe('0.000'); // Default, not 200
+    });
+
+    it('handles case-insensitive commands', async () => {
+      const result1 = await transport.write('chan1:scal 2.0');
+      expect(result1.ok).toBe(true);
+
+      const result2 = await transport.query('CHAN1:SCAL?');
+      expect(result2.ok).toBe(true);
+      expect(result2.value).toBe('2.000');
+    });
+  });
 });
