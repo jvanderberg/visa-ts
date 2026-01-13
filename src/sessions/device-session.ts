@@ -231,7 +231,9 @@ export function createDeviceSession(config: DeviceSessionConfig): DeviceSessionI
     isProcessing = true;
 
     while (taskQueue.length > 0) {
-      const task = taskQueue.shift()!;
+      const task = taskQueue.shift();
+      // Defensive check - should never be undefined after length > 0 check
+      if (!task) continue;
       const result = await executeTask(task);
       task.resolve(result);
     }
@@ -240,7 +242,7 @@ export function createDeviceSession(config: DeviceSessionConfig): DeviceSessionI
   }
 
   async function executeTask<T>(task: QueuedTask<T>): Promise<Result<T, Error>> {
-    let timeoutId: ReturnType<typeof setTimeout>;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     let timedOut = false;
 
     const timeoutPromise = new Promise<Result<T, Error>>((resolve) => {
@@ -288,7 +290,9 @@ export function createDeviceSession(config: DeviceSessionConfig): DeviceSessionI
     try {
       return await Promise.race([taskPromise, timeoutPromise]);
     } finally {
-      clearTimeout(timeoutId!);
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+      }
     }
   }
 

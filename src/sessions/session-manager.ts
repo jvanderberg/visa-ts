@@ -200,10 +200,12 @@ export function createSessionManager(config: SessionManagerConfig): SessionManag
     },
 
     on(event: string, handler: EventHandler): void {
-      if (!eventHandlers.has(event)) {
-        eventHandlers.set(event, new Set());
+      let handlers = eventHandlers.get(event);
+      if (!handlers) {
+        handlers = new Set();
+        eventHandlers.set(event, handlers);
       }
-      eventHandlers.get(event)!.add(handler);
+      handlers.add(handler);
     },
 
     off(event: string, handler: EventHandler): void {

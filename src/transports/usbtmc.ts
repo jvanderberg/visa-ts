@@ -160,12 +160,14 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
   }
 
   async function bulkOut(data: Buffer): Promise<Result<void, Error>> {
-    if (!outEndpoint) {
+    // Capture endpoint in local const for type narrowing
+    const endpoint = outEndpoint;
+    if (!endpoint) {
       return Err(new Error('No output endpoint'));
     }
 
     return new Promise((resolve) => {
-      outEndpoint!.transfer(data, (err) => {
+      endpoint.transfer(data, (err) => {
         if (err) {
           resolve(Err(err));
         } else {
@@ -176,7 +178,9 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
   }
 
   async function bulkIn(size: number): Promise<Result<Buffer, Error>> {
-    if (!inEndpoint) {
+    // Capture endpoint in local const for type narrowing
+    const endpoint = inEndpoint;
+    if (!endpoint) {
       return Err(new Error('No input endpoint'));
     }
 
@@ -185,7 +189,7 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
         resolve(Err(new Error(`Read timeout after ${timeout}ms`)));
       }, timeout);
 
-      inEndpoint!.transfer(size, (err, data) => {
+      endpoint.transfer(size, (err, data) => {
         clearTimeout(timeoutId);
         if (err) {
           if (err.message.includes('TIMED_OUT')) {
@@ -208,12 +212,14 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
     wIndex: number,
     length: number
   ): Promise<Result<Buffer, Error>> {
-    if (!device) {
+    // Capture device in local const for type narrowing
+    const activeDevice = device;
+    if (!activeDevice) {
       return Err(new Error('Device not open'));
     }
 
     return new Promise((resolve) => {
-      device!.controlTransfer(
+      activeDevice.controlTransfer(
         USB_REQUEST_TYPE_IN,
         bRequest,
         wValue,
@@ -308,16 +314,22 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
           );
         }
 
+        // Capture device in local const for type narrowing in callbacks
+        const foundDevice = device;
+
         // Check serial number if specified
         if (config.serialNumber) {
           const serialResult = await new Promise<Result<string, Error>>((resolve) => {
-            device!.getStringDescriptor(device!.deviceDescriptor.iSerialNumber, (err, str) => {
-              if (err) {
-                resolve(Err(err));
-              } else {
-                resolve(Ok(str ?? ''));
+            foundDevice.getStringDescriptor(
+              foundDevice.deviceDescriptor.iSerialNumber,
+              (err, str) => {
+                if (err) {
+                  resolve(Err(err));
+                } else {
+                  resolve(Ok(str ?? ''));
+                }
               }
-            });
+            );
           });
 
           if (!serialResult.ok) {

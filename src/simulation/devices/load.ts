@@ -86,32 +86,52 @@ function parseMode(match: RegExpMatchArray): LoadMode {
   return 'CC';
 }
 
+// Helper type for Property value (matches Property<T> default type)
+type PropertyValue = number | string | boolean;
+
 /**
  * Format a number with 3 decimal places.
+ *
+ * Note: Type signature uses PropertyValue for compatibility with Property<T> interface,
+ * but this function is designed for numeric properties only. The cast is safe when
+ * used exclusively with number-typed property definitions.
  */
-function formatValue(value: number | string | boolean): string {
+function formatNumber(value: PropertyValue): string {
+  // Safe cast: This function is only used with numeric properties
   return (value as number).toFixed(3);
 }
 
 /**
- * Format input state as ON/OFF.
+ * Format boolean input state as ON/OFF.
  */
-function formatInputState(value: number | string | boolean): string {
+function formatInputState(value: PropertyValue): string {
   return value ? 'ON' : 'OFF';
 }
 
 /**
- * Format mode.
+ * Format mode string value.
+ *
+ * Note: Type signature uses PropertyValue for compatibility with Property<T> interface,
+ * but this function is designed for string properties only.
  */
-function formatMode(value: number | string | boolean): string {
+function formatMode(value: PropertyValue): string {
+  // Safe cast: This function is only used with string mode properties
   return value as string;
 }
 
 /**
- * Validate a numeric value is within range.
+ * Create a validator for numeric values within a range.
+ *
+ * Note: Type signature uses PropertyValue for compatibility with Property<T> interface,
+ * but this function is designed for numeric properties only. The cast is safe when
+ * used exclusively with number-typed property definitions.
  */
-function validateRange(min: number, max: number): (value: number | string | boolean) => boolean {
-  return (v) => (v as number) >= min && (v as number) <= max;
+function validateRange(min: number, max: number): (value: PropertyValue) => boolean {
+  // Safe cast: This validator is only used with numeric properties
+  return (v) => {
+    const num = v as number;
+    return num >= min && num <= max;
+  };
 }
 
 /**
@@ -149,7 +169,7 @@ export const simulatedLoad: SimulatedDevice = {
       default: 0,
       getter: {
         pattern: 'MEAS:VOLT?',
-        format: formatValue,
+        format: formatNumber,
       },
     },
 
@@ -157,7 +177,7 @@ export const simulatedLoad: SimulatedDevice = {
       default: 0,
       getter: {
         pattern: 'MEAS:CURR?',
-        format: formatValue,
+        format: formatNumber,
       },
     },
 
@@ -165,7 +185,7 @@ export const simulatedLoad: SimulatedDevice = {
       default: 0,
       getter: {
         pattern: 'MEAS:POW?',
-        format: formatValue,
+        format: formatNumber,
       },
     },
 
@@ -200,7 +220,7 @@ export const simulatedLoad: SimulatedDevice = {
       default: 0,
       getter: {
         pattern: 'CURR?',
-        format: formatValue,
+        format: formatNumber,
       },
       setter: {
         pattern: /^CURR\s+([\d.]+)$/,
@@ -214,7 +234,7 @@ export const simulatedLoad: SimulatedDevice = {
       default: 0,
       getter: {
         pattern: 'VOLT?',
-        format: formatValue,
+        format: formatNumber,
       },
       setter: {
         pattern: /^VOLT\s+([\d.]+)$/,
@@ -228,7 +248,7 @@ export const simulatedLoad: SimulatedDevice = {
       default: DEFAULT_RESISTANCE,
       getter: {
         pattern: 'RES?',
-        format: formatValue,
+        format: formatNumber,
       },
       setter: {
         pattern: /^RES\s+([\d.]+)$/,
@@ -242,7 +262,7 @@ export const simulatedLoad: SimulatedDevice = {
       default: 0,
       getter: {
         pattern: 'POW?',
-        format: formatValue,
+        format: formatNumber,
       },
       setter: {
         pattern: /^POW\s+([\d.]+)$/,
@@ -256,7 +276,7 @@ export const simulatedLoad: SimulatedDevice = {
       default: DEFAULT_SLEW_RATE,
       getter: {
         pattern: 'CURR:SLEW?',
-        format: formatValue,
+        format: formatNumber,
       },
       setter: {
         pattern: /^CURR:SLEW\s+([\d.]+)$/,

@@ -289,7 +289,9 @@ export function createSerialTransport(config: SerialTransportConfig): SerialTran
     },
 
     async close(): Promise<Result<void, Error>> {
-      if (state === 'closed' || !port) {
+      // Capture port in local const for type narrowing
+      const activePort = port;
+      if (state === 'closed' || !activePort) {
         state = 'closed';
         return Ok(undefined);
       }
@@ -297,7 +299,7 @@ export function createSerialTransport(config: SerialTransportConfig): SerialTran
       state = 'closing';
 
       return new Promise((resolve) => {
-        port!.close((err) => {
+        activePort.close((err) => {
           if (err) {
             state = 'error';
             resolve(Err(err));
@@ -311,7 +313,9 @@ export function createSerialTransport(config: SerialTransportConfig): SerialTran
     },
 
     async write(data: string): Promise<Result<void, Error>> {
-      if (state !== 'open' || !port) {
+      // Capture port in local const for type narrowing
+      const activePort = port;
+      if (state !== 'open' || !activePort) {
         return Err(new Error('Transport is not open'));
       }
 
@@ -319,7 +323,7 @@ export function createSerialTransport(config: SerialTransportConfig): SerialTran
       await delay(commandDelay);
 
       return new Promise((resolve) => {
-        port!.write(data + writeTermination, (err) => {
+        activePort.write(data + writeTermination, (err) => {
           if (err) {
             resolve(Err(err));
           } else {
@@ -389,12 +393,14 @@ export function createSerialTransport(config: SerialTransportConfig): SerialTran
     },
 
     async writeRaw(data: Buffer): Promise<Result<number, Error>> {
-      if (state !== 'open' || !port) {
+      // Capture port in local const for type narrowing
+      const activePort = port;
+      if (state !== 'open' || !activePort) {
         return Err(new Error('Transport is not open'));
       }
 
       return new Promise((resolve) => {
-        port!.write(data, (err) => {
+        activePort.write(data, (err) => {
           if (err) {
             resolve(Err(err));
           } else {
@@ -478,14 +484,16 @@ export function createSerialTransport(config: SerialTransportConfig): SerialTran
     },
 
     async clear(): Promise<Result<void, Error>> {
-      if (state !== 'open' || !port) {
+      // Capture port in local const for type narrowing
+      const activePort = port;
+      if (state !== 'open' || !activePort) {
         return Err(new Error('Transport is not open'));
       }
 
       readBuffer = Buffer.alloc(0);
 
       return new Promise((resolve) => {
-        port!.flush((err) => {
+        activePort.flush((err) => {
           if (err) {
             resolve(Err(err));
           } else {

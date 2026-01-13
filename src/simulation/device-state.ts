@@ -81,6 +81,8 @@ export function createDeviceState(properties: Record<string, Property>): DeviceS
       if (!(name in values)) {
         return undefined;
       }
+      // Type assertion is necessary for dynamic property access.
+      // Callers are responsible for using the correct T that matches the property definition.
       return values[name] as T;
     },
 
@@ -93,6 +95,8 @@ export function createDeviceState(properties: Record<string, Property>): DeviceS
 
       // Validate if validator exists
       if (prop.validate) {
+        // Type assertion needed because Property.validate expects the property's T type,
+        // but we receive a generic T from the caller. Runtime validation ensures type safety.
         const isValid = prop.validate(value as never);
         if (!isValid) {
           return Err(new Error(`Property validation failed for: ${name}`));

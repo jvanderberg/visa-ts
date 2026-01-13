@@ -35,6 +35,32 @@ export interface CommandHandler {
 }
 
 /**
+ * Create a RegExpMatchArray-compatible result for string matches.
+ *
+ * This creates an object structurally identical to what String.prototype.match() returns.
+ * The type assertion is safe because we're constructing exactly what RegExpMatchArray requires:
+ * - An array with the matched string at index 0
+ * - index: position of match (0 for full string)
+ * - input: the original input string
+ * - groups: undefined (no named capture groups)
+ *
+ * @param command - The matched command string
+ * @returns A properly typed match array
+ */
+function createStringMatchResult(command: string): RegExpMatchArray {
+  const result: string[] & { index: number; input: string; groups: undefined } = Object.assign(
+    [command],
+    {
+      index: 0,
+      input: command,
+      groups: undefined,
+    }
+  );
+  // Safe cast: result has exactly the structure of RegExpMatchArray
+  return result as unknown as RegExpMatchArray;
+}
+
+/**
  * Try to match a command against a string or RegExp pattern.
  *
  * @param command - Command to match
@@ -45,11 +71,7 @@ function matchPattern(command: string, pattern: string | RegExp): RegExpMatchArr
   if (typeof pattern === 'string') {
     // Exact string match
     if (command === pattern) {
-      // Create a match array for consistency
-      const match = [command] as RegExpMatchArray;
-      match.index = 0;
-      match.input = command;
-      return match;
+      return createStringMatchResult(command);
     }
     return null;
   } else {

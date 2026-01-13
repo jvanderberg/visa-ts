@@ -8,3 +8,5 @@
 
 export { simulatedPsu } from './psu.js';
 export { simulatedLoad } from './load.js';
+export { simulatedOscilloscope } from './oscilloscope.js';
+export { simulatedDmm } from './dmm.js';

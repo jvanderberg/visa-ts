@@ -15,7 +15,6 @@ import type {
   TCPIPOptions,
   USBTMCOptions,
   OpenOptions,
-  ParsedSimulationResource,
 } from './types.js';
 import type { SimulatedDevice } from './simulation/index.js';
 import type { Result } from './result.js';
@@ -209,14 +208,17 @@ export function createResourceManager(): ResourceManager {
 
       switch (parsed.interfaceType) {
         case 'TCPIP': {
+          // Type narrowing: parsed is ParsedTCPIPSocketResource | ParsedTCPIPInstrResource
           if (parsed.resourceClass === 'INSTR') {
             return Err(new Error('VXI-11 (TCPIP INSTR) is not supported. Use SOCKET instead.'));
           }
-          const tcpipParsed = parsed as { host: string; port: number };
+          // After the INSTR check, parsed is effectively ParsedTCPIPSocketResource
+          // but TypeScript can't narrow this automatically, so we use a type assertion
+          const socketParsed = parsed as { host: string; port: number };
           const tcpipOptions = openOptions?.transport as TCPIPOptions | undefined;
           transport = createTcpipTransport({
-            host: tcpipParsed.host,
-            port: tcpipParsed.port,
+            host: socketParsed.host,
+            port: socketParsed.port,
             timeout: openOptions?.timeout,
             readTermination: openOptions?.readTermination,
             writeTermination: openOptions?.writeTermination,
@@ -227,21 +229,21 @@ export function createResourceManager(): ResourceManager {
           resourceInfo = {
             resourceString,
             interfaceType: 'TCPIP',
-            host: tcpipParsed.host,
-            port: tcpipParsed.port,
+            host: socketParsed.host,
+            port: socketParsed.port,
           } as TCPIPResourceInfo;
           break;
         }
 
         case 'ASRL': {
-          const serialParsed = parsed as { portPath: string };
+          // Type narrowing: parsed is ParsedSerialResource here
           const serialOptions = openOptions?.transport as SerialOptions | undefined;
 
           let baudRate = serialOptions?.baudRate;
 
           // Auto-baud detection if enabled
           if (serialOptions?.autoBaud?.enabled) {
-            const probeResult = await probeSerialPort(serialParsed.portPath, {
+            const probeResult = await probeSerialPort(parsed.portPath, {
               baudRates: serialOptions.autoBaud.baudRates,
               probeCommand: serialOptions.autoBaud.probeCommand,
               probeTimeout: serialOptions.autoBaud.probeTimeout,
@@ -260,7 +262,7 @@ export function createResourceManager(): ResourceManager {
           }
 
           transport = createSerialTransport({
-            path: serialParsed.portPath,
+            path: parsed.portPath,
             timeout: openOptions?.timeout,
             readTermination: openOptions?.readTermination,
             writeTermination: openOptions?.writeTermination,
@@ -274,22 +276,18 @@ export function createResourceManager(): ResourceManager {
           resourceInfo = {
             resourceString,
             interfaceType: 'ASRL',
-            portPath: serialParsed.portPath,
+            portPath: parsed.portPath,
           } as SerialResourceInfo;
           break;
         }
 
         case 'USB': {
-          const usbParsed = parsed as {
-            vendorId: number;
-            productId: number;
-            serialNumber?: string;
-          };
+          // Type narrowing: parsed is ParsedUSBResource here
           const usbOptions = openOptions?.transport as USBTMCOptions | undefined;
           transport = createUsbtmcTransport({
-            vendorId: usbParsed.vendorId,
-            productId: usbParsed.productId,
-            serialNumber: usbParsed.serialNumber,
+            vendorId: parsed.vendorId,
+            productId: parsed.productId,
+            serialNumber: parsed.serialNumber,
             timeout: openOptions?.timeout,
             readTermination: openOptions?.readTermination,
             writeTermination: openOptions?.writeTermination,
@@ -298,22 +296,22 @@ export function createResourceManager(): ResourceManager {
           resourceInfo = {
             resourceString,
             interfaceType: 'USB',
-            vendorId: usbParsed.vendorId,
-            productId: usbParsed.productId,
-            serialNumber: usbParsed.serialNumber,
+            vendorId: parsed.vendorId,
+            productId: parsed.productId,
+            serialNumber: parsed.serialNumber,
             usbClass: 0xfe,
           } as USBResourceInfo;
           break;
         }
 
         case 'SIM': {
-          const simParsed = parsed as ParsedSimulationResource;
-          const device = simulatedDevices.get(simParsed.deviceType);
+          // Type narrowing: parsed is ParsedSimulationResource here
+          const device = simulatedDevices.get(parsed.deviceType);
           if (!device) {
             const available = [...simulatedDevices.keys()];
             return Err(
               new Error(
-                `Unknown simulated device type: ${simParsed.deviceType}. ` +
+                `Unknown simulated device type: ${parsed.deviceType}. ` +
                   (available.length > 0
                     ? `Available: ${available.join(', ')}`
                     : 'No simulated devices registered. Use rm.registerSimulatedDevice() first.')
@@ -324,14 +322,20 @@ export function createResourceManager(): ResourceManager {
           resourceInfo = {
             resourceString,
             interfaceType: 'SIM',
-            deviceType: simParsed.deviceType,
+            deviceType: parsed.deviceType,
           } as SimulationResourceInfo;
           break;
         }
 
         default: {
-          const unsupportedType: string = (parsed as { interfaceType: string }).interfaceType;
-          return Err(new Error(`Unsupported interface type: ${unsupportedType}`));
+          // This should be unreachable if all interface types are handled above.
+          // The cast is needed because TypeScript narrows parsed to 'never' here.
+          const exhaustiveCheck: never = parsed;
+          return Err(
+            new Error(
+              `Unsupported interface type: ${(exhaustiveCheck as { interfaceType: string }).interfaceType}`
+            )
+          );
         }
       }
 

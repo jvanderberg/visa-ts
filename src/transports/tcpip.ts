@@ -249,13 +249,21 @@ export function createTcpipTransport(config: TcpipTransportConfig): TcpipTranspo
           clearTimeout(connectTimeoutId);
           state = 'open';
 
-          if (socket && keepAlive) {
-            socket.setKeepAlive(true, keepAliveInterval);
+          // Capture socket in local const for type narrowing
+          const connectedSocket = socket;
+          if (!connectedSocket) {
+            state = 'error';
+            resolve(Err(new Error('Socket unexpectedly null after connect')));
+            return;
           }
 
-          socket!.on('data', handleData);
-          socket!.on('close', handleClose);
-          socket!.on('error', handleError);
+          if (keepAlive) {
+            connectedSocket.setKeepAlive(true, keepAliveInterval);
+          }
+
+          connectedSocket.on('data', handleData);
+          connectedSocket.on('close', handleClose);
+          connectedSocket.on('error', handleError);
 
           resolve(Ok(undefined));
         });
@@ -286,7 +294,9 @@ export function createTcpipTransport(config: TcpipTransportConfig): TcpipTranspo
     },
 
     async close(): Promise<Result<void, Error>> {
-      if (state === 'closed' || !socket) {
+      // Capture socket in local const for type narrowing
+      const activeSocket = socket;
+      if (state === 'closed' || !activeSocket) {
         state = 'closed';
         return Ok(undefined);
       }
@@ -294,7 +304,7 @@ export function createTcpipTransport(config: TcpipTransportConfig): TcpipTranspo
       state = 'closing';
 
       return new Promise((resolve) => {
-        socket!.end(() => {
+        activeSocket.end(() => {
           state = 'closed';
           socket = null;
           resolve(Ok(undefined));
@@ -303,12 +313,14 @@ export function createTcpipTransport(config: TcpipTransportConfig): TcpipTranspo
     },
 
     async write(data: string): Promise<Result<void, Error>> {
-      if (state !== 'open' || !socket) {
+      // Capture socket in local const for type narrowing
+      const activeSocket = socket;
+      if (state !== 'open' || !activeSocket) {
         return Err(new Error('Transport is not open'));
       }
 
       return new Promise((resolve) => {
-        socket!.write(data + writeTermination, (err) => {
+        activeSocket.write(data + writeTermination, (err) => {
           if (err) {
             resolve(Err(err));
           } else {
@@ -378,12 +390,14 @@ export function createTcpipTransport(config: TcpipTransportConfig): TcpipTranspo
     },
 
     async writeRaw(data: Buffer): Promise<Result<number, Error>> {
-      if (state !== 'open' || !socket) {
+      // Capture socket in local const for type narrowing
+      const activeSocket = socket;
+      if (state !== 'open' || !activeSocket) {
         return Err(new Error('Transport is not open'));
       }
 
       return new Promise((resolve) => {
-        socket!.write(data, (err) => {
+        activeSocket.write(data, (err) => {
           if (err) {
             resolve(Err(err));
           } else {

@@ -27,4 +27,9 @@ export { createCommandHandler } from './command-handler.js';
 export type { CommandHandler } from './command-handler.js';
 
 // Example devices
-export { simulatedPsu, simulatedLoad } from './devices/index.js';
+export {
+  simulatedPsu,
+  simulatedLoad,
+  simulatedOscilloscope,
+  simulatedDmm,
+} from './devices/index.js';

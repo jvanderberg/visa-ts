@@ -40,6 +40,7 @@ export default [
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/await-thenable': 'error',
       '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/no-non-null-assertion': 'error',
 
       // Enforce no-throw policy
       'no-throw-literal': 'error',
@@ -68,6 +69,7 @@ export default [
     rules: {
       // Relax some rules for tests
       '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-non-null-assertion': 'off',
     },
   },
   {

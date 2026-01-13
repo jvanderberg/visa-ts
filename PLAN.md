@@ -310,8 +310,8 @@ Add stricter lint rules:
 
 - [x] Add `simulatedPsu` - DC power supply simulation
 - [x] Add `simulatedLoad` - Electronic load simulation
-- [ ] Add example oscilloscope device (Rigol DS1054Z pattern)
-- [ ] Add example DMM device
+- [x] Add `simulatedOscilloscope` - Digital oscilloscope simulation
+- [x] Add `simulatedDmm` - Digital multimeter simulation
 
 ### Phase 10: Circuit Simulation
 
@@ -492,4 +492,4 @@ const actualCurrent = await psu.transport.query('MEAS:CURR?');
 - [x] Phase 7: Session Management (SessionManager, DeviceSession with polling)
 - [x] Auto-baud detection for serial ports (probeSerialPort utility)
 - [x] Phase 8: Simulation Backend (typed device definitions, pattern matching, stateful properties)
-- [ ] Phase 9: Code Quality Cleanup
+- [x] Phase 9: Code Quality Cleanup (ESLint no-non-null-assertion, removed type assertions, oscilloscope/DMM devices)
