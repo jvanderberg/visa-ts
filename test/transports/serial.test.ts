@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createSerialTransport, type SerialTransportConfig } from '../../src/transports/serial.js';
 
 interface ErrnoException extends Error {
   code?: string;
@@ -18,11 +17,17 @@ interface MockSerialPort {
   path: string;
 }
 
-describe('Serial Transport', () => {
-  let mockPort: MockSerialPort;
-  let eventHandlers: Record<string, (...args: unknown[]) => void>;
-  let MockSerialPortClass: ReturnType<typeof vi.fn>;
+let mockPort: MockSerialPort;
+let eventHandlers: Record<string, (...args: unknown[]) => void>;
 
+vi.mock('serialport', () => ({
+  SerialPort: vi.fn(() => mockPort),
+}));
+
+import { createSerialTransport, type SerialTransportConfig } from '../../src/transports/serial.js';
+import { SerialPort } from 'serialport';
+
+describe('Serial Transport', () => {
   beforeEach(() => {
     eventHandlers = {};
     mockPort = {
@@ -56,18 +61,17 @@ describe('Serial Transport', () => {
       path: '/dev/ttyUSB0',
     };
 
-    MockSerialPortClass = vi.fn(() => mockPort);
+    vi.mocked(SerialPort).mockImplementation(() => mockPort as unknown as SerialPort);
   });
 
   afterEach(() => {
     vi.clearAllMocks();
   });
 
-  // Helper to create config with mock class
+  // Helper to create config
   function createConfig(overrides: Partial<SerialTransportConfig> = {}): SerialTransportConfig {
     return {
       path: '/dev/ttyUSB0',
-      _serialPortClass: MockSerialPortClass as unknown as SerialTransportConfig['_serialPortClass'],
       ...overrides,
     };
   }
@@ -114,7 +118,7 @@ describe('Serial Transport', () => {
       expect(result.ok).toBe(true);
       expect(transport.state).toBe('open');
       expect(transport.isOpen).toBe(true);
-      expect(MockSerialPortClass).toHaveBeenCalledWith(
+      expect(SerialPort).toHaveBeenCalledWith(
         expect.objectContaining({
           path: '/dev/ttyUSB0',
           baudRate: 9600,
@@ -134,7 +138,7 @@ describe('Serial Transport', () => {
 
       await transport.open();
 
-      expect(MockSerialPortClass).toHaveBeenCalledWith(
+      expect(SerialPort).toHaveBeenCalledWith(
         expect.objectContaining({
           baudRate: 115200,
           dataBits: 8,
@@ -150,7 +154,7 @@ describe('Serial Transport', () => {
 
       await transport.open();
 
-      expect(MockSerialPortClass).toHaveBeenCalledWith(
+      expect(SerialPort).toHaveBeenCalledWith(
         expect.objectContaining({
           rtscts: true,
         })
@@ -163,7 +167,7 @@ describe('Serial Transport', () => {
 
       await transport.open();
 
-      expect(MockSerialPortClass).toHaveBeenCalledWith(
+      expect(SerialPort).toHaveBeenCalledWith(
         expect.objectContaining({
           xon: true,
           xoff: true,
@@ -177,7 +181,7 @@ describe('Serial Transport', () => {
 
       await transport.open();
 
-      expect(MockSerialPortClass).toHaveBeenCalledWith(
+      expect(SerialPort).toHaveBeenCalledWith(
         expect.objectContaining({
           rtscts: false,
           xon: false,

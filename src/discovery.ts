@@ -4,6 +4,9 @@
  * @packageDocumentation
  */
 
+import { SerialPort } from 'serialport';
+import usb from 'usb';
+
 /**
  * Serial port info from discovery
  */
@@ -20,117 +23,42 @@ export interface UsbDeviceInfo {
   serialNumber?: string;
 }
 
-/**
- * SerialPort-like interface for discovery
- * @internal
- */
-export interface SerialPortModule {
-  list(): Promise<Array<{ path: string }>>;
-}
+/** USB-TMC interface class (Application Specific) */
+const USB_CLASS_APPLICATION_SPECIFIC = 0xfe;
+
+/** USB-TMC interface subclass (Test and Measurement Class) */
+const USB_SUBCLASS_TMC = 0x03;
 
 /**
- * USB interface descriptor
- * @internal
+ * Check if a USB device has a USB-TMC interface.
  */
-export interface UsbInterfaceDescriptor {
-  bInterfaceClass: number;
-  bInterfaceSubClass: number;
-  bInterfaceProtocol: number;
-}
-
-/**
- * USB interface from the usb package
- * @internal
- */
-export interface UsbInterface {
-  descriptor: UsbInterfaceDescriptor;
-}
-
-/**
- * USB configuration from the usb package
- * @internal
- */
-export interface UsbConfiguration {
-  interfaces: UsbInterface[][];
-}
-
-/**
- * USB device type for the usb package
- * @internal
- */
-export interface UsbDevice {
-  deviceDescriptor: {
-    idVendor: number;
-    idProduct: number;
-    bDeviceClass: number;
-    iSerialNumber: number;
-  };
-  configDescriptor?: UsbConfiguration;
-  open(): void;
-  close(): void;
-  getStringDescriptor(
-    index: number,
-    callback: (error: Error | undefined, data?: string) => void
-  ): void;
-}
-
-/**
- * USB module interface for discovery
- * @internal
- */
-export interface UsbModule {
-  getDeviceList(): UsbDevice[];
-}
-
-/**
- * Options for listSerialPorts (for testing)
- * @internal
- */
-export interface ListSerialPortsOptions {
-  /** @internal Injected SerialPort module for testing */
-  _serialPort?: SerialPortModule;
-}
-
-/**
- * Options for listUsbDevices (for testing)
- * @internal
- */
-export interface ListUsbDevicesOptions {
-  /** @internal Injected usb module for testing */
-  _usb?: UsbModule;
-}
-
-/**
- * Default serial port listing implementation.
- * Uses serialport package if available.
- *
- * @param options - Internal options for testing
- */
-export async function listSerialPorts(options?: ListSerialPortsOptions): Promise<SerialPortInfo[]> {
-  try {
-    let SerialPort: SerialPortModule;
-    if (options?._serialPort) {
-      SerialPort = options._serialPort;
-    } else {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      SerialPort = (require('serialport') as { SerialPort: SerialPortModule }).SerialPort;
-    }
-    const ports = await SerialPort.list();
-    return ports.map((p) => ({ path: p.path }));
-  } catch {
-    // serialport not available
-    return [];
+function isTmcDevice(device: usb.Device): boolean {
+  const config = device.configDescriptor;
+  if (!config) {
+    return false;
   }
+
+  for (const iface of config.interfaces) {
+    for (const alt of iface) {
+      if (
+        alt.bInterfaceClass === USB_CLASS_APPLICATION_SPECIFIC &&
+        alt.bInterfaceSubClass === USB_SUBCLASS_TMC
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 /**
  * Get the serial number string from a USB device.
- * Opens the device, reads the descriptor, and closes it.
  */
-export async function getUsbSerialNumber(device: UsbDevice): Promise<string | undefined> {
+function getUsbSerialNumber(device: usb.Device): Promise<string | undefined> {
   const iSerialNumber = device.deviceDescriptor.iSerialNumber;
   if (iSerialNumber === 0) {
-    return undefined;
+    return Promise.resolve(undefined);
   }
 
   return new Promise((resolve) => {
@@ -149,77 +77,37 @@ export async function getUsbSerialNumber(device: UsbDevice): Promise<string | un
         }
       });
     } catch {
-      // Failed to open device - might be in use
       resolve(undefined);
     }
   });
 }
 
-/** USB-TMC interface class (Application Specific) */
-const USB_CLASS_APPLICATION_SPECIFIC = 0xfe;
-
-/** USB-TMC interface subclass (Test and Measurement Class) */
-const USB_SUBCLASS_TMC = 0x03;
-
 /**
- * Check if a USB device has a USB-TMC interface.
- * USB-TMC devices have bInterfaceClass=0xFE and bInterfaceSubClass=0x03.
+ * List available serial ports.
  */
-export function isTmcDevice(device: UsbDevice): boolean {
-  const config = device.configDescriptor;
-  if (!config) {
-    return false;
-  }
-
-  for (const ifaceGroup of config.interfaces) {
-    for (const iface of ifaceGroup) {
-      if (
-        iface.descriptor.bInterfaceClass === USB_CLASS_APPLICATION_SPECIFIC &&
-        iface.descriptor.bInterfaceSubClass === USB_SUBCLASS_TMC
-      ) {
-        return true;
-      }
-    }
-  }
-
-  return false;
+export async function listSerialPorts(): Promise<SerialPortInfo[]> {
+  const ports = await SerialPort.list();
+  return ports.map((p) => ({ path: p.path }));
 }
 
 /**
- * Default USB device listing implementation.
- * Uses usb package if available.
- *
- * @param options - Internal options for testing
+ * List available USB-TMC devices.
  */
-export async function listUsbDevices(options?: ListUsbDevicesOptions): Promise<UsbDeviceInfo[]> {
-  try {
-    let usb: UsbModule;
-    if (options?._usb) {
-      usb = options._usb;
-    } else {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      usb = require('usb') as UsbModule;
+export async function listUsbDevices(): Promise<UsbDeviceInfo[]> {
+  const devices = usb.getDeviceList();
+  const tmcDevices: UsbDeviceInfo[] = [];
+
+  for (const device of devices) {
+    if (isTmcDevice(device)) {
+      const desc = device.deviceDescriptor;
+      const serialNumber = await getUsbSerialNumber(device);
+      tmcDevices.push({
+        vendorId: desc.idVendor,
+        productId: desc.idProduct,
+        serialNumber,
+      });
     }
-
-    const devices = usb.getDeviceList();
-    const tmcDevices: UsbDeviceInfo[] = [];
-
-    // Filter for USB-TMC devices by interface class
-    for (const device of devices) {
-      if (isTmcDevice(device)) {
-        const desc = device.deviceDescriptor;
-        const serialNumber = await getUsbSerialNumber(device);
-        tmcDevices.push({
-          vendorId: desc.idVendor,
-          productId: desc.idProduct,
-          serialNumber,
-        });
-      }
-    }
-
-    return tmcDevices;
-  } catch {
-    // usb not available
-    return [];
   }
+
+  return tmcDevices;
 }

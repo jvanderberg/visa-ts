@@ -66,7 +66,6 @@ export function createResourceManager(): ResourceManager {
 
 /**
  * Create a ResourceManager with injected dependencies (for testing).
- * @internal
  */
 export function createResourceManagerWithDeps(deps: Partial<Dependencies>): ResourceManager {
   const {
