@@ -32,6 +32,15 @@ export interface CommandHandler {
    * @returns DeviceInfo
    */
   getDeviceInfo(): DeviceInfo;
+
+  /**
+   * Directly update device state properties.
+   *
+   * Used by circuit simulation to set measured values.
+   *
+   * @param values - Map of property names to values
+   */
+  updateState(values: Record<string, unknown>): void;
 }
 
 /**
@@ -237,6 +246,15 @@ export function createCommandHandler(device: SimulatedDevice): CommandHandler {
 
     getDeviceInfo(): DeviceInfo {
       return { ...device.device };
+    },
+
+    updateState(values: Record<string, unknown>): void {
+      for (const [name, value] of Object.entries(values)) {
+        // Directly set state without validation (for circuit simulation use)
+        if (state.hasProperty(name)) {
+          state.set(name, value);
+        }
+      }
     },
   };
 }

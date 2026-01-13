@@ -21,6 +21,16 @@ export interface SimulationTransport extends Transport {
     model: string;
     serial: string;
   };
+
+  /**
+   * Update measured values in device state.
+   *
+   * Used by circuit simulation to set values like measuredVoltage,
+   * measuredCurrent based on circuit resolution.
+   *
+   * @param values - Map of property names to values
+   */
+  updateMeasuredValues(values: Record<string, number>): void;
 }
 
 const DEFAULT_TIMEOUT = 2000;
@@ -286,6 +296,10 @@ export function createSimulationTransport(config: SimulationTransportConfig): Si
       // Bit 4 (16) = MAV (Message Available) if there's pending data
       const mav = pendingResponse !== null || pendingBuffer !== null ? 16 : 0;
       return Ok(mav);
+    },
+
+    updateMeasuredValues(values: Record<string, number>): void {
+      handler.updateState(values);
     },
   };
 
