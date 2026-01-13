@@ -245,6 +245,216 @@ const instr = await rm.openResource('USB::0x1AB1::0x04CE::SIM001::INSTR');
 | Validation | Manual if/else | Declarative with `validate` function |
 | Response generation | Template literals | Functions with full flexibility |
 
+### Phase 9: Example Simulated Devices
+
+Built-in device definitions for common instrument types.
+
+| File | Description |
+|------|-------------|
+| `src/simulation/devices/psu.ts` | Simulated DC Power Supply (voltage/current source, OVP/OCP) |
+| `src/simulation/devices/load.ts` | Simulated Electronic Load (CC/CV/CR/CP modes) |
+| `src/simulation/devices/index.ts` | Device exports |
+
+### Phase 10: Circuit Simulation (Bus Architecture)
+
+Enables realistic multi-instrument simulation where devices interact with each other (e.g., PSU supplies current that Load draws). Uses a distributed bus-based architecture where each device owns its own physics.
+
+#### Design Goals
+
+- **Distributed physics** — Each device implements its own behavior, not a central solver
+- **Bus-based communication** — Devices publish/subscribe to shared electrical state
+- **Iterative convergence** — Bus settles when no device needs to change state
+- **Extensible** — New device types just implement `CircuitParticipant`
+- **ResourceManager integration** — Use standard `openResource()` API
+
+#### Core Types
+
+```typescript
+// src/simulation/circuit/types.ts
+
+/** Electrical state on the bus */
+interface BusState {
+  voltage: number;
+  current: number;
+}
+
+/** Interface for devices that participate in circuit simulation */
+interface CircuitParticipant {
+  /**
+   * Called when bus state changes. Device applies its physics/constraints
+   * and returns updated state, or null if no change needed.
+   */
+  onBusUpdate(state: BusState): BusState | null;
+}
+```
+
+#### Bus Implementation
+
+```typescript
+// src/simulation/circuit/bus.ts
+
+interface Bus {
+  /** Current electrical state */
+  state: BusState;
+
+  /** Connected participants */
+  participants: CircuitParticipant[];
+
+  /** Add a participant to the bus */
+  connect(participant: CircuitParticipant): void;
+
+  /** Iterate until stable (no participant changes state) */
+  settle(): void;
+}
+
+function createBus(): Bus;
+```
+
+#### How It Works
+
+The bus uses iterative relaxation — each device applies its constraints until equilibrium:
+
+```
+1. PSU sets output ON at 5V
+   → publishes { voltage: 5, current: 0 }
+
+2. Load sees 5V, in CC mode at 1A
+   → calculates: "at 5V I draw 1A"
+   → publishes { voltage: 5, current: 1 }
+
+3. PSU sees 1A demand, but current limit is 0.5A
+   → calculates: "I need to drop voltage to limit current"
+   → publishes { voltage: ~2.5, current: 0.5 }
+
+4. Load sees new voltage, recalculates
+   → still wants 1A but only 0.5A available
+   → publishes { voltage: 2.5, current: 0.5 }
+
+5. No changes → bus is settled
+```
+
+#### Device Responsibilities
+
+| Device | Behavior |
+|--------|----------|
+| PSU | Publishes voltage setpoint, enforces current limit (CC mode), OVP/OCP trips |
+| Load (CC) | Given voltage, draws constant current up to available |
+| Load (CV) | Draws current to maintain constant voltage |
+| Load (CR) | Draws I = V / R (Ohm's law) |
+| Load (CP) | Draws I = P / V (constant power) |
+| DMM | High impedance, publishes ~0A draw |
+
+#### Extending SimulatedDevice
+
+Currently, `simulatedPsu` and `simulatedLoad` are state stores with command handlers - they don't implement physics. To support circuit simulation, devices need to be extended with a `CircuitParticipant` implementation.
+
+**Option A: Add participant to SimulatedDevice type**
+
+```typescript
+interface SimulatedDevice {
+  device: DeviceInfo;
+  dialogues?: Dialogue[];
+  properties?: Record<string, Property>;
+
+  // NEW: Optional circuit participation
+  participant?: (getState: () => Record<string, unknown>) => CircuitParticipant;
+}
+```
+
+**Option B: Separate participant factory**
+
+```typescript
+// In psu.ts
+export const simulatedPsu: SimulatedDevice = { /* existing */ };
+
+export function createPsuParticipant(
+  getState: () => Record<string, unknown>
+): CircuitParticipant {
+  return {
+    onBusUpdate(bus: BusState): BusState | null {
+      const state = getState();
+      const outputEnabled = state.output as boolean;
+      const voltageSetpoint = state.voltage as number;
+      const currentLimit = state.current as number;
+
+      if (!outputEnabled) {
+        return { voltage: 0, current: 0 };
+      }
+
+      // Enforce current limit
+      if (bus.current > currentLimit) {
+        return { voltage: bus.voltage, current: currentLimit };
+      }
+
+      // Set voltage
+      if (bus.voltage !== voltageSetpoint) {
+        return { voltage: voltageSetpoint, current: bus.current };
+      }
+
+      return null;
+    }
+  };
+}
+```
+
+The circuit factory would then wire up the participant with the device's state.
+
+#### Circuit Factory
+
+```typescript
+// src/simulation/circuit/circuit.ts
+
+interface Circuit {
+  /** Add a device to the circuit */
+  addDevice(id: string, device: SimulatedDevice): Result<CircuitDevice, Error>;
+
+  /** Register all devices with a ResourceManager */
+  registerWith(rm: ResourceManager): void;
+}
+
+function createCircuit(): Circuit;
+```
+
+#### Usage Example
+
+```typescript
+import { createResourceManager, createCircuit, simulatedPsu, simulatedLoad } from 'visa-ts';
+
+const rm = createResourceManager();
+const circuit = createCircuit();
+
+// Add devices to circuit
+circuit.addDevice('psu', simulatedPsu);
+circuit.addDevice('load', simulatedLoad);
+
+// Register with ResourceManager
+circuit.registerWith(rm);
+
+// Use standard API — circuit physics happen transparently
+const psu = await rm.openResource('SIM::PSU::INSTR');
+const load = await rm.openResource('SIM::LOAD::INSTR');
+
+await psu.value.write('VOLT 12');
+await psu.value.write('CURR 2');  // 2A limit
+await psu.value.write('OUTP ON');
+
+await load.value.write('MODE CC');
+await load.value.write('CURR 5');  // Wants 5A
+await load.value.write('INP ON');
+
+// PSU is current-limiting at 2A
+const current = await psu.value.query('MEAS:CURR?');  // "2.000"
+```
+
+#### File Structure
+
+| File | Description |
+|------|-------------|
+| `src/simulation/circuit/types.ts` | BusState, CircuitParticipant interfaces |
+| `src/simulation/circuit/bus.ts` | createBus() factory, settle() logic |
+| `src/simulation/circuit/circuit.ts` | createCircuit() factory, ResourceManager integration |
+| `src/simulation/circuit/index.ts` | Public exports |
+
 ---
 
 ## Testing Strategy
@@ -283,4 +493,6 @@ const instr = await rm.openResource('USB::0x1AB1::0x04CE::SIM001::INSTR');
 - [x] Phase 5: SCPI Utilities (scpi-parser.ts)
 - [x] Phase 7: Session Management (SessionManager, DeviceSession with polling)
 - [x] Auto-baud detection for serial ports (probeSerialPort utility)
-- [ ] Phase 8: Simulation Backend (typed device definitions, pattern matching, stateful properties)
+- [x] Phase 8: Simulation Backend (typed device definitions, pattern matching, stateful properties)
+- [x] Phase 9: Example Simulated Devices (PSU, Electronic Load)
+- [ ] Phase 10: Circuit Simulation (bus-based multi-device physics)

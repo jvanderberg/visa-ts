@@ -13,6 +13,8 @@ This document defines the public API for visa-ts. It serves as the specification
 7. [Usage Examples](#usage-examples)
 8. [Error Handling](#error-handling)
 9. [Advanced Patterns](#advanced-patterns)
+10. [Session Management](#session-management-optional)
+11. [Circuit Simulation](#circuit-simulation)
 
 ---
 
@@ -1188,6 +1190,194 @@ await manager.stop();
 - **Polling is application-defined** — Session provides the infrastructure, app defines what to poll
 - **Queued execution** — `session.execute()` queues commands and handles reconnection
 - **Event-based** — Subscribe to state changes instead of polling session state
+
+---
+
+## Circuit Simulation
+
+Circuit simulation enables multiple simulated instruments to interact with realistic physics. For example, a simulated PSU can supply current to a simulated Load, with the PSU's measured current matching what the Load draws.
+
+### Architecture: Bus-Based Communication
+
+Instead of a central solver that knows about all device types, each device owns its own physics. Devices communicate through a shared **bus** that holds the electrical state (voltage, current).
+
+```
+┌─────────┐         ┌─────────┐         ┌─────────┐
+│   PSU   │◄───────►│   Bus   │◄───────►│  Load   │
+└─────────┘         │  V, I   │         └─────────┘
+                    └─────────┘
+                         ▲
+                         │
+                    ┌─────────┐
+                    │   DMM   │
+                    └─────────┘
+```
+
+### Core Types
+
+```typescript
+/** Electrical state on the bus */
+interface BusState {
+  voltage: number;
+  current: number;
+}
+
+/** Interface for devices that participate in circuit simulation */
+interface CircuitParticipant {
+  /**
+   * Called when bus state changes. Device applies its physics/constraints
+   * and returns updated state, or null if no change needed.
+   */
+  onBusUpdate(state: BusState): BusState | null;
+}
+```
+
+### How Settlement Works
+
+The bus iterates until no device needs to change state:
+
+```typescript
+interface Bus {
+  state: BusState;
+  participants: CircuitParticipant[];
+
+  settle(): void {
+    let changed = true;
+    let iterations = 0;
+    const maxIterations = 100;
+
+    while (changed && iterations < maxIterations) {
+      changed = false;
+      iterations++;
+
+      for (const participant of this.participants) {
+        const newState = participant.onBusUpdate(this.state);
+        if (newState !== null) {
+          this.state = newState;
+          changed = true;
+        }
+      }
+    }
+  }
+}
+```
+
+### Example: PSU Current Limiting
+
+```
+1. PSU output ON at 5V, 0.5A limit
+   → publishes { voltage: 5, current: 0 }
+
+2. Load in CC mode wants 1A
+   → sees 5V, publishes { voltage: 5, current: 1 }
+
+3. PSU sees 1A > 0.5A limit
+   → must reduce voltage to limit current
+   → publishes { voltage: 2.5, current: 0.5 }
+
+4. Load sees 2.5V, still wants 1A but only 0.5A available
+   → accepts { voltage: 2.5, current: 0.5 }
+
+5. Bus settled — no more changes
+```
+
+### Circuit API
+
+```typescript
+interface Circuit {
+  /** Add a device to the circuit */
+  addDevice(id: string, device: SimulatedDevice): Result<CircuitDevice, Error>;
+
+  /** Register all devices with a ResourceManager */
+  registerWith(rm: ResourceManager): void;
+}
+
+function createCircuit(): Circuit;
+```
+
+### Usage Example
+
+```typescript
+import { createResourceManager, createCircuit, simulatedPsu, simulatedLoad } from 'visa-ts';
+
+// Create circuit and add devices
+const rm = createResourceManager();
+const circuit = createCircuit();
+
+circuit.addDevice('psu', simulatedPsu);
+circuit.addDevice('load', simulatedLoad);
+
+// Register with ResourceManager — devices available via standard API
+circuit.registerWith(rm);
+
+// Open instruments normally
+const psuResult = await rm.openResource('SIM::PSU::INSTR');
+const loadResult = await rm.openResource('SIM::LOAD::INSTR');
+
+const psu = psuResult.value;
+const load = loadResult.value;
+
+// Configure PSU
+await psu.write('VOLT 12');
+await psu.write('CURR 2');    // 2A current limit
+await psu.write('OUTP ON');
+
+// Configure Load in constant current mode
+await load.write('MODE CC');
+await load.write('CURR 1.5'); // Draw 1.5A
+await load.write('INP ON');
+
+// Measurements reflect circuit physics
+const psuCurrent = await psu.query('MEAS:CURR?');   // "1.500"
+const loadCurrent = await load.query('MEAS:CURR?'); // "1.500"
+
+// If load demands more than PSU can provide...
+await load.write('CURR 5');  // Want 5A, but PSU limited to 2A
+
+const limitedCurrent = await psu.query('MEAS:CURR?'); // "2.000" (PSU limiting)
+```
+
+### Device Behavior Summary
+
+| Device | `onBusUpdate` Behavior |
+|--------|------------------------|
+| PSU (CV) | Sets voltage to setpoint, enforces current limit |
+| PSU (off) | Returns { voltage: 0, current: 0 } |
+| Load (CC) | At given voltage, draws constant current |
+| Load (CV) | Draws current to maintain constant voltage |
+| Load (CR) | Draws I = V / R (Ohm's law) |
+| Load (CP) | Draws I = P / V (constant power) |
+| Load (off) | Returns null (no change, high impedance) |
+| DMM | Returns { voltage: V, current: ~0 } (high impedance) |
+
+### Implementation Note
+
+The existing `simulatedPsu` and `simulatedLoad` are state stores with command handlers — they don't currently implement physics. To support circuit simulation, devices need to be extended with `CircuitParticipant` implementations that read the device's internal state and apply the appropriate physics.
+
+```typescript
+// Example: PSU participant reads state and applies current limiting
+function createPsuParticipant(getState: () => DeviceState): CircuitParticipant {
+  return {
+    onBusUpdate(bus: BusState): BusState | null {
+      const { voltage, current, output } = getState();
+
+      if (!output) return { voltage: 0, current: 0 };
+      if (bus.current > current) return { voltage: bus.voltage, current };
+      if (bus.voltage !== voltage) return { voltage, current: bus.current };
+
+      return null;
+    }
+  };
+}
+```
+
+### Benefits of Bus Architecture
+
+1. **Decoupled** — Each device only knows its own physics
+2. **Extensible** — Add new device types by implementing `CircuitParticipant`
+3. **Testable** — Test each device's behavior in isolation
+4. **Multi-device** — Multiple loads sum their current draw automatically
+5. **Transparent** — Users interact via standard ResourceManager API
 
 ---
 
