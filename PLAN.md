@@ -126,6 +126,125 @@ visa-ts/
 
 See DESIGN.md for full SessionManager and DeviceSession API.
 
+### Phase 8: Simulation Backend
+
+A TypeScript-native simulation backend for testing without hardware, inspired by PyVISA-sim but using typed interfaces instead of YAML.
+
+#### Design Goals
+
+- **Type-safe device definitions** - TypeScript interfaces, not YAML/JSON strings
+- **Functional response handlers** - Real functions instead of template strings
+- **Stateful properties** - Simulated instrument state with validation
+- **Pattern-based command matching** - String literals or RegExp
+- **Configurable noise/latency** - Realistic measurement simulation
+
+#### Core Types
+
+```typescript
+// src/simulation/types.ts
+interface SimulatedDevice {
+  device: {
+    manufacturer: string;
+    model: string;
+    serial: string;
+  };
+
+  eom?: {
+    query?: string;
+    response?: string;
+  };
+
+  dialogues?: Dialogue[];
+  properties?: Record<string, Property>;
+}
+
+interface Dialogue {
+  q: string | RegExp;
+  r: string | ((match: RegExpMatchArray) => string) | null;
+}
+
+interface Property<T = number | string | boolean> {
+  default: T;
+  getter?: { q: string | RegExp; r: (value: T) => string };
+  setter?: { q: string | RegExp; parse: (match: RegExpMatchArray) => T };
+  validate?: (value: T) => boolean;
+}
+```
+
+#### Example Device Definition
+
+```typescript
+// devices/rigol-ds1054z.ts
+import { SimulatedDevice } from '../src/simulation/types.js';
+
+export const rigolDS1054Z: SimulatedDevice = {
+  device: {
+    manufacturer: 'RIGOL TECHNOLOGIES',
+    model: 'DS1054Z',
+    serial: 'DS1ZA000000001',
+  },
+
+  dialogues: [
+    { q: '*IDN?', r: 'RIGOL TECHNOLOGIES,DS1054Z,DS1ZA000000001,00.04.04' },
+    { q: '*RST', r: null },
+    { q: ':MEAS:FREQ?', r: () => (1000 + Math.random() * 0.5).toExponential(6) },
+  ],
+
+  properties: {
+    timebase: {
+      default: 1e-3,
+      getter: { q: ':TIM:MAIN:SCAL?', r: (v) => v.toExponential(6) },
+      setter: { q: /^:TIM:MAIN:SCAL\s+(.+)$/, parse: (m) => parseFloat(m[1]) },
+      validate: (v) => [5e-9, 1e-8, 2e-8, 5e-8, 1e-7].includes(v),
+    },
+  },
+};
+```
+
+#### File Structure
+
+| File | Description |
+|------|-------------|
+| `src/simulation/types.ts` | SimulatedDevice, Dialogue, Property interfaces |
+| `src/simulation/device-state.ts` | Stateful property storage with validation |
+| `src/simulation/command-handler.ts` | Pattern matching, dialogue lookup, property get/set |
+| `src/simulation/index.ts` | Public exports |
+| `src/transports/simulation.ts` | createSimulationTransport() factory |
+
+#### Integration Options
+
+**Option A: Direct transport creation**
+```typescript
+const transport = createSimulationTransport({
+  device: rigolDS1054Z,
+  latencyMs: 10,
+});
+const instr = createMessageBasedResource(transport);
+```
+
+**Option B: Simulated ResourceManager**
+```typescript
+const rm = createSimulatedResourceManager({
+  devices: {
+    'USB::0x1AB1::0x04CE::SIM001::INSTR': rigolDS1054Z,
+    'TCPIP::192.168.1.100::5025::SOCKET': keysightDMM,
+  }
+});
+const resources = await rm.listResources(); // Returns configured resource strings
+const instr = await rm.openResource('USB::0x1AB1::0x04CE::SIM001::INSTR');
+```
+
+#### Comparison with Signal-Drift Approach
+
+| Aspect | Signal-Drift | visa-ts Simulation |
+|--------|--------------|-------------------|
+| Device definitions | Hardcoded TypeScript | Typed interfaces |
+| Command matching | String `startsWith`/`===` | Pattern-based (string or RegExp) |
+| Adding devices | New simulator file | New device definition object |
+| State management | Per-simulator closures | Generic property system |
+| Validation | Manual if/else | Declarative with `validate` function |
+| Response generation | Template literals | Functions with full flexibility |
+
 ---
 
 ## Testing Strategy
@@ -164,3 +283,4 @@ See DESIGN.md for full SessionManager and DeviceSession API.
 - [x] Phase 5: SCPI Utilities (scpi-parser.ts)
 - [x] Phase 7: Session Management (SessionManager, DeviceSession with polling)
 - [x] Auto-baud detection for serial ports (probeSerialPort utility)
+- [ ] Phase 8: Simulation Backend (typed device definitions, pattern matching, stateful properties)
