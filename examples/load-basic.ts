@@ -16,6 +16,15 @@ async function main() {
   console.log('=== Electronic Load Example ===\n');
 
   const rm = createResourceManager();
+
+  // List available resources (includes simulated devices)
+  console.log('Available resources:');
+  const resources = await rm.listResources();
+  for (const res of resources) {
+    console.log(`  ${res}`);
+  }
+  console.log();
+
   const loadResult = await rm.openResource(RESOURCE_STRING);
 
   if (!loadResult.ok) {

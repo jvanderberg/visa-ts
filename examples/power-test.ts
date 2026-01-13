@@ -43,6 +43,14 @@ async function main() {
 
   const rm = createResourceManager();
 
+  // List available resources (includes simulated devices)
+  console.log('Available resources:');
+  const resources = await rm.listResources();
+  for (const res of resources) {
+    console.log(`  ${res}`);
+  }
+  console.log();
+
   const psuResult = await rm.openResource(PSU_RESOURCE);
   if (!psuResult.ok) {
     console.error('Failed to open PSU:', psuResult.error.message);
