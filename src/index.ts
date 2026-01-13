@@ -62,3 +62,13 @@ export type { MessageBasedResource } from './resources/message-based.js';
 // Resource Manager
 export { createResourceManager } from './resource-manager.js';
 export type { ResourceManager } from './resource-manager.js';
+
+// SCPI utilities
+export {
+  parseScpiNumber,
+  parseScpiBool,
+  parseScpiEnum,
+  parseDefiniteLengthBlock,
+  parseArbitraryBlock,
+} from './util/scpi-parser.js';
+export type { ScpiBlockInfo } from './util/scpi-parser.js';
