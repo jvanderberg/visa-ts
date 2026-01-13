@@ -1,23 +1,58 @@
 /**
  * Basic PSU (Power Supply Unit) example
  *
- * Demonstrates basic operations with a simulated DC power supply.
+ * Demonstrates basic operations with a DC power supply.
+ * Uses simulation backend - no hardware required.
+ *
+ * With real hardware, you would use:
+ *   const rm = createResourceManager();
+ *   const psu = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
  */
 
-import { createSimulationTransport, simulatedPsu } from '../src/index.js';
+import {
+  createResourceManager,
+  createSimulationTransport,
+  createMessageBasedResource,
+  simulatedPsu,
+} from '../src/index.js';
+import type { MessageBasedResource } from '../src/index.js';
+import type { Result } from '../src/index.js';
+
+// Toggle this to switch between simulation and real hardware
+const USE_SIMULATION = true;
+
+async function openPsu(): Promise<Result<MessageBasedResource, Error>> {
+  if (USE_SIMULATION) {
+    // Simulation mode - wrap transport in MessageBasedResource
+    const transport = createSimulationTransport({ device: simulatedPsu });
+    const openResult = await transport.open();
+    if (!openResult.ok) return openResult;
+
+    return {
+      ok: true,
+      value: createMessageBasedResource(transport, {
+        resourceString: 'SIM::PSU::INSTR',
+        interfaceType: 'TCPIP',
+        host: 'simulation',
+        port: 0,
+      }),
+    };
+  } else {
+    // Real hardware - use ResourceManager
+    const rm = createResourceManager();
+    return rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
+  }
+}
 
 async function main() {
-  console.log('=== Simulated PSU Example ===\n');
+  console.log('=== PSU Example ===\n');
 
-  // Create transport with simulated PSU
-  const psu = createSimulationTransport({ device: simulatedPsu });
-
-  // Open connection
-  const openResult = await psu.open();
-  if (!openResult.ok) {
-    console.error('Failed to open PSU:', openResult.error.message);
+  const psuResult = await openPsu();
+  if (!psuResult.ok) {
+    console.error('Failed to open PSU:', psuResult.error.message);
     return;
   }
+  const psu = psuResult.value;
 
   // Query identification
   const idnResult = await psu.query('*IDN?');
@@ -77,7 +112,7 @@ async function main() {
   console.log('\nPSU connection closed.');
 }
 
-async function displayPsuState(psu: ReturnType<typeof createSimulationTransport>) {
+async function displayPsuState(psu: MessageBasedResource) {
   const voltage = await psu.query('VOLT?');
   const current = await psu.query('CURR?');
   const output = await psu.query('OUTP?');

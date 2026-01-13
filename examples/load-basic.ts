@@ -1,23 +1,59 @@
 /**
  * Basic Electronic Load example
  *
- * Demonstrates basic operations with a simulated electronic load.
+ * Demonstrates basic operations with an electronic load.
+ * Uses simulation backend - no hardware required.
+ *
+ * With real hardware, you would use:
+ *   const rm = createResourceManager();
+ *   const load = await rm.openResource('USB0::0x1AB1::0x0E11::DP8C123456::INSTR');
  */
 
-import { createSimulationTransport, simulatedLoad } from '../src/index.js';
+import {
+  createResourceManager,
+  createSimulationTransport,
+  createMessageBasedResource,
+  simulatedLoad,
+} from '../src/index.js';
+import type { MessageBasedResource } from '../src/index.js';
+import type { Result } from '../src/index.js';
+
+// Toggle this to switch between simulation and real hardware
+const USE_SIMULATION = true;
+
+async function openLoad(): Promise<Result<MessageBasedResource, Error>> {
+  if (USE_SIMULATION) {
+    // Simulation mode - wrap transport in MessageBasedResource
+    const transport = createSimulationTransport({ device: simulatedLoad });
+    const openResult = await transport.open();
+    if (!openResult.ok) return openResult;
+
+    return {
+      ok: true,
+      value: createMessageBasedResource(transport, {
+        resourceString: 'SIM::LOAD::INSTR',
+        interfaceType: 'USB',
+        vendorId: 0x0000,
+        productId: 0x0000,
+        usbClass: 0xfe,
+      }),
+    };
+  } else {
+    // Real hardware - use ResourceManager
+    const rm = createResourceManager();
+    return rm.openResource('USB0::0x1AB1::0x0E11::DP8C123456::INSTR');
+  }
+}
 
 async function main() {
-  console.log('=== Simulated Electronic Load Example ===\n');
+  console.log('=== Electronic Load Example ===\n');
 
-  // Create transport with simulated load
-  const load = createSimulationTransport({ device: simulatedLoad });
-
-  // Open connection
-  const openResult = await load.open();
-  if (!openResult.ok) {
-    console.error('Failed to open Load:', openResult.error.message);
+  const loadResult = await openLoad();
+  if (!loadResult.ok) {
+    console.error('Failed to open Load:', loadResult.error.message);
     return;
   }
+  const load = loadResult.value;
 
   // Query identification
   const idnResult = await load.query('*IDN?');
@@ -44,7 +80,7 @@ async function main() {
   console.log('\nLoad connection closed.');
 }
 
-async function demoCCMode(load: ReturnType<typeof createSimulationTransport>) {
+async function demoCCMode(load: MessageBasedResource) {
   console.log('\n--- Constant Current (CC) Mode ---');
 
   await load.write('MODE CC');
@@ -65,7 +101,7 @@ async function demoCCMode(load: ReturnType<typeof createSimulationTransport>) {
   await load.write('INP OFF');
 }
 
-async function demoCVMode(load: ReturnType<typeof createSimulationTransport>) {
+async function demoCVMode(load: MessageBasedResource) {
   console.log('\n--- Constant Voltage (CV) Mode ---');
 
   await load.write('MODE CV');
@@ -83,7 +119,7 @@ async function demoCVMode(load: ReturnType<typeof createSimulationTransport>) {
   await load.write('INP OFF');
 }
 
-async function demoCRMode(load: ReturnType<typeof createSimulationTransport>) {
+async function demoCRMode(load: MessageBasedResource) {
   console.log('\n--- Constant Resistance (CR) Mode ---');
 
   await load.write('MODE CR');
@@ -101,7 +137,7 @@ async function demoCRMode(load: ReturnType<typeof createSimulationTransport>) {
   await load.write('INP OFF');
 }
 
-async function demoCPMode(load: ReturnType<typeof createSimulationTransport>) {
+async function demoCPMode(load: MessageBasedResource) {
   console.log('\n--- Constant Power (CP) Mode ---');
 
   await load.write('MODE CP');
@@ -119,7 +155,7 @@ async function demoCPMode(load: ReturnType<typeof createSimulationTransport>) {
   await load.write('INP OFF');
 }
 
-async function displayLoadState(load: ReturnType<typeof createSimulationTransport>) {
+async function displayLoadState(load: MessageBasedResource) {
   const mode = await load.query('MODE?');
   const curr = await load.query('CURR?');
   const volt = await load.query('VOLT?');

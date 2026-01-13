@@ -2,10 +2,85 @@
  * Power Test Example
  *
  * Demonstrates a realistic test scenario using both a PSU and Electronic Load.
- * Simulates testing a device under various load conditions.
+ * Tests a device under various load conditions and verifies settings.
+ * Uses simulation backend - no hardware required.
+ *
+ * With real hardware, you would use:
+ *   const rm = createResourceManager();
+ *   const psu = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
+ *   const load = await rm.openResource('USB0::0x1AB1::0x0E11::DP8C123456::INSTR');
+ *
+ * Note: This simulation does not model actual circuit physics - the PSU and Load
+ * operate independently. See Phase 10 in PLAN.md for future circuit simulation.
  */
 
-import { createSimulationTransport, simulatedPsu, simulatedLoad } from '../src/index.js';
+import {
+  createResourceManager,
+  createSimulationTransport,
+  createMessageBasedResource,
+  simulatedPsu,
+  simulatedLoad,
+} from '../src/index.js';
+import type { MessageBasedResource } from '../src/index.js';
+import type { Result } from '../src/index.js';
+
+// Toggle this to switch between simulation and real hardware
+const USE_SIMULATION = true;
+
+interface Instruments {
+  psu: MessageBasedResource;
+  load: MessageBasedResource;
+}
+
+async function openInstruments(): Promise<Result<Instruments, Error>> {
+  if (USE_SIMULATION) {
+    // Simulation mode
+    const psuTransport = createSimulationTransport({ device: simulatedPsu });
+    const loadTransport = createSimulationTransport({ device: simulatedLoad });
+
+    const psuOpen = await psuTransport.open();
+    if (!psuOpen.ok) return psuOpen;
+
+    const loadOpen = await loadTransport.open();
+    if (!loadOpen.ok) return loadOpen;
+
+    return {
+      ok: true,
+      value: {
+        psu: createMessageBasedResource(psuTransport, {
+          resourceString: 'SIM::PSU::INSTR',
+          interfaceType: 'TCPIP',
+          host: 'simulation',
+          port: 0,
+        }),
+        load: createMessageBasedResource(loadTransport, {
+          resourceString: 'SIM::LOAD::INSTR',
+          interfaceType: 'USB',
+          vendorId: 0x0000,
+          productId: 0x0000,
+          usbClass: 0xfe,
+        }),
+      },
+    };
+  } else {
+    // Real hardware - use ResourceManager
+    const rm = createResourceManager();
+
+    const psuResult = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
+    if (!psuResult.ok) return psuResult;
+
+    const loadResult = await rm.openResource('USB0::0x1AB1::0x0E11::DP8C123456::INSTR');
+    if (!loadResult.ok) return loadResult;
+
+    return {
+      ok: true,
+      value: {
+        psu: psuResult.value,
+        load: loadResult.value,
+      },
+    };
+  }
+}
 
 interface TestPoint {
   voltage: number;
@@ -30,18 +105,12 @@ async function main() {
   console.log('║              Power Delivery Test Suite                     ║');
   console.log('╚════════════════════════════════════════════════════════════╝\n');
 
-  // Create instruments
-  const psu = createSimulationTransport({ device: simulatedPsu });
-  const load = createSimulationTransport({ device: simulatedLoad });
-
-  // Open connections
-  const psuOpen = await psu.open();
-  const loadOpen = await load.open();
-
-  if (!psuOpen.ok || !loadOpen.ok) {
-    console.error('Failed to open instruments');
+  const instrResult = await openInstruments();
+  if (!instrResult.ok) {
+    console.error('Failed to open instruments:', instrResult.error.message);
     return;
   }
+  const { psu, load } = instrResult.value;
 
   // Get instrument info
   const psuIdn = await psu.query('*IDN?');
@@ -111,8 +180,8 @@ interface TestResult {
 }
 
 async function runTestPoint(
-  psu: ReturnType<typeof createSimulationTransport>,
-  load: ReturnType<typeof createSimulationTransport>,
+  psu: MessageBasedResource,
+  load: MessageBasedResource,
   point: TestPoint
 ): Promise<TestResult> {
   // Configure PSU
@@ -132,8 +201,8 @@ async function runTestPoint(
   const loadCurr = await load.query('CURR?');
 
   // Verify settings match
-  const voltageOk = psuVolt.ok && parseFloat(psuVolt.value!) === point.voltage;
-  const currentOk = loadCurr.ok && parseFloat(loadCurr.value!) === point.loadCurrent;
+  const voltageOk = psuVolt.ok && parseFloat(psuVolt.value ?? '0') === point.voltage;
+  const currentOk = loadCurr.ok && parseFloat(loadCurr.value ?? '0') === point.loadCurrent;
 
   // Turn off for next test
   await load.write('INP OFF');
