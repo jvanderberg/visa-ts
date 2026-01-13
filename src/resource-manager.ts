@@ -23,33 +23,12 @@ import type { MessageBasedResource } from './resources/message-based-resource.js
 import { createTcpipTransport } from './transports/tcpip.js';
 import { createSerialTransport } from './transports/serial.js';
 import { createUsbtmcTransport } from './transports/usbtmc.js';
-import {
-  listSerialPorts as defaultListSerialPorts,
-  listUsbDevices as defaultListUsbDevices,
-} from './discovery.js';
-import type { SerialPortInfo, UsbDeviceInfo } from './discovery.js';
+import { listSerialPorts, listUsbDevices } from './discovery.js';
+import type { UsbDeviceInfo } from './discovery.js';
 import type { ResourceManager } from './resource-manager-types.js';
 
 // Re-export types for convenience
 export type { ResourceManager } from './resource-manager-types.js';
-
-/** Dependencies that can be injected for testing */
-interface Dependencies {
-  createTcpipTransport: typeof createTcpipTransport;
-  createSerialTransport: typeof createSerialTransport;
-  createUsbtmcTransport: typeof createUsbtmcTransport;
-  listSerialPorts: () => Promise<SerialPortInfo[]>;
-  listUsbDevices: () => Promise<UsbDeviceInfo[]>;
-}
-
-/** Default dependencies using real implementations */
-const defaultDependencies: Dependencies = {
-  createTcpipTransport,
-  createSerialTransport,
-  createUsbtmcTransport,
-  listSerialPorts: defaultListSerialPorts,
-  listUsbDevices: defaultListUsbDevices,
-};
 
 /**
  * Create a new ResourceManager.
@@ -61,21 +40,6 @@ const defaultDependencies: Dependencies = {
  * const resources = await rm.listResources();
  */
 export function createResourceManager(): ResourceManager {
-  return createResourceManagerWithDeps(defaultDependencies);
-}
-
-/**
- * Create a ResourceManager with injected dependencies (for testing).
- */
-export function createResourceManagerWithDeps(deps: Partial<Dependencies>): ResourceManager {
-  const {
-    createTcpipTransport: tcpipFactory,
-    createSerialTransport: serialFactory,
-    createUsbtmcTransport: usbtmcFactory,
-    listSerialPorts,
-    listUsbDevices,
-  } = { ...defaultDependencies, ...deps };
-
   const openResourcesList: MessageBasedResource[] = [];
   const exclusiveResources = new Set<string>();
   const openCounts = new Map<string, number>();
@@ -219,7 +183,7 @@ export function createResourceManagerWithDeps(deps: Partial<Dependencies>): Reso
           }
           const tcpipParsed = parsed as { host: string; port: number };
           const tcpipOptions = openOptions?.transport as TCPIPOptions | undefined;
-          transport = tcpipFactory({
+          transport = createTcpipTransport({
             host: tcpipParsed.host,
             port: tcpipParsed.port,
             timeout: openOptions?.timeout,
@@ -241,7 +205,7 @@ export function createResourceManagerWithDeps(deps: Partial<Dependencies>): Reso
         case 'ASRL': {
           const serialParsed = parsed as { portPath: string };
           const serialOptions = openOptions?.transport as SerialOptions | undefined;
-          transport = serialFactory({
+          transport = createSerialTransport({
             path: serialParsed.portPath,
             timeout: openOptions?.timeout,
             readTermination: openOptions?.readTermination,
@@ -268,7 +232,7 @@ export function createResourceManagerWithDeps(deps: Partial<Dependencies>): Reso
             serialNumber?: string;
           };
           const usbOptions = openOptions?.transport as USBTMCOptions | undefined;
-          transport = usbtmcFactory({
+          transport = createUsbtmcTransport({
             vendorId: usbParsed.vendorId,
             productId: usbParsed.productId,
             serialNumber: usbParsed.serialNumber,

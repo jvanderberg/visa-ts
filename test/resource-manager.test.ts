@@ -4,11 +4,10 @@
  * @packageDocumentation
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Transport } from '../src/transports/transport.js';
 import type { Result } from '../src/result.js';
 import { Ok, Err } from '../src/result.js';
-import { createResourceManager, createResourceManagerWithDeps } from '../src/resource-manager.js';
 
 // Mock transport factory
 function createMockTransport(options?: {
@@ -111,7 +110,45 @@ function createMockTransport(options?: {
   };
 }
 
+// Mock the transport modules
+vi.mock('../src/transports/tcpip.js', () => ({
+  createTcpipTransport: vi.fn(),
+}));
+
+vi.mock('../src/transports/serial.js', () => ({
+  createSerialTransport: vi.fn(),
+}));
+
+vi.mock('../src/transports/usbtmc.js', () => ({
+  createUsbtmcTransport: vi.fn(),
+}));
+
+vi.mock('../src/discovery.js', () => ({
+  listSerialPorts: vi.fn(),
+  listUsbDevices: vi.fn(),
+}));
+
+import { createResourceManager } from '../src/resource-manager.js';
+import { createTcpipTransport } from '../src/transports/tcpip.js';
+import { createSerialTransport } from '../src/transports/serial.js';
+import { createUsbtmcTransport } from '../src/transports/usbtmc.js';
+import { listSerialPorts, listUsbDevices } from '../src/discovery.js';
+
 describe('ResourceManager', () => {
+  beforeEach(() => {
+    // Default mocks return empty arrays for discovery
+    vi.mocked(listSerialPorts).mockResolvedValue([]);
+    vi.mocked(listUsbDevices).mockResolvedValue([]);
+    // Default mocks return working transports
+    vi.mocked(createTcpipTransport).mockReturnValue(createMockTransport());
+    vi.mocked(createSerialTransport).mockReturnValue(createMockTransport());
+    vi.mocked(createUsbtmcTransport).mockReturnValue(createMockTransport());
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
   describe('createResourceManager', () => {
     it('returns a ResourceManager object', async () => {
       const rm = createResourceManager();
@@ -164,10 +201,9 @@ describe('ResourceManager', () => {
 
     it('opens a TCP/IP socket resource with mock transport', async () => {
       const mockTransport = createMockTransport();
+      vi.mocked(createTcpipTransport).mockReturnValue(mockTransport);
 
-      const rm = createResourceManagerWithDeps({
-        createTcpipTransport: () => mockTransport,
-      });
+      const rm = createResourceManager();
 
       const result = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
       expect(result.ok).toBe(true);
@@ -183,10 +219,9 @@ describe('ResourceManager', () => {
         openFails: true,
         openError: new Error('Connection refused'),
       });
+      vi.mocked(createTcpipTransport).mockReturnValue(mockTransport);
 
-      const rm = createResourceManagerWithDeps({
-        createTcpipTransport: () => mockTransport,
-      });
+      const rm = createResourceManager();
 
       const result = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
       expect(result.ok).toBe(false);
@@ -197,10 +232,9 @@ describe('ResourceManager', () => {
 
     it('applies OpenOptions to transport', async () => {
       const mockTransport = createMockTransport();
+      vi.mocked(createTcpipTransport).mockReturnValue(mockTransport);
 
-      const rm = createResourceManagerWithDeps({
-        createTcpipTransport: () => mockTransport,
-      });
+      const rm = createResourceManager();
 
       const result = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET', {
         timeout: 5000,
@@ -218,10 +252,9 @@ describe('ResourceManager', () => {
 
     it('adds opened resource to openResources list', async () => {
       const mockTransport = createMockTransport();
+      vi.mocked(createTcpipTransport).mockReturnValue(mockTransport);
 
-      const rm = createResourceManagerWithDeps({
-        createTcpipTransport: () => mockTransport,
-      });
+      const rm = createResourceManager();
 
       await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
       expect(rm.openResources).toHaveLength(1);
@@ -229,10 +262,9 @@ describe('ResourceManager', () => {
 
     it('opens USB resource with mock transport', async () => {
       const mockTransport = createMockTransport();
+      vi.mocked(createUsbtmcTransport).mockReturnValue(mockTransport);
 
-      const rm = createResourceManagerWithDeps({
-        createUsbtmcTransport: () => mockTransport,
-      });
+      const rm = createResourceManager();
 
       const result = await rm.openResource('USB0::0x1AB1::0x04CE::DS1ZA123::INSTR');
       expect(result.ok).toBe(true);
@@ -243,10 +275,9 @@ describe('ResourceManager', () => {
 
     it('opens serial resource with mock transport', async () => {
       const mockTransport = createMockTransport();
+      vi.mocked(createSerialTransport).mockReturnValue(mockTransport);
 
-      const rm = createResourceManagerWithDeps({
-        createSerialTransport: () => mockTransport,
-      });
+      const rm = createResourceManager();
 
       const result = await rm.openResource('ASRL/dev/ttyUSB0::INSTR');
       expect(result.ok).toBe(true);
@@ -268,20 +299,23 @@ describe('ResourceManager', () => {
 
   describe('listResources', () => {
     it('returns empty array when no transports have devices', async () => {
-      const rm = createResourceManagerWithDeps({
-        listSerialPorts: async () => [],
-        listUsbDevices: async () => [],
-      });
+      vi.mocked(listSerialPorts).mockResolvedValue([]);
+      vi.mocked(listUsbDevices).mockResolvedValue([]);
+
+      const rm = createResourceManager();
 
       const resources = await rm.listResources();
       expect(resources).toEqual([]);
     });
 
     it('returns discovered serial ports', async () => {
-      const rm = createResourceManagerWithDeps({
-        listSerialPorts: async () => [{ path: '/dev/ttyUSB0' }, { path: '/dev/ttyUSB1' }],
-        listUsbDevices: async () => [],
-      });
+      vi.mocked(listSerialPorts).mockResolvedValue([
+        { path: '/dev/ttyUSB0' },
+        { path: '/dev/ttyUSB1' },
+      ]);
+      vi.mocked(listUsbDevices).mockResolvedValue([]);
+
+      const rm = createResourceManager();
 
       const resources = await rm.listResources();
       expect(resources).toContain('ASRL/dev/ttyUSB0::INSTR');
@@ -289,24 +323,24 @@ describe('ResourceManager', () => {
     });
 
     it('returns discovered USB-TMC devices', async () => {
-      const rm = createResourceManagerWithDeps({
-        listSerialPorts: async () => [],
-        listUsbDevices: async () => [
-          { vendorId: 0x1ab1, productId: 0x04ce, serialNumber: 'DS1ZA123456789' },
-        ],
-      });
+      vi.mocked(listSerialPorts).mockResolvedValue([]);
+      vi.mocked(listUsbDevices).mockResolvedValue([
+        { vendorId: 0x1ab1, productId: 0x04ce, serialNumber: 'DS1ZA123456789' },
+      ]);
+
+      const rm = createResourceManager();
 
       const resources = await rm.listResources();
       expect(resources).toContain('USB0::0x1AB1::0x04CE::DS1ZA123456789::INSTR');
     });
 
     it('filters resources by pattern', async () => {
-      const rm = createResourceManagerWithDeps({
-        listSerialPorts: async () => [{ path: '/dev/ttyUSB0' }],
-        listUsbDevices: async () => [
-          { vendorId: 0x1ab1, productId: 0x04ce, serialNumber: 'DS1ZA123' },
-        ],
-      });
+      vi.mocked(listSerialPorts).mockResolvedValue([{ path: '/dev/ttyUSB0' }]);
+      vi.mocked(listUsbDevices).mockResolvedValue([
+        { vendorId: 0x1ab1, productId: 0x04ce, serialNumber: 'DS1ZA123' },
+      ]);
+
+      const rm = createResourceManager();
 
       const usbOnly = await rm.listResources('USB?*::INSTR');
       expect(usbOnly).toHaveLength(1);
@@ -318,10 +352,10 @@ describe('ResourceManager', () => {
     });
 
     it('returns USB devices without serial number', async () => {
-      const rm = createResourceManagerWithDeps({
-        listSerialPorts: async () => [],
-        listUsbDevices: async () => [{ vendorId: 0x1ab1, productId: 0x04ce }],
-      });
+      vi.mocked(listSerialPorts).mockResolvedValue([]);
+      vi.mocked(listUsbDevices).mockResolvedValue([{ vendorId: 0x1ab1, productId: 0x04ce }]);
+
+      const rm = createResourceManager();
 
       const resources = await rm.listResources();
       expect(resources).toContain('USB0::0x1AB1::0x04CE::INSTR');
@@ -330,22 +364,22 @@ describe('ResourceManager', () => {
 
   describe('listResourcesInfo', () => {
     it('returns empty array when no devices found', async () => {
-      const rm = createResourceManagerWithDeps({
-        listSerialPorts: async () => [],
-        listUsbDevices: async () => [],
-      });
+      vi.mocked(listSerialPorts).mockResolvedValue([]);
+      vi.mocked(listUsbDevices).mockResolvedValue([]);
+
+      const rm = createResourceManager();
 
       const info = await rm.listResourcesInfo();
       expect(info).toEqual([]);
     });
 
     it('returns ResourceInfo for discovered devices', async () => {
-      const rm = createResourceManagerWithDeps({
-        listSerialPorts: async () => [{ path: '/dev/ttyUSB0' }],
-        listUsbDevices: async () => [
-          { vendorId: 0x1ab1, productId: 0x04ce, serialNumber: 'DS1ZA123' },
-        ],
-      });
+      vi.mocked(listSerialPorts).mockResolvedValue([{ path: '/dev/ttyUSB0' }]);
+      vi.mocked(listUsbDevices).mockResolvedValue([
+        { vendorId: 0x1ab1, productId: 0x04ce, serialNumber: 'DS1ZA123' },
+      ]);
+
+      const rm = createResourceManager();
 
       const info = await rm.listResourcesInfo();
       expect(info).toHaveLength(2);
@@ -360,12 +394,12 @@ describe('ResourceManager', () => {
     });
 
     it('filters ResourceInfo by pattern', async () => {
-      const rm = createResourceManagerWithDeps({
-        listSerialPorts: async () => [{ path: '/dev/ttyUSB0' }],
-        listUsbDevices: async () => [
-          { vendorId: 0x1ab1, productId: 0x04ce, serialNumber: 'DS1ZA123' },
-        ],
-      });
+      vi.mocked(listSerialPorts).mockResolvedValue([{ path: '/dev/ttyUSB0' }]);
+      vi.mocked(listUsbDevices).mockResolvedValue([
+        { vendorId: 0x1ab1, productId: 0x04ce, serialNumber: 'DS1ZA123' },
+      ]);
+
+      const rm = createResourceManager();
 
       const usbOnly = await rm.listResourcesInfo('USB?*::INSTR');
       expect(usbOnly).toHaveLength(1);
@@ -379,11 +413,11 @@ describe('ResourceManager', () => {
       const mockTransport2 = createMockTransport();
       let transportIndex = 0;
 
-      const rm = createResourceManagerWithDeps({
-        createTcpipTransport: () => {
-          return transportIndex++ === 0 ? mockTransport1 : mockTransport2;
-        },
+      vi.mocked(createTcpipTransport).mockImplementation(() => {
+        return transportIndex++ === 0 ? mockTransport1 : mockTransport2;
       });
+
+      const rm = createResourceManager();
 
       await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
       await rm.openResource('TCPIP0::192.168.1.101::5025::SOCKET');
@@ -399,10 +433,9 @@ describe('ResourceManager', () => {
 
     it('removes resources from openResources when individually closed', async () => {
       const mockTransport = createMockTransport();
+      vi.mocked(createTcpipTransport).mockReturnValue(mockTransport);
 
-      const rm = createResourceManagerWithDeps({
-        createTcpipTransport: () => mockTransport,
-      });
+      const rm = createResourceManager();
 
       const result = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
       expect(rm.openResources).toHaveLength(1);
@@ -418,10 +451,9 @@ describe('ResourceManager', () => {
   describe('openResources', () => {
     it('returns immutable copy of open resources array', async () => {
       const mockTransport = createMockTransport();
+      vi.mocked(createTcpipTransport).mockReturnValue(mockTransport);
 
-      const rm = createResourceManagerWithDeps({
-        createTcpipTransport: () => mockTransport,
-      });
+      const rm = createResourceManager();
 
       await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
 
@@ -437,10 +469,9 @@ describe('ResourceManager', () => {
   describe('edge cases', () => {
     it('handles double close on ResourceManager gracefully', async () => {
       const mockTransport = createMockTransport();
+      vi.mocked(createTcpipTransport).mockReturnValue(mockTransport);
 
-      const rm = createResourceManagerWithDeps({
-        createTcpipTransport: () => mockTransport,
-      });
+      const rm = createResourceManager();
 
       await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
       expect(rm.openResources).toHaveLength(1);
@@ -457,12 +488,12 @@ describe('ResourceManager', () => {
     it('can open multiple resources with same address', async () => {
       let transportCount = 0;
 
-      const rm = createResourceManagerWithDeps({
-        createTcpipTransport: () => {
-          transportCount++;
-          return createMockTransport();
-        },
+      vi.mocked(createTcpipTransport).mockImplementation(() => {
+        transportCount++;
+        return createMockTransport();
       });
+
+      const rm = createResourceManager();
 
       // Open same resource twice - should create two connections
       const result1 = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
@@ -486,11 +517,11 @@ describe('ResourceManager', () => {
       const successTransport = createMockTransport();
 
       let transportIndex = 0;
-      const rm = createResourceManagerWithDeps({
-        createTcpipTransport: () => {
-          return transportIndex++ === 0 ? failingTransport : successTransport;
-        },
+      vi.mocked(createTcpipTransport).mockImplementation(() => {
+        return transportIndex++ === 0 ? failingTransport : successTransport;
       });
+
+      const rm = createResourceManager();
 
       await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
       await rm.openResource('TCPIP0::192.168.1.101::5025::SOCKET');
@@ -506,13 +537,9 @@ describe('ResourceManager', () => {
     });
 
     it('passes TCP/IP specific options to transport factory', async () => {
-      let capturedConfig: Record<string, unknown> | null = null;
-      const rm = createResourceManagerWithDeps({
-        createTcpipTransport: (config) => {
-          capturedConfig = config;
-          return createMockTransport();
-        },
-      });
+      vi.mocked(createTcpipTransport).mockReturnValue(createMockTransport());
+
+      const rm = createResourceManager();
 
       await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET', {
         timeout: 10000,
@@ -523,21 +550,20 @@ describe('ResourceManager', () => {
         },
       });
 
-      expect(capturedConfig).not.toBeNull();
-      expect(capturedConfig!.timeout).toBe(10000);
-      expect(capturedConfig!.connectTimeout).toBe(3000);
-      expect(capturedConfig!.keepAlive).toBe(false);
-      expect(capturedConfig!.keepAliveInterval).toBe(5000);
+      expect(createTcpipTransport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          timeout: 10000,
+          connectTimeout: 3000,
+          keepAlive: false,
+          keepAliveInterval: 5000,
+        })
+      );
     });
 
     it('passes Serial specific options to transport factory', async () => {
-      let capturedConfig: Record<string, unknown> | null = null;
-      const rm = createResourceManagerWithDeps({
-        createSerialTransport: (config) => {
-          capturedConfig = config;
-          return createMockTransport();
-        },
-      });
+      vi.mocked(createSerialTransport).mockReturnValue(createMockTransport());
+
+      const rm = createResourceManager();
 
       await rm.openResource('ASRL/dev/ttyUSB0::INSTR', {
         timeout: 5000,
@@ -551,24 +577,23 @@ describe('ResourceManager', () => {
         },
       });
 
-      expect(capturedConfig).not.toBeNull();
-      expect(capturedConfig!.timeout).toBe(5000);
-      expect(capturedConfig!.baudRate).toBe(115200);
-      expect(capturedConfig!.dataBits).toBe(8);
-      expect(capturedConfig!.stopBits).toBe(1);
-      expect(capturedConfig!.parity).toBe('none');
-      expect(capturedConfig!.flowControl).toBe('hardware');
-      expect(capturedConfig!.commandDelay).toBe(50);
+      expect(createSerialTransport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          timeout: 5000,
+          baudRate: 115200,
+          dataBits: 8,
+          stopBits: 1,
+          parity: 'none',
+          flowControl: 'hardware',
+          commandDelay: 50,
+        })
+      );
     });
 
     it('passes USB-TMC specific options to transport factory', async () => {
-      let capturedConfig: Record<string, unknown> | null = null;
-      const rm = createResourceManagerWithDeps({
-        createUsbtmcTransport: (config) => {
-          capturedConfig = config;
-          return createMockTransport();
-        },
-      });
+      vi.mocked(createUsbtmcTransport).mockReturnValue(createMockTransport());
+
+      const rm = createResourceManager();
 
       await rm.openResource('USB0::0x1AB1::0x04CE::DS1ZA123::INSTR', {
         timeout: 8000,
@@ -577,22 +602,24 @@ describe('ResourceManager', () => {
         },
       });
 
-      expect(capturedConfig).not.toBeNull();
-      expect(capturedConfig!.timeout).toBe(8000);
-      expect(capturedConfig!.quirks).toBe('rigol');
-      expect(capturedConfig!.vendorId).toBe(0x1ab1);
-      expect(capturedConfig!.productId).toBe(0x04ce);
-      expect(capturedConfig!.serialNumber).toBe('DS1ZA123');
+      expect(createUsbtmcTransport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          timeout: 8000,
+          quirks: 'rigol',
+          vendorId: 0x1ab1,
+          productId: 0x04ce,
+          serialNumber: 'DS1ZA123',
+        })
+      );
     });
   });
 
   describe('exclusive mode', () => {
     it('allows opening resource in exclusive mode', async () => {
       const mockTransport = createMockTransport();
+      vi.mocked(createTcpipTransport).mockReturnValue(mockTransport);
 
-      const rm = createResourceManagerWithDeps({
-        createTcpipTransport: () => mockTransport,
-      });
+      const rm = createResourceManager();
 
       const result = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET', {
         exclusive: true,
@@ -605,9 +632,9 @@ describe('ResourceManager', () => {
     });
 
     it('prevents second connection when first is exclusive', async () => {
-      const rm = createResourceManagerWithDeps({
-        createTcpipTransport: () => createMockTransport(),
-      });
+      vi.mocked(createTcpipTransport).mockImplementation(() => createMockTransport());
+
+      const rm = createResourceManager();
 
       // First open with exclusive
       const result1 = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET', {
@@ -624,9 +651,9 @@ describe('ResourceManager', () => {
     });
 
     it('prevents exclusive connection when resource already open', async () => {
-      const rm = createResourceManagerWithDeps({
-        createTcpipTransport: () => createMockTransport(),
-      });
+      vi.mocked(createTcpipTransport).mockImplementation(() => createMockTransport());
+
+      const rm = createResourceManager();
 
       // First open without exclusive
       const result1 = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
@@ -643,9 +670,9 @@ describe('ResourceManager', () => {
     });
 
     it('allows reopening after exclusive connection is closed', async () => {
-      const rm = createResourceManagerWithDeps({
-        createTcpipTransport: () => createMockTransport(),
-      });
+      vi.mocked(createTcpipTransport).mockImplementation(() => createMockTransport());
+
+      const rm = createResourceManager();
 
       // First open with exclusive
       const result1 = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET', {
@@ -664,9 +691,9 @@ describe('ResourceManager', () => {
     });
 
     it('tracks exclusive mode per resource string', async () => {
-      const rm = createResourceManagerWithDeps({
-        createTcpipTransport: () => createMockTransport(),
-      });
+      vi.mocked(createTcpipTransport).mockImplementation(() => createMockTransport());
+
+      const rm = createResourceManager();
 
       // Open first resource exclusively
       const result1 = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET', {
