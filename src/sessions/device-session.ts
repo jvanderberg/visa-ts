@@ -97,6 +97,18 @@ export function createDeviceSession(config: DeviceSessionConfig): DeviceSessionI
     lastError = null;
   }
 
+  async function disconnect(error: Error): Promise<void> {
+    lastError = error;
+    if (resource) {
+      const currentResource = resource;
+      resource = null;
+      setState('disconnected');
+      await currentResource.close();
+    } else {
+      setState('disconnected');
+    }
+  }
+
   async function processQueue(): Promise<void> {
     if (isProcessing) return;
     isProcessing = true;
@@ -120,10 +132,13 @@ export function createDeviceSession(config: DeviceSessionConfig): DeviceSessionI
     let timedOut = false;
     const timeoutPromise = new Promise<Result<T, Error>>((resolve) => {
       timeoutId = setTimeout(() => {
-        timedOut = true;
-        const err = new Error(`Operation timeout after ${task.timeout}ms`);
-        setError(err);
-        resolve(Err(err));
+        void (async () => {
+          timedOut = true;
+          const err = new Error(`Operation timeout after ${task.timeout}ms`);
+          // Timeout is fatal - immediately disconnect (fail-fast)
+          await disconnect(err);
+          resolve(Err(err));
+        })();
       }, task.timeout);
     });
 

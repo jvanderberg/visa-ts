@@ -124,6 +124,27 @@ export function createSessionManager(config: SessionManagerConfig): SessionManag
         }
       }
 
+      // Reconnect disconnected sessions (if device is still available)
+      for (const [rs, session] of sessions) {
+        if (!isRunning) return;
+        if (
+          session.state === 'disconnected' &&
+          currentResourceStrings.has(rs) &&
+          !connectingResources.has(rs)
+        ) {
+          connectingResources.add(rs);
+          try {
+            const result = await resourceManager.openResource(rs);
+            if (result.ok && isRunning) {
+              session.setResource(result.value);
+              // State change event is emitted by session's onStateChange callback
+            }
+          } finally {
+            connectingResources.delete(rs);
+          }
+        }
+      }
+
       // Find removed resources
       for (const [rs, session] of sessions) {
         if (!isRunning) return;

@@ -517,4 +517,177 @@ describe('createSessionManager', () => {
       await manager.stop();
     });
   });
+
+  describe('disconnected session reconnection', () => {
+    it('reconnects a disconnected session when device is still available', async () => {
+      const rs = 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR';
+      const resource1 = createMockResource(rs);
+      const resource2 = createMockResource(rs);
+      let callCount = 0;
+      const rm: ResourceManager = {
+        openResources: [],
+        listResources: vi.fn().mockResolvedValue([rs]),
+        listResourcesInfo: vi
+          .fn()
+          .mockResolvedValue([{ resourceString: rs, interfaceType: 'USB' }]),
+        openResource: vi.fn().mockImplementation(async () => {
+          callCount++;
+          return callCount === 1 ? Ok(resource1) : Ok(resource2);
+        }),
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+      const manager = createSessionManager({
+        resourceManager: rm,
+        scanInterval: 1000,
+      });
+
+      await manager.start();
+      const session = manager.getSession(rs);
+      expect(session?.state).toBe('connected');
+      expect(session?.resource).toBe(resource1);
+
+      // Simulate session becoming disconnected (e.g., from timeout)
+      // We need to access the internal session to trigger disconnect
+      const internalSession = session as unknown as {
+        setResource: (r: null) => void;
+      };
+      internalSession.setResource(null);
+
+      expect(session?.state).toBe('disconnected');
+      expect(session?.resource).toBeNull();
+
+      // Next scan should reconnect with fresh resource
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(session?.state).toBe('connected');
+      expect(session?.resource).toBe(resource2);
+      expect(callCount).toBe(2);
+
+      await manager.stop();
+    });
+
+    it('emits session-state-changed when session reconnects', async () => {
+      const rs = 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR';
+      const resource1 = createMockResource(rs);
+      const resource2 = createMockResource(rs);
+      let callCount = 0;
+      const rm: ResourceManager = {
+        openResources: [],
+        listResources: vi.fn().mockResolvedValue([rs]),
+        listResourcesInfo: vi
+          .fn()
+          .mockResolvedValue([{ resourceString: rs, interfaceType: 'USB' }]),
+        openResource: vi.fn().mockImplementation(async () => {
+          callCount++;
+          return callCount === 1 ? Ok(resource1) : Ok(resource2);
+        }),
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+      const manager = createSessionManager({
+        resourceManager: rm,
+        scanInterval: 1000,
+      });
+
+      const stateHandler = vi.fn();
+      manager.on('session-state-changed', stateHandler);
+
+      await manager.start();
+      const session = manager.getSession(rs);
+
+      // Simulate disconnect
+      const internalSession = session as unknown as {
+        setResource: (r: null) => void;
+      };
+      internalSession.setResource(null);
+
+      stateHandler.mockClear();
+
+      // Reconnect on next scan
+      await vi.advanceTimersByTimeAsync(1000);
+
+      // Should have emitted state change for reconnection
+      expect(stateHandler).toHaveBeenCalled();
+      expect(session?.state).toBe('connected');
+
+      await manager.stop();
+    });
+
+    it('does not reconnect if device is no longer available', async () => {
+      const rs = 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR';
+      const resource1 = createMockResource(rs);
+      const rm: ResourceManager = {
+        openResources: [],
+        listResources: vi.fn().mockResolvedValue([rs]),
+        listResourcesInfo: vi
+          .fn()
+          .mockResolvedValue([{ resourceString: rs, interfaceType: 'USB' }]),
+        openResource: vi.fn().mockResolvedValue(Ok(resource1)),
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+      const manager = createSessionManager({
+        resourceManager: rm,
+        scanInterval: 1000,
+      });
+
+      await manager.start();
+      const session = manager.getSession(rs);
+
+      // Simulate disconnect
+      const internalSession = session as unknown as {
+        setResource: (r: null) => void;
+      };
+      internalSession.setResource(null);
+
+      // Device disappears from scan
+      (rm.listResources as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+      await vi.advanceTimersByTimeAsync(1000);
+
+      // Session should be removed, not reconnected
+      expect(manager.sessions.size).toBe(0);
+
+      await manager.stop();
+    });
+
+    it('handles reconnection failure gracefully', async () => {
+      const rs = 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR';
+      const resource1 = createMockResource(rs);
+      let callCount = 0;
+      const rm: ResourceManager = {
+        openResources: [],
+        listResources: vi.fn().mockResolvedValue([rs]),
+        listResourcesInfo: vi
+          .fn()
+          .mockResolvedValue([{ resourceString: rs, interfaceType: 'USB' }]),
+        openResource: vi.fn().mockImplementation(async () => {
+          callCount++;
+          if (callCount === 1) return Ok(resource1);
+          return Err(new Error('Reconnection failed'));
+        }),
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+      const manager = createSessionManager({
+        resourceManager: rm,
+        scanInterval: 1000,
+      });
+
+      await manager.start();
+      const session = manager.getSession(rs);
+
+      // Simulate disconnect
+      const internalSession = session as unknown as {
+        setResource: (r: null) => void;
+      };
+      internalSession.setResource(null);
+
+      // Reconnection attempt fails
+      await vi.advanceTimersByTimeAsync(1000);
+
+      // Session should still exist but remain disconnected
+      expect(manager.getSession(rs)).toBeDefined();
+      expect(session?.state).toBe('disconnected');
+
+      await manager.stop();
+    });
+  });
 });
