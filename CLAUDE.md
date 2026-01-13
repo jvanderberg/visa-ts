@@ -13,18 +13,22 @@ src/
 ├── index.ts                    # Public API exports
 ├── types.ts                    # Core interfaces
 ├── result.ts                   # Result<T,E> error handling
-├── resource-manager.ts         # ResourceManager (main entry point)
+├── resource-manager.ts         # ResourceManager factory
+├── resource-manager-types.ts   # ResourceManager interface
 ├── resource-string.ts          # VISA resource string parser
+├── discovery.ts                # Device discovery (USB-TMC, Serial)
 ├── resources/
-│   ├── base.ts                 # Resource base class
-│   └── message-based.ts        # MessageBasedResource
+│   ├── message-based.ts        # MessageBasedResource factory
+│   └── message-based-resource.ts # MessageBasedResource interface
 ├── transports/
+│   ├── index.ts                # Transport exports
 │   ├── transport.ts            # Transport interface
 │   ├── usbtmc.ts               # USB-TMC implementation
 │   ├── serial.ts               # Serial port implementation
 │   └── tcpip.ts                # TCP/IP socket (LXI)
 └── util/
-    └── scpi-parser.ts          # SCPI response parsing
+    ├── binary-block.ts         # IEEE 488.2 binary block parsing
+    └── ascii-values.ts         # ASCII numeric value parsing
 ```
 
 ## Key Patterns

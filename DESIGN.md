@@ -602,46 +602,12 @@ const instr = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET', {
 
 ---
 
-## SCPI Utilities
-
-Optional helpers for parsing SCPI responses.
-
-```typescript
-import { ScpiParser } from 'visa-ts';
-
-// Parse numeric response
-ScpiParser.parseNumber('1.234E+03');        // 1234
-ScpiParser.parseNumber('9.9E37');           // Infinity (overflow)
-ScpiParser.parseNumber('****');             // NaN (invalid)
-
-// Parse boolean response
-ScpiParser.parseBool('1');                  // true
-ScpiParser.parseBool('ON');                 // true
-ScpiParser.parseBool('0');                  // false
-ScpiParser.parseBool('OFF');                // false
-
-// Parse enumerated response
-const modes = { 'VOLT': 'voltage', 'CURR': 'current', 'RES': 'resistance' };
-ScpiParser.parseEnum('VOLT', modes);        // 'voltage'
-
-// Parse IEEE 488.2 definite length block header
-// Format: #<numDigits><byteCount><data>
-// Example: #9000001200<1200 bytes of data>
-ScpiParser.parseDefiniteLengthBlock(buffer);  // { header: 12, length: 1200 }
-
-// Parse arbitrary block (indefinite length)
-// Format: #0<data>\n
-ScpiParser.parseArbitraryBlock(buffer);
-```
-
----
-
 ## Usage Examples
 
 ### Example 1: Query Instrument Identity (USB)
 
 ```typescript
-import { createResourceManager, unwrap } from 'visa-ts';
+import { createResourceManager } from 'visa-ts';
 
 async function main() {
   const rm = createResourceManager();
@@ -724,7 +690,7 @@ async function main() {
 ### Example 3: Oscilloscope Waveform Capture (USB with Binary)
 
 ```typescript
-import { createResourceManager, ScpiParser } from 'visa-ts';
+import { createResourceManager } from 'visa-ts';
 
 async function main() {
   const rm = createResourceManager();
@@ -888,24 +854,14 @@ const numericVoltage = map(
 );
 ```
 
-### Common Error Types
+### Error Messages
 
-```typescript
-// Connection errors
-interface ConnectionError extends Error {
-  code: 'CONNECTION_FAILED' | 'CONNECTION_TIMEOUT' | 'DEVICE_NOT_FOUND';
-}
+Errors are returned as standard `Error` objects with descriptive messages:
 
-// I/O errors
-interface IOError extends Error {
-  code: 'TIMEOUT' | 'DEVICE_DISCONNECTED' | 'TRANSFER_ERROR';
-}
-
-// Resource errors
-interface ResourceError extends Error {
-  code: 'INVALID_RESOURCE_STRING' | 'RESOURCE_BUSY' | 'RESOURCE_NOT_FOUND';
-}
-```
+- Connection failures: `"Connection refused"`, `"Connection timeout after Xms"`
+- Device not found: `"USB device not found: VID=0xXXXX, PID=0xXXXX"`
+- I/O errors: `"Read timeout after Xms"`, `"Transport is not open"`
+- Resource errors: `"Invalid resource string"`, `"Resource is already open in exclusive mode"`
 
 ---
 
@@ -1211,10 +1167,21 @@ await manager.stop();
 // Main entry point (visa-ts)
 export { createResourceManager } from './resource-manager';
 export type { ResourceManager } from './resource-manager';
+
+// Resource layer
+export { createMessageBasedResource } from './resources/message-based';
 export type { MessageBasedResource } from './resources/message-based';
 
 // Result type and helpers (never throw)
-export { Result, Ok, Err, isOk, isErr, unwrapOr, unwrapOrElse, map, mapErr } from './result';
+export { Ok, Err, isOk, isErr, unwrapOr, unwrapOrElse, map, mapErr } from './result';
+export type { Result } from './result';
+
+// Transport layer
+export { createTcpipTransport, createSerialTransport, createUsbtmcTransport } from './transports';
+export type { Transport, TransportState, TransportConfig, TransportFactory } from './transports/transport';
+export type { TcpipTransportConfig } from './transports/tcpip';
+export type { SerialTransportConfig } from './transports/serial';
+export type { UsbtmcTransportConfig } from './transports/usbtmc';
 
 // Session management (visa-ts/sessions) — optional
 export { createSessionManager } from './sessions/session-manager';
@@ -1229,9 +1196,7 @@ export type {
 
 // Types
 export type {
-  QueryOptions,
-  AsciiValuesOptions,
-  BinaryDatatype,
+  InterfaceType,
   ResourceInfo,
   USBResourceInfo,
   SerialResourceInfo,
@@ -1241,13 +1206,17 @@ export type {
   USBTMCOptions,
   SerialOptions,
   TCPIPOptions,
+  QueryOptions,
+  AsciiValuesOptions,
   BinaryDatatype,
-  InterfaceType,
+  ParsedResourceString,
+  ParsedUSBResource,
+  ParsedSerialResource,
+  ParsedTCPIPSocketResource,
+  ParsedTCPIPInstrResource,
+  ParsedResource,
 } from './types';
 
-// Utilities
-export { ScpiParser } from './util/scpi-parser';
-
 // Resource string parsing (for advanced use)
-export { parseResourceString, buildResourceString } from './resource-string';
+export { parseResourceString, buildResourceString, matchResourcePattern } from './resource-string';
 ```
