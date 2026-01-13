@@ -260,5 +260,74 @@ describe('Simulated Electronic Load Device', () => {
       expect(result.ok).toBe(true);
       expect(result.value).toBe('0.500');
     });
+
+    it('rejects slew rate below minimum (0.001)', async () => {
+      await transport.write('CURR:SLEW 0.0001');
+      const result = await transport.query('CURR:SLEW?');
+      expect(result.ok).toBe(true);
+      expect(result.value).toBe('1.000'); // Default value preserved
+    });
+
+    it('rejects slew rate above maximum (10)', async () => {
+      await transport.write('CURR:SLEW 15');
+      const result = await transport.query('CURR:SLEW?');
+      expect(result.ok).toBe(true);
+      expect(result.value).toBe('1.000'); // Default value preserved
+    });
+  });
+
+  describe('boundary values', () => {
+    it('accepts current at maximum boundary (30A)', async () => {
+      await transport.write('CURR 30');
+      const result = await transport.query('CURR?');
+      expect(result.ok).toBe(true);
+      expect(result.value).toBe('30.000');
+    });
+
+    it('accepts voltage at maximum boundary (150V)', async () => {
+      await transport.write('VOLT 150');
+      const result = await transport.query('VOLT?');
+      expect(result.ok).toBe(true);
+      expect(result.value).toBe('150.000');
+    });
+
+    it('accepts resistance at minimum boundary (0.1 ohm)', async () => {
+      await transport.write('RES 0.1');
+      const result = await transport.query('RES?');
+      expect(result.ok).toBe(true);
+      expect(result.value).toBe('0.100');
+    });
+
+    it('accepts resistance at maximum boundary (10000 ohms)', async () => {
+      await transport.write('RES 10000');
+      const result = await transport.query('RES?');
+      expect(result.ok).toBe(true);
+      expect(result.value).toBe('10000.000');
+    });
+
+    it('accepts power at maximum boundary (300W)', async () => {
+      await transport.write('POW 300');
+      const result = await transport.query('POW?');
+      expect(result.ok).toBe(true);
+      expect(result.value).toBe('300.000');
+    });
+  });
+
+  describe('case insensitivity', () => {
+    it('handles lowercase setter commands', async () => {
+      // Setter patterns use RegExp with /i flag for case insensitivity
+      await transport.write('curr 5');
+      // Getter patterns use exact string match - must use correct case
+      const result = await transport.query('CURR?');
+      expect(result.ok).toBe(true);
+      expect(result.value).toBe('5.000');
+    });
+
+    it('handles mixed case mode commands', async () => {
+      await transport.write('mode cv');
+      const result = await transport.query('MODE?');
+      expect(result.ok).toBe(true);
+      expect(result.value).toBe('CV');
+    });
   });
 });

@@ -192,4 +192,63 @@ describe('simulatedDmm', () => {
       expect(result.value).toBe('BUS');
     });
   });
+
+  describe('validation', () => {
+    it('rejects NPLC value below minimum (0.001)', async () => {
+      const result = await transport.write('VOLT:DC:NPLC 0.0001');
+      expect(result.ok).toBe(true); // Command accepted
+
+      // Query should return default value, not the invalid one
+      const nplcResult = await transport.query('VOLT:DC:NPLC?');
+      expect(nplcResult.ok).toBe(true);
+      expect(nplcResult.value).toBe('1.000'); // Default, not 0.0001
+    });
+
+    it('rejects NPLC value above maximum (100)', async () => {
+      const result = await transport.write('VOLT:DC:NPLC 200');
+      expect(result.ok).toBe(true);
+
+      // Query should return default value, not the invalid one
+      const nplcResult = await transport.query('VOLT:DC:NPLC?');
+      expect(nplcResult.ok).toBe(true);
+      expect(nplcResult.value).toBe('1.000'); // Default, not 200
+    });
+
+    it('accepts NPLC at minimum boundary (0.001)', async () => {
+      const result = await transport.write('VOLT:DC:NPLC 0.001');
+      expect(result.ok).toBe(true);
+
+      const nplcResult = await transport.query('VOLT:DC:NPLC?');
+      expect(nplcResult.ok).toBe(true);
+      expect(nplcResult.value).toBe('0.001');
+    });
+
+    it('accepts NPLC at maximum boundary (100)', async () => {
+      const result = await transport.write('VOLT:DC:NPLC 100');
+      expect(result.ok).toBe(true);
+
+      const nplcResult = await transport.query('VOLT:DC:NPLC?');
+      expect(nplcResult.ok).toBe(true);
+      expect(nplcResult.value).toBe('100.000');
+    });
+
+    it('handles case-insensitive commands', async () => {
+      const result1 = await transport.write('volt:dc:nplc 5');
+      expect(result1.ok).toBe(true);
+
+      const result2 = await transport.query('VOLT:DC:NPLC?');
+      expect(result2.ok).toBe(true);
+      expect(result2.value).toBe('5.000');
+    });
+
+    it('handles optional colons in commands', async () => {
+      // Leading colon should work
+      const result1 = await transport.write(':VOLT:DC:NPLC 2');
+      expect(result1.ok).toBe(true);
+
+      const result2 = await transport.query(':VOLT:DC:NPLC?');
+      expect(result2.ok).toBe(true);
+      expect(result2.value).toBe('2.000');
+    });
+  });
 });

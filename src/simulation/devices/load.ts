@@ -14,6 +14,14 @@
  */
 
 import type { SimulatedDevice } from '../types.js';
+import {
+  parseNumber,
+  parseBooleanState,
+  formatFixed,
+  formatBooleanState,
+  formatString,
+  validateRange,
+} from './helpers.js';
 
 /**
  * Maximum current in amps
@@ -61,22 +69,7 @@ function isLoadMode(value: string): value is LoadMode {
 }
 
 /**
- * Parse a numeric value from a command match.
- */
-function parseNumber(match: RegExpMatchArray): number {
-  return parseFloat(match[1] ?? '0');
-}
-
-/**
- * Parse input state from command (ON/OFF/1/0).
- */
-function parseInputState(match: RegExpMatchArray): boolean {
-  const val = (match[1] ?? '').toUpperCase();
-  return val === 'ON' || val === '1';
-}
-
-/**
- * Parse mode from command.
+ * Parse mode from command (device-specific parser with validation).
  */
 function parseMode(match: RegExpMatchArray): LoadMode {
   const val = (match[1] ?? '').toUpperCase();
@@ -86,53 +79,8 @@ function parseMode(match: RegExpMatchArray): LoadMode {
   return 'CC';
 }
 
-// Helper type for Property value (matches Property<T> default type)
-type PropertyValue = number | string | boolean;
-
-/**
- * Format a number with 3 decimal places.
- *
- * Note: Type signature uses PropertyValue for compatibility with Property<T> interface,
- * but this function is designed for numeric properties only. The cast is safe when
- * used exclusively with number-typed property definitions.
- */
-function formatNumber(value: PropertyValue): string {
-  // Safe cast: This function is only used with numeric properties
-  return (value as number).toFixed(3);
-}
-
-/**
- * Format boolean input state as ON/OFF.
- */
-function formatInputState(value: PropertyValue): string {
-  return value ? 'ON' : 'OFF';
-}
-
-/**
- * Format mode string value.
- *
- * Note: Type signature uses PropertyValue for compatibility with Property<T> interface,
- * but this function is designed for string properties only.
- */
-function formatMode(value: PropertyValue): string {
-  // Safe cast: This function is only used with string mode properties
-  return value as string;
-}
-
-/**
- * Create a validator for numeric values within a range.
- *
- * Note: Type signature uses PropertyValue for compatibility with Property<T> interface,
- * but this function is designed for numeric properties only. The cast is safe when
- * used exclusively with number-typed property definitions.
- */
-function validateRange(min: number, max: number): (value: PropertyValue) => boolean {
-  // Safe cast: This validator is only used with numeric properties
-  return (v) => {
-    const num = v as number;
-    return num >= min && num <= max;
-  };
-}
+// Create formatters with specific decimal places
+const formatNumber3 = formatFixed(3);
 
 /**
  * Simulated Electronic Load device definition.
@@ -169,7 +117,7 @@ export const simulatedLoad: SimulatedDevice = {
       default: 0,
       getter: {
         pattern: 'MEAS:VOLT?',
-        format: formatNumber,
+        format: formatNumber3,
       },
     },
 
@@ -177,7 +125,7 @@ export const simulatedLoad: SimulatedDevice = {
       default: 0,
       getter: {
         pattern: 'MEAS:CURR?',
-        format: formatNumber,
+        format: formatNumber3,
       },
     },
 
@@ -185,7 +133,7 @@ export const simulatedLoad: SimulatedDevice = {
       default: 0,
       getter: {
         pattern: 'MEAS:POW?',
-        format: formatNumber,
+        format: formatNumber3,
       },
     },
 
@@ -194,7 +142,7 @@ export const simulatedLoad: SimulatedDevice = {
       default: 'CC' as LoadMode,
       getter: {
         pattern: 'MODE?',
-        format: formatMode,
+        format: formatString,
       },
       setter: {
         pattern: /^MODE\s+(CC|CV|CR|CP)$/i,
@@ -207,11 +155,11 @@ export const simulatedLoad: SimulatedDevice = {
       default: false,
       getter: {
         pattern: 'INP?',
-        format: formatInputState,
+        format: formatBooleanState,
       },
       setter: {
         pattern: /^INP\s+(ON|OFF|1|0)$/i,
-        parse: parseInputState,
+        parse: parseBooleanState,
       },
     },
 
@@ -220,10 +168,10 @@ export const simulatedLoad: SimulatedDevice = {
       default: 0,
       getter: {
         pattern: 'CURR?',
-        format: formatNumber,
+        format: formatNumber3,
       },
       setter: {
-        pattern: /^CURR\s+([\d.]+)$/,
+        pattern: /^CURR\s+([\d.]+)$/i,
         parse: parseNumber,
       },
       validate: validateRange(0, MAX_CURRENT),
@@ -234,10 +182,10 @@ export const simulatedLoad: SimulatedDevice = {
       default: 0,
       getter: {
         pattern: 'VOLT?',
-        format: formatNumber,
+        format: formatNumber3,
       },
       setter: {
-        pattern: /^VOLT\s+([\d.]+)$/,
+        pattern: /^VOLT\s+([\d.]+)$/i,
         parse: parseNumber,
       },
       validate: validateRange(0, MAX_VOLTAGE),
@@ -248,10 +196,10 @@ export const simulatedLoad: SimulatedDevice = {
       default: DEFAULT_RESISTANCE,
       getter: {
         pattern: 'RES?',
-        format: formatNumber,
+        format: formatNumber3,
       },
       setter: {
-        pattern: /^RES\s+([\d.]+)$/,
+        pattern: /^RES\s+([\d.]+)$/i,
         parse: parseNumber,
       },
       validate: validateRange(MIN_RESISTANCE, MAX_RESISTANCE),
@@ -262,10 +210,10 @@ export const simulatedLoad: SimulatedDevice = {
       default: 0,
       getter: {
         pattern: 'POW?',
-        format: formatNumber,
+        format: formatNumber3,
       },
       setter: {
-        pattern: /^POW\s+([\d.]+)$/,
+        pattern: /^POW\s+([\d.]+)$/i,
         parse: parseNumber,
       },
       validate: validateRange(0, MAX_POWER),
@@ -276,10 +224,10 @@ export const simulatedLoad: SimulatedDevice = {
       default: DEFAULT_SLEW_RATE,
       getter: {
         pattern: 'CURR:SLEW?',
-        format: formatNumber,
+        format: formatNumber3,
       },
       setter: {
-        pattern: /^CURR:SLEW\s+([\d.]+)$/,
+        pattern: /^CURR:SLEW\s+([\d.]+)$/i,
         parse: parseNumber,
       },
       validate: validateRange(0.001, 10),

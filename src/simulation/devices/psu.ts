@@ -12,6 +12,13 @@
  */
 
 import type { SimulatedDevice } from '../types.js';
+import {
+  parseNumber,
+  parseBooleanState,
+  formatFixed,
+  formatBooleanState,
+  validateRange,
+} from './helpers.js';
 
 /**
  * Maximum voltage in volts
@@ -33,57 +40,8 @@ const DEFAULT_OVP = 33;
  */
 const DEFAULT_OCP = 5.5;
 
-/**
- * Parse a numeric value from a command match.
- */
-function parseNumber(match: RegExpMatchArray): number {
-  return parseFloat(match[1] ?? '0');
-}
-
-/**
- * Parse output state from command (ON/OFF/1/0).
- */
-function parseOutputState(match: RegExpMatchArray): boolean {
-  const val = (match[1] ?? '').toUpperCase();
-  return val === 'ON' || val === '1';
-}
-
-// Helper type for Property value (matches Property<T> default type)
-type PropertyValue = number | string | boolean;
-
-/**
- * Format a number with 3 decimal places.
- *
- * Note: Type signature uses PropertyValue for compatibility with Property<T> interface,
- * but this function is designed for numeric properties only. The cast is safe when
- * used exclusively with number-typed property definitions.
- */
-function formatNumber(value: PropertyValue): string {
-  // Safe cast: This function is only used with numeric properties
-  return (value as number).toFixed(3);
-}
-
-/**
- * Format boolean output state as ON/OFF.
- */
-function formatOutputState(value: PropertyValue): string {
-  return value ? 'ON' : 'OFF';
-}
-
-/**
- * Create a validator for numeric values within a range.
- *
- * Note: Type signature uses PropertyValue for compatibility with Property<T> interface,
- * but this function is designed for numeric properties only. The cast is safe when
- * used exclusively with number-typed property definitions.
- */
-function validateRange(min: number, max: number): (value: PropertyValue) => boolean {
-  // Safe cast: This validator is only used with numeric properties
-  return (v) => {
-    const num = v as number;
-    return num >= min && num <= max;
-  };
-}
+// Create formatters with specific decimal places
+const formatNumber3 = formatFixed(3);
 
 /**
  * Simulated PSU device definition.
@@ -119,7 +77,7 @@ export const simulatedPsu: SimulatedDevice = {
       default: 0,
       getter: {
         pattern: 'MEAS:VOLT?',
-        format: formatNumber,
+        format: formatNumber3,
       },
     },
 
@@ -127,7 +85,7 @@ export const simulatedPsu: SimulatedDevice = {
       default: 0,
       getter: {
         pattern: 'MEAS:CURR?',
-        format: formatNumber,
+        format: formatNumber3,
       },
     },
 
@@ -135,7 +93,7 @@ export const simulatedPsu: SimulatedDevice = {
       default: 0,
       getter: {
         pattern: 'VOLT?',
-        format: formatNumber,
+        format: formatNumber3,
       },
       setter: {
         pattern: /^VOLT\s+([\d.]+)$/,
@@ -148,7 +106,7 @@ export const simulatedPsu: SimulatedDevice = {
       default: 0,
       getter: {
         pattern: 'CURR?',
-        format: formatNumber,
+        format: formatNumber3,
       },
       setter: {
         pattern: /^CURR\s+([\d.]+)$/,
@@ -161,11 +119,11 @@ export const simulatedPsu: SimulatedDevice = {
       default: false,
       getter: {
         pattern: 'OUTP?',
-        format: formatOutputState,
+        format: formatBooleanState,
       },
       setter: {
         pattern: /^OUTP\s+(ON|OFF|1|0)$/i,
-        parse: parseOutputState,
+        parse: parseBooleanState,
       },
     },
 
@@ -173,7 +131,7 @@ export const simulatedPsu: SimulatedDevice = {
       default: DEFAULT_OVP,
       getter: {
         pattern: 'VOLT:PROT?',
-        format: formatNumber,
+        format: formatNumber3,
       },
       setter: {
         pattern: /^VOLT:PROT\s+([\d.]+)$/,
@@ -186,7 +144,7 @@ export const simulatedPsu: SimulatedDevice = {
       default: DEFAULT_OCP,
       getter: {
         pattern: 'CURR:PROT?',
-        format: formatNumber,
+        format: formatNumber3,
       },
       setter: {
         pattern: /^CURR:PROT\s+([\d.]+)$/,

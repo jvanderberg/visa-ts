@@ -12,69 +12,19 @@
  */
 
 import type { SimulatedDevice } from '../types.js';
+import {
+  parseNumber,
+  parseBooleanState,
+  parseString,
+  formatFixed,
+  formatBooleanState,
+  formatString,
+  validateRange,
+} from './helpers.js';
 
-// Helper type for Property value (matches Property<T> default type)
-type PropertyValue = number | string | boolean;
-
-/**
- * Parse a numeric value from a command match.
- */
-function parseNumber(match: RegExpMatchArray): number {
-  return parseFloat(match[1] ?? '0');
-}
-
-/**
- * Parse display state from command (ON/OFF/1/0).
- */
-function parseDisplayState(match: RegExpMatchArray): boolean {
-  const val = (match[1] ?? '').toUpperCase();
-  return val === 'ON' || val === '1';
-}
-
-/**
- * Parse string value from command.
- */
-function parseString(match: RegExpMatchArray): string {
-  return (match[1] ?? '').toUpperCase();
-}
-
-/**
- * Format a number with 3 decimal places.
- */
-function formatNumber3(value: PropertyValue): string {
-  return (value as number).toFixed(3);
-}
-
-/**
- * Format a number with 6 decimal places (for timebase).
- */
-function formatNumber6(value: PropertyValue): string {
-  return (value as number).toFixed(6);
-}
-
-/**
- * Format display state as ON/OFF.
- */
-function formatDisplayState(value: PropertyValue): string {
-  return value ? 'ON' : 'OFF';
-}
-
-/**
- * Format string value.
- */
-function formatString(value: PropertyValue): string {
-  return value as string;
-}
-
-/**
- * Validate a numeric value is within range.
- */
-function validateRange(min: number, max: number): (value: PropertyValue) => boolean {
-  return (v) => {
-    const num = v as number;
-    return num >= min && num <= max;
-  };
-}
+// Create formatters with specific decimal places
+const formatNumber3 = formatFixed(3);
+const formatNumber6 = formatFixed(6);
 
 /**
  * Simulated Oscilloscope device definition.
@@ -125,11 +75,11 @@ export const simulatedOscilloscope: SimulatedDevice = {
       default: true,
       getter: {
         pattern: /^:?CHAN1:DISP\?$/i,
-        format: formatDisplayState,
+        format: formatBooleanState,
       },
       setter: {
         pattern: /^:?CHAN1:DISP\s+(ON|OFF|1|0)$/i,
-        parse: parseDisplayState,
+        parse: parseBooleanState,
       },
     },
 
