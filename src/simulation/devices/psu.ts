@@ -3,7 +3,7 @@
  *
  * A realistic simulation of a programmable DC power supply with:
  * - Voltage control (0-30V)
- * - Current limit control (0-5A)
+ * - Current limit control (0-20A)
  * - Output enable/disable
  * - OVP/OCP protection settings
  * - Measurement queries
@@ -21,7 +21,7 @@ const MAX_VOLTAGE = 30;
 /**
  * Maximum current in amps
  */
-const MAX_CURRENT = 5;
+const MAX_CURRENT = 20;
 
 /**
  * Default OVP level (10% above max)
@@ -31,7 +31,7 @@ const DEFAULT_OVP = 33;
 /**
  * Default OCP level (10% above max)
  */
-const DEFAULT_OCP = 5.5;
+const DEFAULT_OCP = 22;
 
 /**
  * Parse a numeric value from a command match.
@@ -176,7 +176,7 @@ export const simulatedPsu: SimulatedDevice = {
         pattern: /^CURR:PROT\s+([\d.]+)$/,
         parse: parseNumber,
       },
-      validate: validateRange(0, 6),
+      validate: validateRange(0, 25),
     },
   },
 };

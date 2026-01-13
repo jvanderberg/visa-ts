@@ -21,6 +21,13 @@ export interface SimulationTransport extends Transport {
     model: string;
     serial: string;
   };
+
+  /**
+   * Get all current property values from the simulated device.
+   *
+   * @returns Record of property names to their current values
+   */
+  getState(): Record<string, unknown>;
 }
 
 const DEFAULT_TIMEOUT = 2000;
@@ -125,6 +132,10 @@ export function createSimulationTransport(config: SimulationTransportConfig): Si
 
     get deviceInfo() {
       return handler.getDeviceInfo();
+    },
+
+    getState(): Record<string, unknown> {
+      return handler.getState();
     },
 
     async open(): Promise<Result<void, Error>> {

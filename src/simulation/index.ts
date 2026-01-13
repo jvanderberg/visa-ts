@@ -28,3 +28,21 @@ export type { CommandHandler } from './command-handler.js';
 
 // Example devices
 export { simulatedPsu, simulatedLoad } from './devices/index.js';
+
+// Circuit simulation
+export { createCircuit, solveCircuit } from './circuit/index.js';
+export type {
+  Circuit,
+  CircuitDevice,
+  CircuitConnection,
+  DevicePort,
+  ConnectionOptions,
+  CircuitNode,
+  Connection,
+  PsuState,
+  LoadState,
+  PsuMode,
+  LoadMode,
+  CircuitState,
+  CircuitMeasurements,
+} from './circuit/index.js';

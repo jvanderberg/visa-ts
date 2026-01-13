@@ -32,6 +32,13 @@ export interface CommandHandler {
    * @returns DeviceInfo
    */
   getDeviceInfo(): DeviceInfo;
+
+  /**
+   * Get all current property values.
+   *
+   * @returns Record of property names to their current values
+   */
+  getState(): Record<string, unknown>;
 }
 
 /**
@@ -237,6 +244,10 @@ export function createCommandHandler(device: SimulatedDevice): CommandHandler {
 
     getDeviceInfo(): DeviceInfo {
       return { ...device.device };
+    },
+
+    getState(): Record<string, unknown> {
+      return state.getAllValues();
     },
   };
 }

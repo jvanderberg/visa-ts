@@ -75,8 +75,8 @@ describe('Simulated PSU Device', () => {
       expect(result.value).toBe('3.500');
     });
 
-    it('rejects current above maximum (5A)', async () => {
-      await transport.write('CURR 10');
+    it('rejects current above maximum (20A)', async () => {
+      await transport.write('CURR 25');
       const result = await transport.query('CURR?');
       expect(result.ok).toBe(true);
       expect(result.value).toBe('0.000');
@@ -174,10 +174,10 @@ describe('Simulated PSU Device', () => {
   });
 
   describe('OCP (Over-Current Protection)', () => {
-    it('returns default OCP of 5.5A', async () => {
+    it('returns default OCP of 22A', async () => {
       const result = await transport.query('CURR:PROT?');
       expect(result.ok).toBe(true);
-      expect(result.value).toBe('5.500');
+      expect(result.value).toBe('22.000');
     });
 
     it('sets OCP level', async () => {
