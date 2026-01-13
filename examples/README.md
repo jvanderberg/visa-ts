@@ -2,7 +2,7 @@
 
 Example scripts demonstrating visa-ts instrument control.
 
-These examples use `SIM::` resource strings for simulated instruments. Change the resource string to connect to real hardware - the code is identical.
+These examples discover devices using `listResources()` with pattern filtering. Change the filter pattern to discover real hardware instead of simulated devices.
 
 ## Running Examples
 
@@ -13,19 +13,27 @@ npx tsx examples/load-basic.ts
 npx tsx examples/power-test.ts
 ```
 
-## Switching to Real Hardware
+## Device Discovery
 
-Change the resource string constant at the top of each file:
+Examples use pattern filtering to find devices:
 
 ```typescript
-// Simulation
-const RESOURCE_STRING = 'SIM::PSU::INSTR';
+const rm = createResourceManager();
 
-// Real hardware (TCP/IP)
-const RESOURCE_STRING = 'TCPIP0::192.168.1.100::5025::SOCKET';
+// List all available resources
+const all = await rm.listResources();
 
-// Real hardware (USB)
-const RESOURCE_STRING = 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR';
+// Filter for simulated PSU
+const psuList = await rm.listResources('SIM::PSU::*');
+
+// Filter for real USB instruments
+const usbList = await rm.listResources('USB*::INSTR');
+
+// Filter for TCP/IP instruments
+const tcpipList = await rm.listResources('TCPIP*::INSTR');
+
+// Open the first matching device
+const psu = await rm.openResource(psuList[0]);
 ```
 
 ## Available Simulated Devices
@@ -38,6 +46,7 @@ const RESOURCE_STRING = 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR';
 ### psu-basic.ts
 
 Basic power supply operations:
+- Discover PSU using resource filtering
 - Query device identification
 - Set voltage and current limits
 - Configure OVP/OCP protection
@@ -46,6 +55,7 @@ Basic power supply operations:
 ### load-basic.ts
 
 Basic electronic load operations:
+- Discover Load using resource filtering
 - Configure operating mode (CC/CV/CR/CP)
 - Set load parameters (current, voltage, resistance, power)
 - Set slew rate
@@ -54,7 +64,7 @@ Basic electronic load operations:
 ### power-test.ts
 
 Combined PSU + Load test scenario:
-- Open multiple instruments
+- Discover both instruments using filtering
 - Run parametric tests across voltage/current combinations
 - Verify instrument settings
 - Display results in a formatted table

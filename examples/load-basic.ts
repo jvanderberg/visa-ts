@@ -2,31 +2,39 @@
  * Basic Electronic Load example
  *
  * Demonstrates basic operations with an electronic load.
- * Uses SIM::LOAD::INSTR for simulation - change to real resource string for hardware.
+ * Discovers available load by filtering resources.
  */
 
 import { createResourceManager } from '../src/index.js';
 import type { MessageBasedResource } from '../src/index.js';
-
-// Change this to your real instrument's resource string for hardware:
-// 'USB0::0x1AB1::0x0E11::DP8C123456::INSTR'
-const RESOURCE_STRING = 'SIM::LOAD::INSTR';
 
 async function main() {
   console.log('=== Electronic Load Example ===\n');
 
   const rm = createResourceManager();
 
-  // List available resources (includes simulated devices)
-  console.log('Available resources:');
-  const resources = await rm.listResources();
-  for (const res of resources) {
+  // List all available resources
+  console.log('All available resources:');
+  const allResources = await rm.listResources();
+  for (const res of allResources) {
     console.log(`  ${res}`);
   }
-  console.log();
 
-  const loadResult = await rm.openResource(RESOURCE_STRING);
+  // Filter for Load devices (simulated or real)
+  // For real hardware, use pattern like 'USB*::INSTR'
+  const loadResources = await rm.listResources('SIM::LOAD::*');
+  console.log('\nFiltered Load resources:');
+  for (const res of loadResources) {
+    console.log(`  ${res}`);
+  }
 
+  if (loadResources.length === 0) {
+    console.error('No Load found');
+    return;
+  }
+
+  // Open the first available Load
+  const loadResult = await rm.openResource(loadResources[0]);
   if (!loadResult.ok) {
     console.error('Failed to open Load:', loadResult.error.message);
     return;
@@ -36,7 +44,7 @@ async function main() {
   // Query identification
   const idnResult = await load.query('*IDN?');
   if (idnResult.ok) {
-    console.log('Connected to:', idnResult.value);
+    console.log('\nConnected to:', idnResult.value);
   }
 
   console.log('\n--- Initial State ---');

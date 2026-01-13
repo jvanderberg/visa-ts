@@ -2,31 +2,39 @@
  * Basic PSU (Power Supply Unit) example
  *
  * Demonstrates basic operations with a DC power supply.
- * Uses SIM::PSU::INSTR for simulation - change to real resource string for hardware.
+ * Discovers available PSU by filtering resources.
  */
 
 import { createResourceManager } from '../src/index.js';
 import type { MessageBasedResource } from '../src/index.js';
-
-// Change this to your real instrument's resource string for hardware:
-// 'TCPIP0::192.168.1.100::5025::SOCKET' or 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR'
-const RESOURCE_STRING = 'SIM::PSU::INSTR';
 
 async function main() {
   console.log('=== PSU Example ===\n');
 
   const rm = createResourceManager();
 
-  // List available resources (includes simulated devices)
-  console.log('Available resources:');
-  const resources = await rm.listResources();
-  for (const res of resources) {
+  // List all available resources
+  console.log('All available resources:');
+  const allResources = await rm.listResources();
+  for (const res of allResources) {
     console.log(`  ${res}`);
   }
-  console.log();
 
-  const psuResult = await rm.openResource(RESOURCE_STRING);
+  // Filter for PSU devices (simulated or real)
+  // For real hardware, use pattern like 'TCPIP*::INSTR' or 'USB*::INSTR'
+  const psuResources = await rm.listResources('SIM::PSU::*');
+  console.log('\nFiltered PSU resources:');
+  for (const res of psuResources) {
+    console.log(`  ${res}`);
+  }
 
+  if (psuResources.length === 0) {
+    console.error('No PSU found');
+    return;
+  }
+
+  // Open the first available PSU
+  const psuResult = await rm.openResource(psuResources[0]);
   if (!psuResult.ok) {
     console.error('Failed to open PSU:', psuResult.error.message);
     return;
@@ -36,7 +44,7 @@ async function main() {
   // Query identification
   const idnResult = await psu.query('*IDN?');
   if (idnResult.ok) {
-    console.log('Connected to:', idnResult.value);
+    console.log('\nConnected to:', idnResult.value);
   }
 
   console.log('\n--- Initial State ---');

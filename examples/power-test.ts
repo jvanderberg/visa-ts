@@ -3,9 +3,7 @@
  *
  * Demonstrates a realistic test scenario using both a PSU and Electronic Load.
  * Tests a device under various load conditions and verifies settings.
- *
- * Uses SIM::PSU::INSTR and SIM::LOAD::INSTR for simulation.
- * Change to real resource strings for hardware.
+ * Discovers devices by filtering resources.
  *
  * Note: This simulation does not model actual circuit physics - the PSU and Load
  * operate independently. See Phase 10 in PLAN.md for future circuit simulation.
@@ -13,10 +11,6 @@
 
 import { createResourceManager } from '../src/index.js';
 import type { MessageBasedResource } from '../src/index.js';
-
-// Change these to your real instruments' resource strings for hardware
-const PSU_RESOURCE = 'SIM::PSU::INSTR';
-const LOAD_RESOURCE = 'SIM::LOAD::INSTR';
 
 interface TestPoint {
   voltage: number;
@@ -43,21 +37,35 @@ async function main() {
 
   const rm = createResourceManager();
 
-  // List available resources (includes simulated devices)
-  console.log('Available resources:');
-  const resources = await rm.listResources();
-  for (const res of resources) {
+  // List all available resources
+  console.log('All available resources:');
+  const allResources = await rm.listResources();
+  for (const res of allResources) {
     console.log(`  ${res}`);
   }
-  console.log();
 
-  const psuResult = await rm.openResource(PSU_RESOURCE);
+  // Find PSU and Load by filtering
+  // For real hardware, use patterns like 'TCPIP*::INSTR' or 'USB*::INSTR'
+  const psuResources = await rm.listResources('SIM::PSU::*');
+  const loadResources = await rm.listResources('SIM::LOAD::*');
+
+  console.log('\nFiltered instruments:');
+  console.log(`  PSU:  ${psuResources[0] ?? 'not found'}`);
+  console.log(`  Load: ${loadResources[0] ?? 'not found'}`);
+
+  if (psuResources.length === 0 || loadResources.length === 0) {
+    console.error('\nRequired instruments not found');
+    return;
+  }
+
+  // Open instruments
+  const psuResult = await rm.openResource(psuResources[0]);
   if (!psuResult.ok) {
     console.error('Failed to open PSU:', psuResult.error.message);
     return;
   }
 
-  const loadResult = await rm.openResource(LOAD_RESOURCE);
+  const loadResult = await rm.openResource(loadResources[0]);
   if (!loadResult.ok) {
     console.error('Failed to open Load:', loadResult.error.message);
     await psuResult.value.close();
@@ -71,7 +79,7 @@ async function main() {
   const psuIdn = await psu.query('*IDN?');
   const loadIdn = await load.query('*IDN?');
 
-  console.log('Instruments:');
+  console.log('\nConnected instruments:');
   console.log(`  PSU:  ${psuIdn.ok ? psuIdn.value : 'Unknown'}`);
   console.log(`  Load: ${loadIdn.ok ? loadIdn.value : 'Unknown'}`);
 
