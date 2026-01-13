@@ -11,7 +11,7 @@ import type { ResourceInfo } from '../types.js';
 /**
  * Session state indicating the current connection status.
  */
-export type SessionState = 'connecting' | 'connected' | 'disconnected' | 'error';
+export type SessionState = 'connecting' | 'connected' | 'polling' | 'disconnected' | 'error';
 
 /**
  * Options for command execution through a session.

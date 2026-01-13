@@ -30,6 +30,12 @@ export interface DeviceSessionConfig {
 
   /** Callback when state changes */
   onStateChange?: (state: SessionState) => void;
+
+  /** Function to poll device status (optional) */
+  pollFn?: (resource: MessageBasedResource) => Promise<unknown>;
+
+  /** Interval between polls in ms (default: 250) */
+  pollInterval?: number;
 }
 
 /**
@@ -65,6 +71,8 @@ export function createDeviceSession(config: DeviceSessionConfig): DeviceSessionI
     maxConsecutiveErrors = 5,
     onReconnect,
     onStateChange,
+    pollFn,
+    pollInterval = 250,
   } = config;
 
   let resource: MessageBasedResource | null = initialResource;
@@ -76,6 +84,15 @@ export function createDeviceSession(config: DeviceSessionConfig): DeviceSessionI
   const statusHandlers = new Set<(status: unknown) => void>();
   const taskQueue: QueuedTask<unknown>[] = [];
   let isProcessing = false;
+
+  // Polling state
+  let pollTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  let isPolling = false;
+  let pollPromise: Promise<void> | null = null;
+  let isClosed = false;
+
+  // Reconnection state
+  let reconnectPromise: Promise<Result<void, Error>> | null = null;
 
   function setState(newState: SessionState): void {
     if (state !== newState) {
@@ -99,6 +116,7 @@ export function createDeviceSession(config: DeviceSessionConfig): DeviceSessionI
 
   async function disconnect(error: Error): Promise<void> {
     lastError = error;
+    stopPolling();
     if (resource) {
       const currentResource = resource;
       resource = null;
@@ -107,6 +125,104 @@ export function createDeviceSession(config: DeviceSessionConfig): DeviceSessionI
     } else {
       setState('disconnected');
     }
+  }
+
+  function stopPolling(): void {
+    if (pollTimeoutId !== null) {
+      clearTimeout(pollTimeoutId);
+      pollTimeoutId = null;
+    }
+  }
+
+  function scheduleNextPoll(): void {
+    if (isClosed || !pollFn || !resource || state === 'error') return;
+    pollTimeoutId = setTimeout(() => {
+      void doPoll();
+    }, pollInterval);
+  }
+
+  async function doPoll(): Promise<void> {
+    pollTimeoutId = null;
+    if (isClosed || !pollFn || !resource) return;
+
+    const currentResource = resource;
+    isPolling = true;
+    const previousState = state;
+    setState('polling');
+
+    pollPromise = (async () => {
+      try {
+        const result = await pollFn(currentResource);
+        if (!isClosed && resource === currentResource) {
+          status = result;
+          for (const handler of statusHandlers) {
+            handler(result);
+          }
+          resetErrors();
+          setState('connected');
+        }
+      } catch (error) {
+        if (!isClosed && resource === currentResource) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          setError(err);
+          // If we hit maxConsecutiveErrors, state is already 'error' - stop polling
+          if (consecutiveErrors >= maxConsecutiveErrors) {
+            stopPolling();
+            return;
+          }
+          setState(previousState === 'polling' ? 'connected' : previousState);
+        }
+      } finally {
+        isPolling = false;
+        pollPromise = null;
+        scheduleNextPoll();
+      }
+    })();
+
+    await pollPromise;
+  }
+
+  function startPolling(): void {
+    if (pollFn && resource && !isClosed && pollTimeoutId === null && !isPolling) {
+      // Schedule first poll immediately (next tick), then subsequent polls after interval
+      pollTimeoutId = setTimeout(() => {
+        void doPoll();
+      }, 0);
+    }
+  }
+
+  async function attemptReconnect(): Promise<Result<void, Error>> {
+    if (!onReconnect) {
+      return Err(new Error('Device not connected (no reconnect handler configured)'));
+    }
+
+    // If already reconnecting, wait for that attempt
+    if (reconnectPromise) {
+      return reconnectPromise;
+    }
+
+    setState('connecting');
+
+    reconnectPromise = (async (): Promise<Result<void, Error>> => {
+      try {
+        const result = await onReconnect();
+        if (result.ok) {
+          resource = result.value;
+          setState('connected');
+          resetErrors();
+          startPolling();
+          return Ok(undefined);
+        } else {
+          lastError = result.error;
+          setState('error');
+          return Err(result.error);
+        }
+      } finally {
+        reconnectPromise = null;
+      }
+    })();
+
+    return reconnectPromise;
   }
 
   async function processQueue(): Promise<void> {
@@ -123,13 +239,9 @@ export function createDeviceSession(config: DeviceSessionConfig): DeviceSessionI
   }
 
   async function executeTask<T>(task: QueuedTask<T>): Promise<Result<T, Error>> {
-    const currentResource = resource;
-    if (!currentResource) {
-      return Err(new Error('Device not connected'));
-    }
-
     let timeoutId: ReturnType<typeof setTimeout>;
     let timedOut = false;
+
     const timeoutPromise = new Promise<Result<T, Error>>((resolve) => {
       timeoutId = setTimeout(() => {
         void (async () => {
@@ -143,6 +255,19 @@ export function createDeviceSession(config: DeviceSessionConfig): DeviceSessionI
     });
 
     const taskPromise = (async (): Promise<Result<T, Error>> => {
+      // If disconnected, attempt reconnection first
+      if (!resource) {
+        const reconnectResult = await attemptReconnect();
+        if (!reconnectResult.ok) {
+          return Err(reconnectResult.error);
+        }
+      }
+
+      const currentResource = resource;
+      if (!currentResource) {
+        return Err(new Error('Device not connected'));
+      }
+
       try {
         const result = await task.fn(currentResource);
         if (!timedOut) {
@@ -205,7 +330,9 @@ export function createDeviceSession(config: DeviceSessionConfig): DeviceSessionI
       if (newResource) {
         setState('connected');
         resetErrors();
+        startPolling();
       } else {
+        stopPolling();
         setState('disconnected');
       }
     },
@@ -227,26 +354,18 @@ export function createDeviceSession(config: DeviceSessionConfig): DeviceSessionI
     },
 
     async reconnect(): Promise<Result<void, Error>> {
-      if (!onReconnect) {
-        return Err(new Error('No reconnect handler configured'));
-      }
-
-      setState('connecting');
-
-      const result = await onReconnect();
-      if (result.ok) {
-        resource = result.value;
-        setState('connected');
-        resetErrors();
-        return Ok(undefined);
-      } else {
-        lastError = result.error;
-        setState('error');
-        return Err(result.error);
-      }
+      return attemptReconnect();
     },
 
     async close(): Promise<Result<void, Error>> {
+      isClosed = true;
+      stopPolling();
+
+      // Wait for in-flight poll to complete
+      if (pollPromise) {
+        await pollPromise;
+      }
+
       if (resource) {
         const closeResult = await resource.close();
         resource = null;
@@ -260,6 +379,11 @@ export function createDeviceSession(config: DeviceSessionConfig): DeviceSessionI
       return Ok(undefined);
     },
   };
+
+  // Start polling if we have an initial resource and pollFn
+  if (initialResource && pollFn) {
+    startPolling();
+  }
 
   return session;
 }

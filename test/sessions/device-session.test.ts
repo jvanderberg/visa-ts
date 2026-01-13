@@ -209,6 +209,120 @@ describe('createDeviceSession', () => {
       expect(result2.ok).toBe(true);
       expect(callOrder).toEqual([1, 2, 3, 4]);
     });
+
+    it('waits for reconnection when disconnected', async () => {
+      const newResource = createMockResource({
+        query: vi.fn().mockResolvedValue(Ok('RIGOL TECHNOLOGIES')),
+      });
+      const reconnectFn = vi.fn().mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return Ok(newResource);
+      });
+
+      const session = createDeviceSession({
+        resourceString: 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR',
+        resource: null, // Start disconnected
+        onReconnect: reconnectFn,
+      });
+
+      expect(session.state).toBe('disconnected');
+
+      // Execute while disconnected - should wait for reconnection
+      const executePromise = session.execute(
+        async (res) => {
+          const result = await res.query('*IDN?');
+          if (!result.ok) throw result.error;
+          return result.value;
+        },
+        { timeout: 5000 }
+      );
+
+      // Reconnection happens
+      await vi.advanceTimersByTimeAsync(150);
+
+      const result = await executePromise;
+
+      expect(reconnectFn).toHaveBeenCalled();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe('RIGOL TECHNOLOGIES');
+      }
+    });
+
+    it('times out if reconnection takes too long', async () => {
+      const reconnectFn = vi.fn().mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        return Ok(createMockResource());
+      });
+
+      const session = createDeviceSession({
+        resourceString: 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR',
+        resource: null,
+        onReconnect: reconnectFn,
+      });
+
+      const executePromise = session.execute(async (res) => res.query('*IDN?'), { timeout: 100 });
+
+      await vi.advanceTimersByTimeAsync(150);
+
+      const result = await executePromise;
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('timeout');
+      }
+    });
+
+    it('fails immediately when disconnected with no reconnect handler', async () => {
+      const session = createDeviceSession({
+        resourceString: 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR',
+        resource: null,
+        // No onReconnect
+      });
+
+      const result = await session.execute(async (res) => res.query('*IDN?'));
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('not connected');
+      }
+    });
+
+    it('executes queued commands after reconnection', async () => {
+      const newResource = createMockResource({
+        query: vi.fn().mockResolvedValue(Ok('response')),
+      });
+      const reconnectFn = vi.fn().mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return Ok(newResource);
+      });
+
+      const session = createDeviceSession({
+        resourceString: 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR',
+        resource: null,
+        onReconnect: reconnectFn,
+      });
+
+      // Queue multiple commands while disconnected
+      const promise1 = session.execute(async (res) => {
+        await res.query('CMD1');
+        return 'first';
+      });
+      const promise2 = session.execute(async (res) => {
+        await res.query('CMD2');
+        return 'second';
+      });
+
+      // Reconnection happens
+      await vi.advanceTimersByTimeAsync(150);
+
+      const [result1, result2] = await Promise.all([promise1, promise2]);
+
+      expect(result1.ok).toBe(true);
+      expect(result2.ok).toBe(true);
+      // Should only reconnect once, not per command
+      expect(reconnectFn).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('state transitions', () => {
@@ -604,6 +718,317 @@ describe('createDeviceSession', () => {
       session.setResource(resource);
 
       expect(onStateChange).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('polling', () => {
+    it('calls pollFn at pollInterval when connected', async () => {
+      const resource = createMockResource();
+      const pollFn = vi.fn().mockResolvedValue({ voltage: 12.5 });
+
+      const session = createDeviceSession({
+        resourceString: 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR',
+        resource,
+        pollFn,
+        pollInterval: 250,
+      });
+
+      expect(pollFn).not.toHaveBeenCalled();
+
+      // First poll happens immediately after creation
+      await vi.advanceTimersByTimeAsync(0);
+      expect(pollFn).toHaveBeenCalledTimes(1);
+      expect(pollFn).toHaveBeenCalledWith(resource);
+
+      // Second poll after interval
+      await vi.advanceTimersByTimeAsync(250);
+      expect(pollFn).toHaveBeenCalledTimes(2);
+
+      // Third poll
+      await vi.advanceTimersByTimeAsync(250);
+      expect(pollFn).toHaveBeenCalledTimes(3);
+
+      await session.close();
+    });
+
+    it('updates status with pollFn result', async () => {
+      const resource = createMockResource();
+      const pollFn = vi.fn().mockResolvedValue({ voltage: 12.5, current: 1.5 });
+      const statusHandler = vi.fn();
+
+      const session = createDeviceSession({
+        resourceString: 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR',
+        resource,
+        pollFn,
+        pollInterval: 250,
+      });
+
+      session.onStatus(statusHandler);
+
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(session.status).toEqual({ voltage: 12.5, current: 1.5 });
+      expect(statusHandler).toHaveBeenCalledWith({ voltage: 12.5, current: 1.5 });
+
+      await session.close();
+    });
+
+    it('transitions to polling state during poll', async () => {
+      const resource = createMockResource();
+      const states: SessionState[] = [];
+      let resolveSlowPoll: () => void;
+      const slowPollPromise = new Promise<void>((resolve) => {
+        resolveSlowPoll = resolve;
+      });
+
+      const pollFn = vi.fn().mockImplementation(async () => {
+        await slowPollPromise;
+        return { voltage: 12.5 };
+      });
+
+      const session = createDeviceSession({
+        resourceString: 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR',
+        resource,
+        pollFn,
+        pollInterval: 250,
+        onStateChange: (state) => states.push(state),
+      });
+
+      // Trigger first poll
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(session.state).toBe('polling');
+
+      // Complete the poll
+      resolveSlowPoll!();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(session.state).toBe('connected');
+      expect(states).toContain('polling');
+
+      await session.close();
+    });
+
+    it('does not poll when disconnected', async () => {
+      const pollFn = vi.fn().mockResolvedValue({ voltage: 12.5 });
+
+      const session = createDeviceSession({
+        resourceString: 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR',
+        // No resource = disconnected
+        pollFn,
+        pollInterval: 250,
+      });
+
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(pollFn).not.toHaveBeenCalled();
+
+      await session.close();
+    });
+
+    it('stops polling when session is closed', async () => {
+      const resource = createMockResource();
+      const pollFn = vi.fn().mockResolvedValue({ voltage: 12.5 });
+
+      const session = createDeviceSession({
+        resourceString: 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR',
+        resource,
+        pollFn,
+        pollInterval: 250,
+      });
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(pollFn).toHaveBeenCalledTimes(1);
+
+      await session.close();
+
+      await vi.advanceTimersByTimeAsync(500);
+      expect(pollFn).toHaveBeenCalledTimes(1); // No more polls after close
+    });
+
+    it('stops polling when resource is set to null', async () => {
+      const resource = createMockResource();
+      const pollFn = vi.fn().mockResolvedValue({ voltage: 12.5 });
+
+      const session = createDeviceSession({
+        resourceString: 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR',
+        resource,
+        pollFn,
+        pollInterval: 250,
+      });
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(pollFn).toHaveBeenCalledTimes(1);
+
+      session.setResource(null);
+
+      await vi.advanceTimersByTimeAsync(500);
+      expect(pollFn).toHaveBeenCalledTimes(1);
+
+      await session.close();
+    });
+
+    it('resumes polling when resource is reconnected', async () => {
+      const resource1 = createMockResource();
+      const resource2 = createMockResource();
+      const pollFn = vi.fn().mockResolvedValue({ voltage: 12.5 });
+
+      const session = createDeviceSession({
+        resourceString: 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR',
+        resource: resource1,
+        pollFn,
+        pollInterval: 250,
+      });
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(pollFn).toHaveBeenCalledTimes(1);
+
+      // Disconnect
+      session.setResource(null);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(pollFn).toHaveBeenCalledTimes(1);
+
+      // Reconnect
+      session.setResource(resource2);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(pollFn).toHaveBeenCalledTimes(2);
+      expect(pollFn).toHaveBeenLastCalledWith(resource2);
+
+      await session.close();
+    });
+
+    it('handles poll errors gracefully', async () => {
+      const resource = createMockResource();
+      let callCount = 0;
+      const pollFn = vi.fn().mockImplementation(async () => {
+        callCount++;
+        if (callCount === 2) {
+          throw new Error('Poll failed');
+        }
+        return { voltage: 12.5 };
+      });
+
+      const session = createDeviceSession({
+        resourceString: 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR',
+        resource,
+        pollFn,
+        pollInterval: 250,
+        maxConsecutiveErrors: 5,
+      });
+
+      // First poll succeeds
+      await vi.advanceTimersByTimeAsync(0);
+      expect(session.state).toBe('connected');
+
+      // Second poll fails
+      await vi.advanceTimersByTimeAsync(250);
+      expect(session.lastError?.message).toBe('Poll failed');
+
+      // Polling continues after error
+      await vi.advanceTimersByTimeAsync(250);
+      expect(pollFn).toHaveBeenCalledTimes(3);
+
+      await session.close();
+    });
+
+    it('disconnects after maxConsecutiveErrors poll failures', async () => {
+      const resource = createMockResource();
+      const pollFn = vi.fn().mockRejectedValue(new Error('Poll failed'));
+
+      const session = createDeviceSession({
+        resourceString: 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR',
+        resource,
+        pollFn,
+        pollInterval: 100,
+        maxConsecutiveErrors: 3,
+      });
+
+      // Run polls until error state
+      for (let i = 0; i < 3; i++) {
+        await vi.advanceTimersByTimeAsync(100);
+      }
+
+      expect(session.state).toBe('error');
+
+      await session.close();
+    });
+
+    it('waits for in-flight poll to complete on close', async () => {
+      const resource = createMockResource();
+      let resolveSlowPoll: () => void;
+      const slowPollPromise = new Promise<void>((resolve) => {
+        resolveSlowPoll = resolve;
+      });
+
+      const pollFn = vi.fn().mockImplementation(async () => {
+        await slowPollPromise;
+        return { voltage: 12.5 };
+      });
+
+      const session = createDeviceSession({
+        resourceString: 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR',
+        resource,
+        pollFn,
+        pollInterval: 250,
+      });
+
+      // Start poll
+      await vi.advanceTimersByTimeAsync(0);
+      expect(session.state).toBe('polling');
+
+      // Close while polling
+      const closePromise = session.close();
+
+      // Poll is still in progress
+      expect(session.state).toBe('polling');
+
+      // Complete the poll
+      resolveSlowPoll!();
+      await vi.advanceTimersByTimeAsync(0);
+
+      await closePromise;
+      expect(session.state).toBe('disconnected');
+    });
+
+    it('does not start polling if pollFn is not provided', async () => {
+      const resource = createMockResource();
+
+      const session = createDeviceSession({
+        resourceString: 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR',
+        resource,
+        pollInterval: 250,
+        // No pollFn
+      });
+
+      await vi.advanceTimersByTimeAsync(500);
+
+      // Should stay connected, not crash
+      expect(session.state).toBe('connected');
+
+      await session.close();
+    });
+
+    it('uses default pollInterval of 250ms', async () => {
+      const resource = createMockResource();
+      const pollFn = vi.fn().mockResolvedValue({ voltage: 12.5 });
+
+      const session = createDeviceSession({
+        resourceString: 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR',
+        resource,
+        pollFn,
+        // No pollInterval specified
+      });
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(pollFn).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(200);
+      expect(pollFn).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(50); // Total 250ms
+      expect(pollFn).toHaveBeenCalledTimes(2);
+
+      await session.close();
     });
   });
 });
