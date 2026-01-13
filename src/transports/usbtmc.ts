@@ -7,6 +7,7 @@
 import type { Transport, TransportState, TransportConfig } from './transport.js';
 import type { Result } from '../result.js';
 import { Ok, Err } from '../result.js';
+import usb from 'usb';
 
 // USB-TMC Message Types
 const DEV_DEP_MSG_OUT = 1;
@@ -63,10 +64,6 @@ interface UsbDevice {
   getStringDescriptor(index: number, callback: (err: Error | null, str?: string) => void): void;
 }
 
-interface UsbModule {
-  findByIds(vendorId: number, productId: number): UsbDevice | undefined;
-}
-
 /**
  * Configuration options for USB-TMC transport
  */
@@ -81,8 +78,6 @@ export interface UsbtmcTransportConfig extends TransportConfig {
   quirks?: 'rigol' | 'none';
   /** USB interface number (default: 0) */
   interfaceNumber?: number;
-  /** @internal USB module for testing - do not use in production */
-  _usbModule?: UsbModule;
 }
 
 /**
@@ -301,17 +296,9 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
       state = 'opening';
 
       try {
-        // Get USB module
-        let usb: UsbModule;
-        if (config._usbModule) {
-          usb = config._usbModule;
-        } else {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-          usb = require('usb') as UsbModule;
-        }
-
         // Find device
-        device = usb.findByIds(config.vendorId, config.productId) ?? null;
+        device =
+          (usb.findByIds(config.vendorId, config.productId) as UsbDevice | undefined) ?? null;
         if (!device) {
           state = 'error';
           return Err(

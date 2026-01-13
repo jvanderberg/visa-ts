@@ -7,33 +7,7 @@
 import type { Transport, TransportState, TransportConfig } from './transport.js';
 import type { Result } from '../result.js';
 import { Ok, Err } from '../result.js';
-
-// Type definitions for serialport (peer dependency)
-interface SerialPortOptions {
-  path: string;
-  baudRate: number;
-  dataBits?: 5 | 6 | 7 | 8;
-  stopBits?: 1 | 1.5 | 2;
-  parity?: 'none' | 'even' | 'odd' | 'mark' | 'space';
-  autoOpen?: boolean;
-}
-
-interface SerialPortLike {
-  on(event: 'data', handler: (data: Buffer) => void): this;
-  on(event: 'close', handler: () => void): this;
-  on(event: 'error', handler: (error: Error) => void): this;
-  on(event: string, handler: (...args: unknown[]) => void): this;
-  once(event: string, handler: (...args: unknown[]) => void): this;
-  open(callback?: (err?: Error | null) => void): void;
-  close(callback?: (err?: Error | null) => void): void;
-  write(data: string | Buffer, callback?: (err?: Error | null) => void): boolean;
-  drain(callback?: (err?: Error | null) => void): void;
-  flush(callback?: (err?: Error | null) => void): void;
-  isOpen: boolean;
-  path: string;
-}
-
-type SerialPortConstructor = new (options: SerialPortOptions) => SerialPortLike;
+import { SerialPort } from 'serialport';
 
 // Node.js error type for error code handling
 interface ErrnoException extends Error {
@@ -54,12 +28,12 @@ export interface SerialTransportConfig extends TransportConfig {
   stopBits?: 1 | 1.5 | 2;
   /** Parity (default: 'none') */
   parity?: 'none' | 'even' | 'odd' | 'mark' | 'space';
+  /** Flow control (default: 'none') */
+  flowControl?: 'none' | 'hardware' | 'software';
   /** Delay between commands in ms (default: 0) */
   commandDelay?: number;
   /** Maximum read buffer size in bytes (default: 1048576 = 1MB) */
   maxBufferSize?: number;
-  /** @internal SerialPort class for testing - do not use in production */
-  _serialPortClass?: SerialPortConstructor;
 }
 
 /**
@@ -86,7 +60,7 @@ const DEFAULT_MAX_BUFFER_SIZE = 1048576; // 1MB
  */
 export function createSerialTransport(config: SerialTransportConfig): SerialTransport {
   let state: TransportState = 'closed';
-  let port: SerialPortLike | null = null;
+  let port: SerialPort | null = null;
   let readBuffer = Buffer.alloc(0);
   let pendingRead: {
     resolve: (result: Result<Buffer, Error>) => void;
@@ -105,6 +79,7 @@ export function createSerialTransport(config: SerialTransportConfig): SerialTran
   const dataBits = config.dataBits ?? DEFAULT_DATA_BITS;
   const stopBits = config.stopBits ?? DEFAULT_STOP_BITS;
   const parity = config.parity ?? DEFAULT_PARITY;
+  const flowControl = config.flowControl ?? 'none';
   const maxBufferSize = config.maxBufferSize ?? DEFAULT_MAX_BUFFER_SIZE;
 
   function handleData(data: Buffer): void {
@@ -273,16 +248,6 @@ export function createSerialTransport(config: SerialTransportConfig): SerialTran
 
       return new Promise((resolve) => {
         try {
-          // Use injected class for testing, or dynamically import serialport (peer dependency)
-          let SerialPort: SerialPortConstructor;
-          if (config._serialPortClass) {
-            SerialPort = config._serialPortClass;
-          } else {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-            SerialPort = (require('serialport') as { SerialPort: SerialPortConstructor })
-              .SerialPort;
-          }
-
           port = new SerialPort({
             path: config.path,
             baudRate,
@@ -290,6 +255,9 @@ export function createSerialTransport(config: SerialTransportConfig): SerialTran
             stopBits,
             parity,
             autoOpen: false,
+            rtscts: flowControl === 'hardware',
+            xon: flowControl === 'software',
+            xoff: flowControl === 'software',
           });
 
           port.on('data', handleData);

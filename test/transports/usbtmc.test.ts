@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createUsbtmcTransport, type UsbtmcTransportConfig } from '../../src/transports/usbtmc.js';
 
 // Mock types for USB device
 interface MockInEndpoint {
@@ -34,15 +33,22 @@ interface MockDevice {
   getStringDescriptor: ReturnType<typeof vi.fn>;
 }
 
-describe('USB-TMC Transport', () => {
-  let mockDevice: MockDevice;
-  let mockInterface: MockInterface;
-  let mockInEndpoint: MockInEndpoint;
-  let mockOutEndpoint: MockOutEndpoint;
-  let MockUsbModule: {
-    findByIds: ReturnType<typeof vi.fn>;
-  };
+let mockDevice: MockDevice;
+let mockInterface: MockInterface;
+let mockInEndpoint: MockInEndpoint;
+let mockOutEndpoint: MockOutEndpoint;
+let mockFindByIds: ReturnType<typeof vi.fn>;
 
+vi.mock('usb', () => ({
+  default: {
+    findByIds: vi.fn(),
+  },
+}));
+
+import { createUsbtmcTransport, type UsbtmcTransportConfig } from '../../src/transports/usbtmc.js';
+import usb from 'usb';
+
+describe('USB-TMC Transport', () => {
   beforeEach(() => {
     mockInEndpoint = {
       transfer: vi.fn((length: number, callback: (err: Error | null, data?: Buffer) => void) => {
@@ -113,21 +119,19 @@ describe('USB-TMC Transport', () => {
       ),
     };
 
-    MockUsbModule = {
-      findByIds: vi.fn(() => mockDevice),
-    };
+    mockFindByIds = vi.fn(() => mockDevice);
+    vi.mocked(usb.findByIds).mockImplementation(mockFindByIds);
   });
 
   afterEach(() => {
     vi.clearAllMocks();
   });
 
-  // Helper to create config with mock USB module
+  // Helper to create config
   function createConfig(overrides: Partial<UsbtmcTransportConfig> = {}): UsbtmcTransportConfig {
     return {
       vendorId: 0x1ab1,
       productId: 0x04ce,
-      _usbModule: MockUsbModule as unknown as UsbtmcTransportConfig['_usbModule'],
       ...overrides,
     };
   }
@@ -170,13 +174,13 @@ describe('USB-TMC Transport', () => {
       expect(result.ok).toBe(true);
       expect(transport.state).toBe('open');
       expect(transport.isOpen).toBe(true);
-      expect(MockUsbModule.findByIds).toHaveBeenCalledWith(0x1ab1, 0x04ce);
+      expect(mockFindByIds).toHaveBeenCalledWith(0x1ab1, 0x04ce);
       expect(mockDevice.open).toHaveBeenCalled();
       expect(mockInterface.claim).toHaveBeenCalled();
     });
 
     it('returns Err when device is not found', async () => {
-      MockUsbModule.findByIds.mockReturnValueOnce(undefined);
+      mockFindByIds.mockReturnValueOnce(undefined);
 
       const config = createConfig();
       const transport = createUsbtmcTransport(config);

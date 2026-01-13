@@ -18,23 +18,15 @@ A PyVISA-inspired library for controlling test and measurement instruments from 
 npm install visa-ts
 ```
 
-For USB-TMC support:
-```bash
-npm install visa-ts usb
-```
-
-For Serial support:
-```bash
-npm install visa-ts serialport
-```
+This includes `serialport` and `usb` as dependencies for Serial and USB-TMC support.
 
 ## Quick Start
 
 ```typescript
-import { ResourceManager } from 'visa-ts';
+import { createResourceManager } from 'visa-ts';
 
 // Create resource manager
-const rm = new ResourceManager();
+const rm = createResourceManager();
 
 // List connected USB instruments
 const resources = await rm.listResources('USB?*::INSTR');
@@ -42,7 +34,12 @@ console.log(resources);
 // ['USB0::0x1AB1::0x04CE::DS1ZA123456789::INSTR']
 
 // Open instrument
-const instr = await rm.openResource('USB0::0x1AB1::0x04CE::DS1ZA123456789::INSTR');
+const result = await rm.openResource('USB0::0x1AB1::0x04CE::DS1ZA123456789::INSTR');
+if (!result.ok) {
+  console.error('Failed to open:', result.error);
+  return;
+}
+const instr = result.value;
 
 // Configure
 instr.timeout = 5000;
@@ -106,13 +103,14 @@ const instr = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
 
 | PyVISA | visa-ts |
 |--------|---------|
-| `rm = pyvisa.ResourceManager()` | `rm = new ResourceManager()` |
+| `rm = pyvisa.ResourceManager()` | `rm = createResourceManager()` |
 | `rm.list_resources()` | `await rm.listResources()` |
-| `instr = rm.open_resource(...)` | `instr = await rm.openResource(...)` |
+| `instr = rm.open_resource(...)` | `result = await rm.openResource(...)` |
 | `instr.query('*IDN?')` | `await instr.query('*IDN?')` |
 | `instr.timeout = 5000` | `instr.timeout = 5000` |
 
 Key differences:
+- Factory functions instead of classes (`createResourceManager()` not `new ResourceManager()`)
 - All I/O operations are async (return Promises)
 - Errors returned as `Result<T, Error>` instead of exceptions
 - TypeScript provides full type safety
