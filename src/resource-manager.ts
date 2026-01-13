@@ -27,32 +27,59 @@ import {
   listSerialPorts as defaultListSerialPorts,
   listUsbDevices as defaultListUsbDevices,
 } from './discovery.js';
-import type { UsbDeviceInfo } from './discovery.js';
-import type { ResourceManager, ResourceManagerOptions } from './resource-manager-types.js';
+import type { SerialPortInfo, UsbDeviceInfo } from './discovery.js';
+import type { ResourceManager } from './resource-manager-types.js';
 
 // Re-export types for convenience
-export type { ResourceManager, ResourceManagerOptions } from './resource-manager-types.js';
+export type { ResourceManager } from './resource-manager-types.js';
+
+/** Dependencies that can be injected for testing */
+interface Dependencies {
+  createTcpipTransport: typeof createTcpipTransport;
+  createSerialTransport: typeof createSerialTransport;
+  createUsbtmcTransport: typeof createUsbtmcTransport;
+  listSerialPorts: () => Promise<SerialPortInfo[]>;
+  listUsbDevices: () => Promise<UsbDeviceInfo[]>;
+}
+
+/** Default dependencies using real implementations */
+const defaultDependencies: Dependencies = {
+  createTcpipTransport,
+  createSerialTransport,
+  createUsbtmcTransport,
+  listSerialPorts: defaultListSerialPorts,
+  listUsbDevices: defaultListUsbDevices,
+};
 
 /**
  * Create a new ResourceManager.
  *
- * @param options - Internal options (primarily for testing)
  * @returns ResourceManager instance
  *
  * @example
  * const rm = createResourceManager();
  * const resources = await rm.listResources();
  */
-export function createResourceManager(options?: ResourceManagerOptions): ResourceManager {
-  const openResourcesList: MessageBasedResource[] = [];
-  const exclusiveResources = new Set<string>(); // Resource strings opened exclusively
-  const openCounts = new Map<string, number>(); // Count of non-exclusive opens per resource
+export function createResourceManager(): ResourceManager {
+  return createResourceManagerWithDeps(defaultDependencies);
+}
 
-  const tcpipFactory = options?._createTcpipTransport ?? createTcpipTransport;
-  const serialFactory = options?._createSerialTransport ?? createSerialTransport;
-  const usbtmcFactory = options?._createUsbtmcTransport ?? createUsbtmcTransport;
-  const listSerialPorts = options?._listSerialPorts ?? defaultListSerialPorts;
-  const listUsbDevices = options?._listUsbDevices ?? defaultListUsbDevices;
+/**
+ * Create a ResourceManager with injected dependencies (for testing).
+ * @internal
+ */
+export function createResourceManagerWithDeps(deps: Partial<Dependencies>): ResourceManager {
+  const {
+    createTcpipTransport: tcpipFactory,
+    createSerialTransport: serialFactory,
+    createUsbtmcTransport: usbtmcFactory,
+    listSerialPorts,
+    listUsbDevices,
+  } = { ...defaultDependencies, ...deps };
+
+  const openResourcesList: MessageBasedResource[] = [];
+  const exclusiveResources = new Set<string>();
+  const openCounts = new Map<string, number>();
 
   function removeFromOpenList(resource: MessageBasedResource, isExclusive: boolean): void {
     const index = openResourcesList.indexOf(resource);

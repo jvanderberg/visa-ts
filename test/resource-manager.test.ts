@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import type { Transport } from '../src/transports/transport.js';
 import type { Result } from '../src/result.js';
 import { Ok, Err } from '../src/result.js';
+import { createResourceManager, createResourceManagerWithDeps } from '../src/resource-manager.js';
 
 // Mock transport factory
 function createMockTransport(options?: {
@@ -113,7 +114,6 @@ function createMockTransport(options?: {
 describe('ResourceManager', () => {
   describe('createResourceManager', () => {
     it('returns a ResourceManager object', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
       const rm = createResourceManager();
 
       expect(rm).toBeDefined();
@@ -125,7 +125,6 @@ describe('ResourceManager', () => {
     });
 
     it('starts with no open resources', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
       const rm = createResourceManager();
 
       expect(rm.openResources).toHaveLength(0);
@@ -134,7 +133,6 @@ describe('ResourceManager', () => {
 
   describe('openResource', () => {
     it('returns Err for empty resource string', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
       const rm = createResourceManager();
 
       const result = await rm.openResource('');
@@ -145,7 +143,6 @@ describe('ResourceManager', () => {
     });
 
     it('returns Err for invalid resource string format', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
       const rm = createResourceManager();
 
       const result = await rm.openResource('INVALID::RESOURCE');
@@ -156,7 +153,6 @@ describe('ResourceManager', () => {
     });
 
     it('returns Err for unsupported interface type (GPIB)', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
       const rm = createResourceManager();
 
       const result = await rm.openResource('GPIB0::1::INSTR');
@@ -167,11 +163,10 @@ describe('ResourceManager', () => {
     });
 
     it('opens a TCP/IP socket resource with mock transport', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
       const mockTransport = createMockTransport();
 
-      const rm = createResourceManager({
-        _createTcpipTransport: () => mockTransport,
+      const rm = createResourceManagerWithDeps({
+        createTcpipTransport: () => mockTransport,
       });
 
       const result = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
@@ -184,14 +179,13 @@ describe('ResourceManager', () => {
     });
 
     it('returns Err when transport open fails', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
       const mockTransport = createMockTransport({
         openFails: true,
         openError: new Error('Connection refused'),
       });
 
-      const rm = createResourceManager({
-        _createTcpipTransport: () => mockTransport,
+      const rm = createResourceManagerWithDeps({
+        createTcpipTransport: () => mockTransport,
       });
 
       const result = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
@@ -202,11 +196,10 @@ describe('ResourceManager', () => {
     });
 
     it('applies OpenOptions to transport', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
       const mockTransport = createMockTransport();
 
-      const rm = createResourceManager({
-        _createTcpipTransport: () => mockTransport,
+      const rm = createResourceManagerWithDeps({
+        createTcpipTransport: () => mockTransport,
       });
 
       const result = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET', {
@@ -224,11 +217,10 @@ describe('ResourceManager', () => {
     });
 
     it('adds opened resource to openResources list', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
       const mockTransport = createMockTransport();
 
-      const rm = createResourceManager({
-        _createTcpipTransport: () => mockTransport,
+      const rm = createResourceManagerWithDeps({
+        createTcpipTransport: () => mockTransport,
       });
 
       await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
@@ -236,11 +228,10 @@ describe('ResourceManager', () => {
     });
 
     it('opens USB resource with mock transport', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
       const mockTransport = createMockTransport();
 
-      const rm = createResourceManager({
-        _createUsbtmcTransport: () => mockTransport,
+      const rm = createResourceManagerWithDeps({
+        createUsbtmcTransport: () => mockTransport,
       });
 
       const result = await rm.openResource('USB0::0x1AB1::0x04CE::DS1ZA123::INSTR');
@@ -251,11 +242,10 @@ describe('ResourceManager', () => {
     });
 
     it('opens serial resource with mock transport', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
       const mockTransport = createMockTransport();
 
-      const rm = createResourceManager({
-        _createSerialTransport: () => mockTransport,
+      const rm = createResourceManagerWithDeps({
+        createSerialTransport: () => mockTransport,
       });
 
       const result = await rm.openResource('ASRL/dev/ttyUSB0::INSTR');
@@ -266,7 +256,6 @@ describe('ResourceManager', () => {
     });
 
     it('returns Err for TCP/IP INSTR (VXI-11 not supported)', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
       const rm = createResourceManager();
 
       const result = await rm.openResource('TCPIP0::192.168.1.100::INSTR');
@@ -279,10 +268,9 @@ describe('ResourceManager', () => {
 
   describe('listResources', () => {
     it('returns empty array when no transports have devices', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
-      const rm = createResourceManager({
-        _listSerialPorts: async () => [],
-        _listUsbDevices: async () => [],
+      const rm = createResourceManagerWithDeps({
+        listSerialPorts: async () => [],
+        listUsbDevices: async () => [],
       });
 
       const resources = await rm.listResources();
@@ -290,10 +278,9 @@ describe('ResourceManager', () => {
     });
 
     it('returns discovered serial ports', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
-      const rm = createResourceManager({
-        _listSerialPorts: async () => [{ path: '/dev/ttyUSB0' }, { path: '/dev/ttyUSB1' }],
-        _listUsbDevices: async () => [],
+      const rm = createResourceManagerWithDeps({
+        listSerialPorts: async () => [{ path: '/dev/ttyUSB0' }, { path: '/dev/ttyUSB1' }],
+        listUsbDevices: async () => [],
       });
 
       const resources = await rm.listResources();
@@ -302,10 +289,9 @@ describe('ResourceManager', () => {
     });
 
     it('returns discovered USB-TMC devices', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
-      const rm = createResourceManager({
-        _listSerialPorts: async () => [],
-        _listUsbDevices: async () => [
+      const rm = createResourceManagerWithDeps({
+        listSerialPorts: async () => [],
+        listUsbDevices: async () => [
           { vendorId: 0x1ab1, productId: 0x04ce, serialNumber: 'DS1ZA123456789' },
         ],
       });
@@ -315,10 +301,9 @@ describe('ResourceManager', () => {
     });
 
     it('filters resources by pattern', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
-      const rm = createResourceManager({
-        _listSerialPorts: async () => [{ path: '/dev/ttyUSB0' }],
-        _listUsbDevices: async () => [
+      const rm = createResourceManagerWithDeps({
+        listSerialPorts: async () => [{ path: '/dev/ttyUSB0' }],
+        listUsbDevices: async () => [
           { vendorId: 0x1ab1, productId: 0x04ce, serialNumber: 'DS1ZA123' },
         ],
       });
@@ -333,10 +318,9 @@ describe('ResourceManager', () => {
     });
 
     it('returns USB devices without serial number', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
-      const rm = createResourceManager({
-        _listSerialPorts: async () => [],
-        _listUsbDevices: async () => [{ vendorId: 0x1ab1, productId: 0x04ce }],
+      const rm = createResourceManagerWithDeps({
+        listSerialPorts: async () => [],
+        listUsbDevices: async () => [{ vendorId: 0x1ab1, productId: 0x04ce }],
       });
 
       const resources = await rm.listResources();
@@ -346,10 +330,9 @@ describe('ResourceManager', () => {
 
   describe('listResourcesInfo', () => {
     it('returns empty array when no devices found', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
-      const rm = createResourceManager({
-        _listSerialPorts: async () => [],
-        _listUsbDevices: async () => [],
+      const rm = createResourceManagerWithDeps({
+        listSerialPorts: async () => [],
+        listUsbDevices: async () => [],
       });
 
       const info = await rm.listResourcesInfo();
@@ -357,10 +340,9 @@ describe('ResourceManager', () => {
     });
 
     it('returns ResourceInfo for discovered devices', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
-      const rm = createResourceManager({
-        _listSerialPorts: async () => [{ path: '/dev/ttyUSB0' }],
-        _listUsbDevices: async () => [
+      const rm = createResourceManagerWithDeps({
+        listSerialPorts: async () => [{ path: '/dev/ttyUSB0' }],
+        listUsbDevices: async () => [
           { vendorId: 0x1ab1, productId: 0x04ce, serialNumber: 'DS1ZA123' },
         ],
       });
@@ -378,10 +360,9 @@ describe('ResourceManager', () => {
     });
 
     it('filters ResourceInfo by pattern', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
-      const rm = createResourceManager({
-        _listSerialPorts: async () => [{ path: '/dev/ttyUSB0' }],
-        _listUsbDevices: async () => [
+      const rm = createResourceManagerWithDeps({
+        listSerialPorts: async () => [{ path: '/dev/ttyUSB0' }],
+        listUsbDevices: async () => [
           { vendorId: 0x1ab1, productId: 0x04ce, serialNumber: 'DS1ZA123' },
         ],
       });
@@ -394,13 +375,12 @@ describe('ResourceManager', () => {
 
   describe('close', () => {
     it('closes all open resources', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
       const mockTransport1 = createMockTransport();
       const mockTransport2 = createMockTransport();
       let transportIndex = 0;
 
-      const rm = createResourceManager({
-        _createTcpipTransport: () => {
+      const rm = createResourceManagerWithDeps({
+        createTcpipTransport: () => {
           return transportIndex++ === 0 ? mockTransport1 : mockTransport2;
         },
       });
@@ -418,11 +398,10 @@ describe('ResourceManager', () => {
     });
 
     it('removes resources from openResources when individually closed', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
       const mockTransport = createMockTransport();
 
-      const rm = createResourceManager({
-        _createTcpipTransport: () => mockTransport,
+      const rm = createResourceManagerWithDeps({
+        createTcpipTransport: () => mockTransport,
       });
 
       const result = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
@@ -438,11 +417,10 @@ describe('ResourceManager', () => {
 
   describe('openResources', () => {
     it('returns immutable copy of open resources array', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
       const mockTransport = createMockTransport();
 
-      const rm = createResourceManager({
-        _createTcpipTransport: () => mockTransport,
+      const rm = createResourceManagerWithDeps({
+        createTcpipTransport: () => mockTransport,
       });
 
       await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
@@ -458,11 +436,10 @@ describe('ResourceManager', () => {
 
   describe('edge cases', () => {
     it('handles double close on ResourceManager gracefully', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
       const mockTransport = createMockTransport();
 
-      const rm = createResourceManager({
-        _createTcpipTransport: () => mockTransport,
+      const rm = createResourceManagerWithDeps({
+        createTcpipTransport: () => mockTransport,
       });
 
       await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
@@ -478,11 +455,10 @@ describe('ResourceManager', () => {
     });
 
     it('can open multiple resources with same address', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
       let transportCount = 0;
 
-      const rm = createResourceManager({
-        _createTcpipTransport: () => {
+      const rm = createResourceManagerWithDeps({
+        createTcpipTransport: () => {
           transportCount++;
           return createMockTransport();
         },
@@ -499,8 +475,6 @@ describe('ResourceManager', () => {
     });
 
     it('continues closing other resources if one close fails', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
-
       let closeCallCount = 0;
       const failingTransport: Transport = {
         ...createMockTransport(),
@@ -512,8 +486,8 @@ describe('ResourceManager', () => {
       const successTransport = createMockTransport();
 
       let transportIndex = 0;
-      const rm = createResourceManager({
-        _createTcpipTransport: () => {
+      const rm = createResourceManagerWithDeps({
+        createTcpipTransport: () => {
           return transportIndex++ === 0 ? failingTransport : successTransport;
         },
       });
@@ -532,11 +506,9 @@ describe('ResourceManager', () => {
     });
 
     it('passes TCP/IP specific options to transport factory', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
-
       let capturedConfig: Record<string, unknown> | null = null;
-      const rm = createResourceManager({
-        _createTcpipTransport: (config) => {
+      const rm = createResourceManagerWithDeps({
+        createTcpipTransport: (config) => {
           capturedConfig = config;
           return createMockTransport();
         },
@@ -559,11 +531,9 @@ describe('ResourceManager', () => {
     });
 
     it('passes Serial specific options to transport factory', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
-
       let capturedConfig: Record<string, unknown> | null = null;
-      const rm = createResourceManager({
-        _createSerialTransport: (config) => {
+      const rm = createResourceManagerWithDeps({
+        createSerialTransport: (config) => {
           capturedConfig = config;
           return createMockTransport();
         },
@@ -592,11 +562,9 @@ describe('ResourceManager', () => {
     });
 
     it('passes USB-TMC specific options to transport factory', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
-
       let capturedConfig: Record<string, unknown> | null = null;
-      const rm = createResourceManager({
-        _createUsbtmcTransport: (config) => {
+      const rm = createResourceManagerWithDeps({
+        createUsbtmcTransport: (config) => {
           capturedConfig = config;
           return createMockTransport();
         },
@@ -620,11 +588,10 @@ describe('ResourceManager', () => {
 
   describe('exclusive mode', () => {
     it('allows opening resource in exclusive mode', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
       const mockTransport = createMockTransport();
 
-      const rm = createResourceManager({
-        _createTcpipTransport: () => mockTransport,
+      const rm = createResourceManagerWithDeps({
+        createTcpipTransport: () => mockTransport,
       });
 
       const result = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET', {
@@ -638,10 +605,8 @@ describe('ResourceManager', () => {
     });
 
     it('prevents second connection when first is exclusive', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
-
-      const rm = createResourceManager({
-        _createTcpipTransport: () => createMockTransport(),
+      const rm = createResourceManagerWithDeps({
+        createTcpipTransport: () => createMockTransport(),
       });
 
       // First open with exclusive
@@ -659,10 +624,8 @@ describe('ResourceManager', () => {
     });
 
     it('prevents exclusive connection when resource already open', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
-
-      const rm = createResourceManager({
-        _createTcpipTransport: () => createMockTransport(),
+      const rm = createResourceManagerWithDeps({
+        createTcpipTransport: () => createMockTransport(),
       });
 
       // First open without exclusive
@@ -680,10 +643,8 @@ describe('ResourceManager', () => {
     });
 
     it('allows reopening after exclusive connection is closed', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
-
-      const rm = createResourceManager({
-        _createTcpipTransport: () => createMockTransport(),
+      const rm = createResourceManagerWithDeps({
+        createTcpipTransport: () => createMockTransport(),
       });
 
       // First open with exclusive
@@ -703,10 +664,8 @@ describe('ResourceManager', () => {
     });
 
     it('tracks exclusive mode per resource string', async () => {
-      const { createResourceManager } = await import('../src/resource-manager.js');
-
-      const rm = createResourceManager({
-        _createTcpipTransport: () => createMockTransport(),
+      const rm = createResourceManagerWithDeps({
+        createTcpipTransport: () => createMockTransport(),
       });
 
       // Open first resource exclusively

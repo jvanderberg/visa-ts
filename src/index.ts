@@ -61,4 +61,4 @@ export type { MessageBasedResource } from './resources/message-based.js';
 
 // Resource Manager
 export { createResourceManager } from './resource-manager.js';
-export type { ResourceManager, ResourceManagerOptions } from './resource-manager.js';
+export type { ResourceManager } from './resource-manager.js';
