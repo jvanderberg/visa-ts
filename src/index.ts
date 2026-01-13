@@ -77,3 +77,21 @@ export type { ScpiBlockInfo } from './util/scpi-parser.js';
 // Serial probe utility
 export { probeSerialPort } from './util/serial-probe.js';
 export type { SerialProbeOptions, SerialProbeResult } from './util/serial-probe.js';
+
+// Simulation backend
+export { createSimulationTransport } from './transports/simulation.js';
+export type { SimulationTransport } from './transports/simulation.js';
+
+export { createDeviceState, createCommandHandler } from './simulation/index.js';
+export type {
+  SimulatedDevice,
+  DeviceInfo,
+  EndOfMessage,
+  Dialogue,
+  Property,
+  SimulationTransportConfig,
+  SimulatedResourceManagerConfig,
+  CommandResult,
+  DeviceState,
+  CommandHandler,
+} from './simulation/index.js';
