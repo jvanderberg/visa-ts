@@ -7,7 +7,7 @@
 /**
  * Interface type identifier for VISA resources
  */
-export type InterfaceType = 'USB' | 'ASRL' | 'TCPIP' | 'GPIB';
+export type InterfaceType = 'USB' | 'ASRL' | 'TCPIP' | 'GPIB' | 'SIM';
 
 /**
  * Base resource information returned by discovery
@@ -58,6 +58,15 @@ export interface TCPIPResourceInfo extends ResourceInfo {
   host: string;
   /** TCP port number */
   port: number;
+}
+
+/**
+ * Simulation resource information
+ */
+export interface SimulationResourceInfo extends ResourceInfo {
+  interfaceType: 'SIM';
+  /** Device type identifier (e.g., 'PSU', 'LOAD') */
+  deviceType: string;
 }
 
 /**
@@ -245,10 +254,20 @@ export interface ParsedTCPIPInstrResource extends ParsedResourceString {
 }
 
 /**
+ * Parsed Simulation resource string
+ */
+export interface ParsedSimulationResource extends ParsedResourceString {
+  interfaceType: 'SIM';
+  /** Device type identifier (e.g., 'PSU', 'LOAD') */
+  deviceType: string;
+}
+
+/**
  * Union of all parsed resource types
  */
 export type ParsedResource =
   | ParsedUSBResource
   | ParsedSerialResource
   | ParsedTCPIPSocketResource
-  | ParsedTCPIPInstrResource;
+  | ParsedTCPIPInstrResource
+  | ParsedSimulationResource;

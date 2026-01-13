@@ -2,53 +2,22 @@
  * Basic Electronic Load example
  *
  * Demonstrates basic operations with an electronic load.
- * Uses simulation backend - no hardware required.
- *
- * With real hardware, you would use:
- *   const rm = createResourceManager();
- *   const load = await rm.openResource('USB0::0x1AB1::0x0E11::DP8C123456::INSTR');
+ * Uses SIM::LOAD::INSTR for simulation - change to real resource string for hardware.
  */
 
-import {
-  createResourceManager,
-  createSimulationTransport,
-  createMessageBasedResource,
-  simulatedLoad,
-} from '../src/index.js';
+import { createResourceManager } from '../src/index.js';
 import type { MessageBasedResource } from '../src/index.js';
-import type { Result } from '../src/index.js';
 
-// Toggle this to switch between simulation and real hardware
-const USE_SIMULATION = true;
-
-async function openLoad(): Promise<Result<MessageBasedResource, Error>> {
-  if (USE_SIMULATION) {
-    // Simulation mode - wrap transport in MessageBasedResource
-    const transport = createSimulationTransport({ device: simulatedLoad });
-    const openResult = await transport.open();
-    if (!openResult.ok) return openResult;
-
-    return {
-      ok: true,
-      value: createMessageBasedResource(transport, {
-        resourceString: 'SIM::LOAD::INSTR',
-        interfaceType: 'USB',
-        vendorId: 0x0000,
-        productId: 0x0000,
-        usbClass: 0xfe,
-      }),
-    };
-  } else {
-    // Real hardware - use ResourceManager
-    const rm = createResourceManager();
-    return rm.openResource('USB0::0x1AB1::0x0E11::DP8C123456::INSTR');
-  }
-}
+// Change this to your real instrument's resource string for hardware:
+// 'USB0::0x1AB1::0x0E11::DP8C123456::INSTR'
+const RESOURCE_STRING = 'SIM::LOAD::INSTR';
 
 async function main() {
   console.log('=== Electronic Load Example ===\n');
 
-  const loadResult = await openLoad();
+  const rm = createResourceManager();
+  const loadResult = await rm.openResource(RESOURCE_STRING);
+
   if (!loadResult.ok) {
     console.error('Failed to open Load:', loadResult.error.message);
     return;

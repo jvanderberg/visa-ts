@@ -10,11 +10,14 @@ import type {
   USBResourceInfo,
   SerialResourceInfo,
   TCPIPResourceInfo,
+  SimulationResourceInfo,
   SerialOptions,
   TCPIPOptions,
   USBTMCOptions,
   OpenOptions,
+  ParsedSimulationResource,
 } from './types.js';
+import type { SimulatedDevice } from './simulation/index.js';
 import type { Result } from './result.js';
 import { Ok, Err } from './result.js';
 import { parseResourceString, matchResourcePattern } from './resource-string.js';
@@ -23,6 +26,8 @@ import type { MessageBasedResource } from './resources/message-based-resource.js
 import { createTcpipTransport } from './transports/tcpip.js';
 import { createSerialTransport } from './transports/serial.js';
 import { createUsbtmcTransport } from './transports/usbtmc.js';
+import { createSimulationTransport } from './transports/simulation.js';
+import { simulatedPsu, simulatedLoad } from './simulation/index.js';
 import { listSerialPorts, listUsbDevices } from './discovery.js';
 import type { UsbDeviceInfo } from './discovery.js';
 import type { ResourceManager } from './resource-manager-types.js';
@@ -30,6 +35,12 @@ import { probeSerialPort } from './util/serial-probe.js';
 
 // Re-export types for convenience
 export type { ResourceManager } from './resource-manager-types.js';
+
+// Built-in simulated device registry
+const builtInDevices: Record<string, SimulatedDevice> = {
+  PSU: simulatedPsu,
+  LOAD: simulatedLoad,
+};
 
 /**
  * Create a new ResourceManager.
@@ -98,6 +109,14 @@ export function createResourceManager(): ResourceManager {
     async listResources(query = '?*::INSTR'): Promise<string[]> {
       const resources: string[] = [];
 
+      // List simulated devices
+      for (const deviceType of Object.keys(builtInDevices)) {
+        const resourceString = `SIM::${deviceType}::INSTR`;
+        if (matchResourcePattern(resourceString, query)) {
+          resources.push(resourceString);
+        }
+      }
+
       const serialPorts = await listSerialPorts();
       for (const port of serialPorts) {
         const resourceString = `ASRL${port.path}::INSTR`;
@@ -119,6 +138,19 @@ export function createResourceManager(): ResourceManager {
 
     async listResourcesInfo(query = '?*::INSTR'): Promise<ResourceInfo[]> {
       const infoList: ResourceInfo[] = [];
+
+      // List simulated devices
+      for (const deviceType of Object.keys(builtInDevices)) {
+        const resourceString = `SIM::${deviceType}::INSTR`;
+        if (matchResourcePattern(resourceString, query)) {
+          const info: SimulationResourceInfo = {
+            resourceString,
+            interfaceType: 'SIM',
+            deviceType,
+          };
+          infoList.push(info);
+        }
+      }
 
       const serialPorts = await listSerialPorts();
       for (const port of serialPorts) {
@@ -277,6 +309,26 @@ export function createResourceManager(): ResourceManager {
             serialNumber: usbParsed.serialNumber,
             usbClass: 0xfe,
           } as USBResourceInfo;
+          break;
+        }
+
+        case 'SIM': {
+          const simParsed = parsed as ParsedSimulationResource;
+          const device = builtInDevices[simParsed.deviceType];
+          if (!device) {
+            return Err(
+              new Error(
+                `Unknown simulated device type: ${simParsed.deviceType}. ` +
+                  `Available: ${Object.keys(builtInDevices).join(', ')}`
+              )
+            );
+          }
+          transport = createSimulationTransport({ device });
+          resourceInfo = {
+            resourceString,
+            interfaceType: 'SIM',
+            deviceType: simParsed.deviceType,
+          } as SimulationResourceInfo;
           break;
         }
 

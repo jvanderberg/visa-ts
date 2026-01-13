@@ -3,84 +3,20 @@
  *
  * Demonstrates a realistic test scenario using both a PSU and Electronic Load.
  * Tests a device under various load conditions and verifies settings.
- * Uses simulation backend - no hardware required.
  *
- * With real hardware, you would use:
- *   const rm = createResourceManager();
- *   const psu = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
- *   const load = await rm.openResource('USB0::0x1AB1::0x0E11::DP8C123456::INSTR');
+ * Uses SIM::PSU::INSTR and SIM::LOAD::INSTR for simulation.
+ * Change to real resource strings for hardware.
  *
  * Note: This simulation does not model actual circuit physics - the PSU and Load
  * operate independently. See Phase 10 in PLAN.md for future circuit simulation.
  */
 
-import {
-  createResourceManager,
-  createSimulationTransport,
-  createMessageBasedResource,
-  simulatedPsu,
-  simulatedLoad,
-} from '../src/index.js';
+import { createResourceManager } from '../src/index.js';
 import type { MessageBasedResource } from '../src/index.js';
-import type { Result } from '../src/index.js';
 
-// Toggle this to switch between simulation and real hardware
-const USE_SIMULATION = true;
-
-interface Instruments {
-  psu: MessageBasedResource;
-  load: MessageBasedResource;
-}
-
-async function openInstruments(): Promise<Result<Instruments, Error>> {
-  if (USE_SIMULATION) {
-    // Simulation mode
-    const psuTransport = createSimulationTransport({ device: simulatedPsu });
-    const loadTransport = createSimulationTransport({ device: simulatedLoad });
-
-    const psuOpen = await psuTransport.open();
-    if (!psuOpen.ok) return psuOpen;
-
-    const loadOpen = await loadTransport.open();
-    if (!loadOpen.ok) return loadOpen;
-
-    return {
-      ok: true,
-      value: {
-        psu: createMessageBasedResource(psuTransport, {
-          resourceString: 'SIM::PSU::INSTR',
-          interfaceType: 'TCPIP',
-          host: 'simulation',
-          port: 0,
-        }),
-        load: createMessageBasedResource(loadTransport, {
-          resourceString: 'SIM::LOAD::INSTR',
-          interfaceType: 'USB',
-          vendorId: 0x0000,
-          productId: 0x0000,
-          usbClass: 0xfe,
-        }),
-      },
-    };
-  } else {
-    // Real hardware - use ResourceManager
-    const rm = createResourceManager();
-
-    const psuResult = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
-    if (!psuResult.ok) return psuResult;
-
-    const loadResult = await rm.openResource('USB0::0x1AB1::0x0E11::DP8C123456::INSTR');
-    if (!loadResult.ok) return loadResult;
-
-    return {
-      ok: true,
-      value: {
-        psu: psuResult.value,
-        load: loadResult.value,
-      },
-    };
-  }
-}
+// Change these to your real instruments' resource strings for hardware
+const PSU_RESOURCE = 'SIM::PSU::INSTR';
+const LOAD_RESOURCE = 'SIM::LOAD::INSTR';
 
 interface TestPoint {
   voltage: number;
@@ -105,12 +41,23 @@ async function main() {
   console.log('║              Power Delivery Test Suite                     ║');
   console.log('╚════════════════════════════════════════════════════════════╝\n');
 
-  const instrResult = await openInstruments();
-  if (!instrResult.ok) {
-    console.error('Failed to open instruments:', instrResult.error.message);
+  const rm = createResourceManager();
+
+  const psuResult = await rm.openResource(PSU_RESOURCE);
+  if (!psuResult.ok) {
+    console.error('Failed to open PSU:', psuResult.error.message);
     return;
   }
-  const { psu, load } = instrResult.value;
+
+  const loadResult = await rm.openResource(LOAD_RESOURCE);
+  if (!loadResult.ok) {
+    console.error('Failed to open Load:', loadResult.error.message);
+    await psuResult.value.close();
+    return;
+  }
+
+  const psu = psuResult.value;
+  const load = loadResult.value;
 
   // Get instrument info
   const psuIdn = await psu.query('*IDN?');

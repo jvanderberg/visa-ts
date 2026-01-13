@@ -2,52 +2,31 @@
  * Basic PSU (Power Supply Unit) example
  *
  * Demonstrates basic operations with a DC power supply.
- * Uses simulation backend - no hardware required.
- *
- * With real hardware, you would use:
- *   const rm = createResourceManager();
- *   const psu = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
+ * Uses SIM::PSU::INSTR for simulation - change to real resource string for hardware.
  */
 
-import {
-  createResourceManager,
-  createSimulationTransport,
-  createMessageBasedResource,
-  simulatedPsu,
-} from '../src/index.js';
+import { createResourceManager } from '../src/index.js';
 import type { MessageBasedResource } from '../src/index.js';
-import type { Result } from '../src/index.js';
 
-// Toggle this to switch between simulation and real hardware
-const USE_SIMULATION = true;
-
-async function openPsu(): Promise<Result<MessageBasedResource, Error>> {
-  if (USE_SIMULATION) {
-    // Simulation mode - wrap transport in MessageBasedResource
-    const transport = createSimulationTransport({ device: simulatedPsu });
-    const openResult = await transport.open();
-    if (!openResult.ok) return openResult;
-
-    return {
-      ok: true,
-      value: createMessageBasedResource(transport, {
-        resourceString: 'SIM::PSU::INSTR',
-        interfaceType: 'TCPIP',
-        host: 'simulation',
-        port: 0,
-      }),
-    };
-  } else {
-    // Real hardware - use ResourceManager
-    const rm = createResourceManager();
-    return rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
-  }
-}
+// Change this to your real instrument's resource string for hardware:
+// 'TCPIP0::192.168.1.100::5025::SOCKET' or 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR'
+const RESOURCE_STRING = 'SIM::PSU::INSTR';
 
 async function main() {
   console.log('=== PSU Example ===\n');
 
-  const psuResult = await openPsu();
+  const rm = createResourceManager();
+
+  // List available resources (includes simulated devices)
+  console.log('Available resources:');
+  const resources = await rm.listResources();
+  for (const res of resources) {
+    console.log(`  ${res}`);
+  }
+  console.log();
+
+  const psuResult = await rm.openResource(RESOURCE_STRING);
+
   if (!psuResult.ok) {
     console.error('Failed to open PSU:', psuResult.error.message);
     return;

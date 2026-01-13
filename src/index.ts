@@ -22,6 +22,7 @@ export type {
   USBResourceInfo,
   SerialResourceInfo,
   TCPIPResourceInfo,
+  SimulationResourceInfo,
   OpenOptions,
   TransportOptions,
   USBTMCOptions,
@@ -36,6 +37,7 @@ export type {
   ParsedSerialResource,
   ParsedTCPIPSocketResource,
   ParsedTCPIPInstrResource,
+  ParsedSimulationResource,
   ParsedResource,
 } from './types.js';
 

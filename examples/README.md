@@ -2,7 +2,7 @@
 
 Example scripts demonstrating visa-ts instrument control.
 
-These examples use the `MessageBasedResource` interface - the same API you'd use with real hardware. By default they run with simulated instruments, but can be switched to real hardware by changing `USE_SIMULATION = false`.
+These examples use `SIM::` resource strings for simulated instruments. Change the resource string to connect to real hardware - the code is identical.
 
 ## Running Examples
 
@@ -15,20 +15,23 @@ npx tsx examples/power-test.ts
 
 ## Switching to Real Hardware
 
-Each example has a `USE_SIMULATION` flag at the top:
+Change the resource string constant at the top of each file:
 
 ```typescript
-// Toggle this to switch between simulation and real hardware
-const USE_SIMULATION = true;
+// Simulation
+const RESOURCE_STRING = 'SIM::PSU::INSTR';
+
+// Real hardware (TCP/IP)
+const RESOURCE_STRING = 'TCPIP0::192.168.1.100::5025::SOCKET';
+
+// Real hardware (USB)
+const RESOURCE_STRING = 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR';
 ```
 
-Set this to `false` and update the resource strings to match your instruments:
+## Available Simulated Devices
 
-```typescript
-// Real hardware example
-const rm = createResourceManager();
-const psu = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
-```
+- `SIM::PSU::INSTR` - DC Power Supply
+- `SIM::LOAD::INSTR` - Electronic Load
 
 ## Examples
 
