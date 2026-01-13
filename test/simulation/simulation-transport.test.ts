@@ -139,6 +139,24 @@ describe('createSimulationTransport', () => {
       }
     });
 
+    it('overwrites pending response on second write', async () => {
+      const transport = createSimulationTransport({ device: testDevice });
+      await transport.open();
+
+      // First write with response
+      await transport.write('*IDN?');
+
+      // Second write overwrites the pending response
+      await transport.write(':MEAS:VOLT?');
+
+      // Should get second response
+      const result = await transport.read();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe('12.345');
+      }
+    });
+
     it('returns Err when no pending response', async () => {
       const transport = createSimulationTransport({ device: testDevice });
       await transport.open();
@@ -226,7 +244,19 @@ describe('createSimulationTransport', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.message).toContain('timeout');
+        expect(result.error.message).toContain('not matched');
+      }
+    });
+
+    it('returns Err for empty command', async () => {
+      const transport = createSimulationTransport({ device: testDevice });
+      await transport.open();
+
+      const result = await transport.query('');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('not matched');
       }
     });
 
@@ -316,6 +346,37 @@ describe('createSimulationTransport', () => {
         expect(str).toContain('Test,T1,001,1.0');
       }
     });
+
+    it('reads partial bytes with size limit', async () => {
+      const transport = createSimulationTransport({ device: testDevice });
+      await transport.open();
+
+      await transport.write('*IDN?');
+
+      // Read only first 5 bytes
+      const result1 = await transport.readRaw(5);
+      expect(result1.ok).toBe(true);
+      if (result1.ok) {
+        expect(result1.value.length).toBe(5);
+        expect(result1.value.toString()).toBe('Test,');
+      }
+
+      // Remainder should still be available
+      const result2 = await transport.readRaw();
+      expect(result2.ok).toBe(true);
+      if (result2.ok) {
+        expect(result2.value.toString()).toBe('T1,001,1.0\n');
+      }
+    });
+
+    it('returns Err when no pending response', async () => {
+      const transport = createSimulationTransport({ device: testDevice });
+      await transport.open();
+
+      const result = await transport.readRaw();
+
+      expect(result.ok).toBe(false);
+    });
   });
 
   describe('readBytes', () => {
@@ -344,6 +405,60 @@ describe('createSimulationTransport', () => {
       if (!result.ok) {
         expect(result.error.message).toContain('timeout');
       }
+    });
+
+    it('returns Err when no pending response', async () => {
+      const transport = createSimulationTransport({ device: testDevice });
+      await transport.open();
+
+      // No write, so no pending response
+      const result = await transport.readBytes(4);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('timeout');
+      }
+    });
+
+    it('keeps remainder in pending when reading partial data', async () => {
+      const transport = createSimulationTransport({ device: testDevice });
+      await transport.open();
+
+      // Response is "Test,T1,001,1.0\n" = 16 bytes
+      await transport.write('*IDN?');
+
+      // Read first 5 bytes
+      const result1 = await transport.readBytes(5);
+      expect(result1.ok).toBe(true);
+      if (result1.ok) {
+        expect(result1.value.toString()).toBe('Test,');
+      }
+
+      // Remaining bytes should still be available
+      const result2 = await transport.readBytes(5);
+      expect(result2.ok).toBe(true);
+      if (result2.ok) {
+        expect(result2.value.toString()).toBe('T1,00');
+      }
+    });
+
+    it('clears pending when reading exactly all bytes', async () => {
+      const transport = createSimulationTransport({ device: testDevice });
+      await transport.open();
+
+      // Response is "Test,T1,001,1.0" + "\n" = 16 bytes
+      await transport.write('*IDN?');
+
+      // Read exactly all bytes
+      const result = await transport.readBytes(16);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.length).toBe(16);
+      }
+
+      // Nothing left to read
+      const result2 = await transport.readBytes(1);
+      expect(result2.ok).toBe(false);
     });
   });
 

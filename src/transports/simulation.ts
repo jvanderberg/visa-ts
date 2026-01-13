@@ -53,8 +53,10 @@ export function createSimulationTransport(config: SimulationTransportConfig): Si
   // Command handler
   const handler = createCommandHandler(config.device);
 
-  // Pending response buffer
+  // Pending response buffer (stores raw response without termination)
   let pendingResponse: string | null = null;
+  // Pending read buffer (stores partial data including termination)
+  let pendingBuffer: Buffer | null = null;
 
   // Helper to add latency
   async function withLatency<T>(fn: () => T): Promise<T> {
@@ -137,6 +139,7 @@ export function createSimulationTransport(config: SimulationTransportConfig): Si
     async close(): Promise<Result<void, Error>> {
       state = 'closed';
       pendingResponse = null;
+      pendingBuffer = null;
       return Ok(undefined);
     },
 
@@ -202,21 +205,25 @@ export function createSimulationTransport(config: SimulationTransportConfig): Si
       if (!check.ok) return check;
 
       return withLatency(() => {
-        if (pendingResponse === null) {
+        // Check for partial buffer first (from previous partial read)
+        let buffer: Buffer;
+        if (pendingBuffer !== null) {
+          buffer = pendingBuffer;
+          pendingBuffer = null;
+        } else if (pendingResponse !== null) {
+          buffer = Buffer.from(pendingResponse + readTermination);
+          pendingResponse = null;
+        } else {
           return Err(new Error('Read timeout - no pending response'));
         }
 
-        const responseWithTerm = pendingResponse + readTermination;
-        const buffer = Buffer.from(responseWithTerm);
-
         if (size !== undefined && buffer.length > size) {
-          // Return only requested size, keep rest in pending
+          // Return only requested size, keep rest in pending buffer
           const returnBuffer = buffer.slice(0, size);
-          pendingResponse = buffer.slice(size).toString();
+          pendingBuffer = buffer.slice(size);
           return Ok(returnBuffer);
         }
 
-        pendingResponse = null;
         return Ok(buffer);
       });
     },
@@ -226,12 +233,17 @@ export function createSimulationTransport(config: SimulationTransportConfig): Si
       if (!check.ok) return check;
 
       return withLatency(() => {
-        if (pendingResponse === null) {
+        // Check for partial buffer first (from previous partial read)
+        let buffer: Buffer;
+        if (pendingBuffer !== null) {
+          buffer = pendingBuffer;
+          pendingBuffer = null;
+        } else if (pendingResponse !== null) {
+          buffer = Buffer.from(pendingResponse + readTermination);
+          pendingResponse = null;
+        } else {
           return Err(new Error('Read timeout - no pending response'));
         }
-
-        const responseWithTerm = pendingResponse + readTermination;
-        const buffer = Buffer.from(responseWithTerm);
 
         if (buffer.length < count) {
           return Err(new Error(`Read timeout - need ${count} bytes, have ${buffer.length}`));
@@ -240,11 +252,9 @@ export function createSimulationTransport(config: SimulationTransportConfig): Si
         // Return exact count
         const returnBuffer = buffer.slice(0, count);
 
-        // Keep remainder in pending if any
+        // Keep remainder in pending buffer if any
         if (buffer.length > count) {
-          pendingResponse = buffer.slice(count).toString();
-        } else {
-          pendingResponse = null;
+          pendingBuffer = buffer.slice(count);
         }
 
         return Ok(returnBuffer);
@@ -256,6 +266,7 @@ export function createSimulationTransport(config: SimulationTransportConfig): Si
       if (!check.ok) return check;
 
       pendingResponse = null;
+      pendingBuffer = null;
       return Ok(undefined);
     },
 
@@ -272,8 +283,8 @@ export function createSimulationTransport(config: SimulationTransportConfig): Si
       if (!check.ok) return check;
 
       // Simulation: return a basic status byte
-      // Bit 4 (16) = MAV (Message Available) if there's a pending response
-      const mav = pendingResponse !== null ? 16 : 0;
+      // Bit 4 (16) = MAV (Message Available) if there's pending data
+      const mav = pendingResponse !== null || pendingBuffer !== null ? 16 : 0;
       return Ok(mav);
     },
   };

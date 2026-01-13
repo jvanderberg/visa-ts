@@ -121,6 +121,20 @@ describe('createDeviceState', () => {
       expect(state.get('voltage')).toBe(12.0);
       expect(state.get('enabled')).toBe(true); // unchanged
     });
+
+    it('silently ignores reset of non-existent property', () => {
+      const state = createDeviceState({
+        voltage: { default: 12.0 },
+      });
+
+      state.set('voltage', 24.0);
+
+      // Should not throw, just ignore
+      state.reset('nonexistent');
+
+      // Other properties should be unchanged
+      expect(state.get('voltage')).toBe(24.0);
+    });
   });
 
   describe('getAllValues', () => {

@@ -97,6 +97,19 @@ describe('createCommandHandler', () => {
       expect(result.matched).toBe(false);
       expect(result.response).toBeNull();
     });
+
+    it('returns unmatched for empty command', () => {
+      const device: SimulatedDevice = {
+        device: { manufacturer: 'Test', model: 'T1', serial: '001' },
+        dialogues: [{ q: '*IDN?', r: 'Test,T1,001,1.0' }],
+      };
+
+      const handler = createCommandHandler(device);
+      const result = handler.handleCommand('');
+
+      expect(result.matched).toBe(false);
+      expect(result.response).toBeNull();
+    });
   });
 
   describe('property getters', () => {
