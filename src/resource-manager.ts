@@ -10,11 +10,14 @@ import type {
   USBResourceInfo,
   SerialResourceInfo,
   TCPIPResourceInfo,
+  SimulationResourceInfo,
   SerialOptions,
   TCPIPOptions,
   USBTMCOptions,
   OpenOptions,
+  ParsedSimulationResource,
 } from './types.js';
+import type { SimulatedDevice } from './simulation/index.js';
 import type { Result } from './result.js';
 import { Ok, Err } from './result.js';
 import { parseResourceString, matchResourcePattern } from './resource-string.js';
@@ -23,6 +26,7 @@ import type { MessageBasedResource } from './resources/message-based-resource.js
 import { createTcpipTransport } from './transports/tcpip.js';
 import { createSerialTransport } from './transports/serial.js';
 import { createUsbtmcTransport } from './transports/usbtmc.js';
+import { createSimulationTransport } from './transports/simulation.js';
 import { listSerialPorts, listUsbDevices } from './discovery.js';
 import type { UsbDeviceInfo } from './discovery.js';
 import type { ResourceManager } from './resource-manager-types.js';
@@ -44,6 +48,7 @@ export function createResourceManager(): ResourceManager {
   const openResourcesList: MessageBasedResource[] = [];
   const exclusiveResources = new Set<string>();
   const openCounts = new Map<string, number>();
+  const simulatedDevices = new Map<string, SimulatedDevice>();
 
   function removeFromOpenList(resource: MessageBasedResource, isExclusive: boolean): void {
     const index = openResourcesList.indexOf(resource);
@@ -98,6 +103,14 @@ export function createResourceManager(): ResourceManager {
     async listResources(query = '?*::INSTR'): Promise<string[]> {
       const resources: string[] = [];
 
+      // List registered simulated devices
+      for (const deviceType of simulatedDevices.keys()) {
+        const resourceString = `SIM::${deviceType}::INSTR`;
+        if (matchResourcePattern(resourceString, query)) {
+          resources.push(resourceString);
+        }
+      }
+
       const serialPorts = await listSerialPorts();
       for (const port of serialPorts) {
         const resourceString = `ASRL${port.path}::INSTR`;
@@ -119,6 +132,19 @@ export function createResourceManager(): ResourceManager {
 
     async listResourcesInfo(query = '?*::INSTR'): Promise<ResourceInfo[]> {
       const infoList: ResourceInfo[] = [];
+
+      // List registered simulated devices
+      for (const deviceType of simulatedDevices.keys()) {
+        const resourceString = `SIM::${deviceType}::INSTR`;
+        if (matchResourcePattern(resourceString, query)) {
+          const info: SimulationResourceInfo = {
+            resourceString,
+            interfaceType: 'SIM',
+            deviceType,
+          };
+          infoList.push(info);
+        }
+      }
 
       const serialPorts = await listSerialPorts();
       for (const port of serialPorts) {
@@ -280,6 +306,29 @@ export function createResourceManager(): ResourceManager {
           break;
         }
 
+        case 'SIM': {
+          const simParsed = parsed as ParsedSimulationResource;
+          const device = simulatedDevices.get(simParsed.deviceType);
+          if (!device) {
+            const available = [...simulatedDevices.keys()];
+            return Err(
+              new Error(
+                `Unknown simulated device type: ${simParsed.deviceType}. ` +
+                  (available.length > 0
+                    ? `Available: ${available.join(', ')}`
+                    : 'No simulated devices registered. Use rm.registerSimulatedDevice() first.')
+              )
+            );
+          }
+          transport = createSimulationTransport({ device });
+          resourceInfo = {
+            resourceString,
+            interfaceType: 'SIM',
+            deviceType: simParsed.deviceType,
+          } as SimulationResourceInfo;
+          break;
+        }
+
         default: {
           const unsupportedType: string = (parsed as { interfaceType: string }).interfaceType;
           return Err(new Error(`Unsupported interface type: ${unsupportedType}`));
@@ -319,6 +368,10 @@ export function createResourceManager(): ResourceManager {
       for (const resource of resourcesToClose) {
         await resource.close();
       }
+    },
+
+    registerSimulatedDevice(deviceType: string, device: SimulatedDevice): void {
+      simulatedDevices.set(deviceType.toUpperCase(), device);
     },
   };
 

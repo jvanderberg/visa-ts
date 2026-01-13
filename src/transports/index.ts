@@ -18,3 +18,7 @@ export type { SerialTransportConfig, SerialTransport } from './serial.js';
 // USB-TMC transport
 export { createUsbtmcTransport } from './usbtmc.js';
 export type { UsbtmcTransportConfig, UsbtmcTransport } from './usbtmc.js';
+
+// Simulation transport
+export { createSimulationTransport } from './simulation.js';
+export type { SimulationTransport } from './simulation.js';

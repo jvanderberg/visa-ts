@@ -303,7 +303,7 @@ describe('ResourceManager', () => {
   });
 
   describe('listResources', () => {
-    it('returns empty array when no transports have devices', async () => {
+    it('returns empty array when no hardware found and no simulated devices registered', async () => {
       vi.mocked(listSerialPorts).mockResolvedValue([]);
       vi.mocked(listUsbDevices).mockResolvedValue([]);
 
@@ -368,7 +368,7 @@ describe('ResourceManager', () => {
   });
 
   describe('listResourcesInfo', () => {
-    it('returns empty array when no devices found', async () => {
+    it('returns empty array when no hardware found and no simulated devices registered', async () => {
       vi.mocked(listSerialPorts).mockResolvedValue([]);
       vi.mocked(listUsbDevices).mockResolvedValue([]);
 
