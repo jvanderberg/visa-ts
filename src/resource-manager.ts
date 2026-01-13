@@ -26,6 +26,7 @@ import { createUsbtmcTransport } from './transports/usbtmc.js';
 import { listSerialPorts, listUsbDevices } from './discovery.js';
 import type { UsbDeviceInfo } from './discovery.js';
 import type { ResourceManager } from './resource-manager-types.js';
+import { probeSerialPort } from './util/serial-probe.js';
 
 // Re-export types for convenience
 export type { ResourceManager } from './resource-manager-types.js';
@@ -205,12 +206,35 @@ export function createResourceManager(): ResourceManager {
         case 'ASRL': {
           const serialParsed = parsed as { portPath: string };
           const serialOptions = openOptions?.transport as SerialOptions | undefined;
+
+          let baudRate = serialOptions?.baudRate;
+
+          // Auto-baud detection if enabled
+          if (serialOptions?.autoBaud?.enabled) {
+            const probeResult = await probeSerialPort(serialParsed.portPath, {
+              baudRates: serialOptions.autoBaud.baudRates,
+              probeCommand: serialOptions.autoBaud.probeCommand,
+              probeTimeout: serialOptions.autoBaud.probeTimeout,
+              dataBits: serialOptions.dataBits,
+              stopBits: serialOptions.stopBits,
+              parity: serialOptions.parity,
+              flowControl: serialOptions.flowControl,
+              commandDelay: serialOptions.commandDelay,
+            });
+
+            if (!probeResult.ok) {
+              return probeResult;
+            }
+
+            baudRate = probeResult.value.baudRate;
+          }
+
           transport = createSerialTransport({
             path: serialParsed.portPath,
             timeout: openOptions?.timeout,
             readTermination: openOptions?.readTermination,
             writeTermination: openOptions?.writeTermination,
-            baudRate: serialOptions?.baudRate,
+            baudRate,
             dataBits: serialOptions?.dataBits,
             stopBits: serialOptions?.stopBits,
             parity: serialOptions?.parity,

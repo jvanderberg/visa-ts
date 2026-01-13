@@ -128,11 +128,16 @@ vi.mock('../src/discovery.js', () => ({
   listUsbDevices: vi.fn(),
 }));
 
+vi.mock('../src/util/serial-probe.js', () => ({
+  probeSerialPort: vi.fn(),
+}));
+
 import { createResourceManager } from '../src/resource-manager.js';
 import { createTcpipTransport } from '../src/transports/tcpip.js';
 import { createSerialTransport } from '../src/transports/serial.js';
 import { createUsbtmcTransport } from '../src/transports/usbtmc.js';
 import { listSerialPorts, listUsbDevices } from '../src/discovery.js';
+import { probeSerialPort } from '../src/util/serial-probe.js';
 
 describe('ResourceManager', () => {
   beforeEach(() => {
@@ -704,6 +709,191 @@ describe('ResourceManager', () => {
       // Should be able to open different resource
       const result2 = await rm.openResource('TCPIP0::192.168.1.101::5025::SOCKET');
       expect(result2.ok).toBe(true);
+    });
+  });
+
+  describe('autoBaud for serial resources', () => {
+    it('uses probeSerialPort when autoBaud.enabled is true', async () => {
+      const mockTransport = createMockTransport();
+      vi.mocked(createSerialTransport).mockReturnValue(mockTransport);
+      vi.mocked(probeSerialPort).mockResolvedValue(
+        Ok({ baudRate: 115200, response: 'DEVICE,MODEL,SERIAL,1.0' })
+      );
+
+      const rm = createResourceManager();
+
+      const result = await rm.openResource('ASRL/dev/ttyUSB0::INSTR', {
+        transport: {
+          autoBaud: { enabled: true },
+        },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(probeSerialPort).toHaveBeenCalledWith('/dev/ttyUSB0', expect.anything());
+      expect(createSerialTransport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          baudRate: 115200,
+        })
+      );
+    });
+
+    it('uses detected baud rate from probeSerialPort', async () => {
+      const mockTransport = createMockTransport();
+      vi.mocked(createSerialTransport).mockReturnValue(mockTransport);
+      vi.mocked(probeSerialPort).mockResolvedValue(Ok({ baudRate: 9600, response: 'Matrix PSU' }));
+
+      const rm = createResourceManager();
+
+      await rm.openResource('ASRL/dev/ttyUSB0::INSTR', {
+        transport: {
+          autoBaud: { enabled: true },
+        },
+      });
+
+      expect(createSerialTransport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          baudRate: 9600,
+        })
+      );
+    });
+
+    it('passes autoBaud options to probeSerialPort', async () => {
+      const mockTransport = createMockTransport();
+      vi.mocked(createSerialTransport).mockReturnValue(mockTransport);
+      vi.mocked(probeSerialPort).mockResolvedValue(Ok({ baudRate: 115200, response: 'Device' }));
+
+      const rm = createResourceManager();
+
+      await rm.openResource('ASRL/dev/ttyUSB0::INSTR', {
+        transport: {
+          autoBaud: {
+            enabled: true,
+            baudRates: [38400, 19200],
+            probeCommand: ':SYST:VER?',
+            probeTimeout: 300,
+          },
+        },
+      });
+
+      expect(probeSerialPort).toHaveBeenCalledWith('/dev/ttyUSB0', {
+        baudRates: [38400, 19200],
+        probeCommand: ':SYST:VER?',
+        probeTimeout: 300,
+      });
+    });
+
+    it('returns Err when autoBaud probe fails', async () => {
+      vi.mocked(probeSerialPort).mockResolvedValue(Err(new Error('No working baud rate found')));
+
+      const rm = createResourceManager();
+
+      const result = await rm.openResource('ASRL/dev/ttyUSB0::INSTR', {
+        transport: {
+          autoBaud: { enabled: true },
+        },
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('No working baud rate');
+      }
+    });
+
+    it('does not call probeSerialPort when autoBaud.enabled is false', async () => {
+      const mockTransport = createMockTransport();
+      vi.mocked(createSerialTransport).mockReturnValue(mockTransport);
+
+      const rm = createResourceManager();
+
+      await rm.openResource('ASRL/dev/ttyUSB0::INSTR', {
+        transport: {
+          baudRate: 9600,
+          autoBaud: { enabled: false },
+        },
+      });
+
+      expect(probeSerialPort).not.toHaveBeenCalled();
+      expect(createSerialTransport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          baudRate: 9600,
+        })
+      );
+    });
+
+    it('does not call probeSerialPort when autoBaud is not specified', async () => {
+      const mockTransport = createMockTransport();
+      vi.mocked(createSerialTransport).mockReturnValue(mockTransport);
+
+      const rm = createResourceManager();
+
+      await rm.openResource('ASRL/dev/ttyUSB0::INSTR', {
+        transport: {
+          baudRate: 115200,
+        },
+      });
+
+      expect(probeSerialPort).not.toHaveBeenCalled();
+    });
+
+    it('ignores explicit baudRate when autoBaud.enabled is true', async () => {
+      const mockTransport = createMockTransport();
+      vi.mocked(createSerialTransport).mockReturnValue(mockTransport);
+      vi.mocked(probeSerialPort).mockResolvedValue(Ok({ baudRate: 9600, response: 'Device' }));
+
+      const rm = createResourceManager();
+
+      await rm.openResource('ASRL/dev/ttyUSB0::INSTR', {
+        transport: {
+          baudRate: 115200, // This should be ignored
+          autoBaud: { enabled: true },
+        },
+      });
+
+      // Should use detected baud rate, not the explicit one
+      expect(createSerialTransport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          baudRate: 9600,
+        })
+      );
+    });
+
+    it('passes serial config options (dataBits, parity, etc.) through autoBaud', async () => {
+      const mockTransport = createMockTransport();
+      vi.mocked(createSerialTransport).mockReturnValue(mockTransport);
+      vi.mocked(probeSerialPort).mockResolvedValue(Ok({ baudRate: 115200, response: 'Device' }));
+
+      const rm = createResourceManager();
+
+      await rm.openResource('ASRL/dev/ttyUSB0::INSTR', {
+        transport: {
+          dataBits: 7,
+          parity: 'even',
+          stopBits: 2,
+          flowControl: 'hardware',
+          commandDelay: 100,
+          autoBaud: { enabled: true },
+        },
+      });
+
+      // Serial config should be passed to probe
+      expect(probeSerialPort).toHaveBeenCalledWith('/dev/ttyUSB0', {
+        dataBits: 7,
+        parity: 'even',
+        stopBits: 2,
+        flowControl: 'hardware',
+        commandDelay: 100,
+      });
+
+      // And to transport creation
+      expect(createSerialTransport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dataBits: 7,
+          parity: 'even',
+          stopBits: 2,
+          flowControl: 'hardware',
+          commandDelay: 100,
+        })
+      );
     });
   });
 });
