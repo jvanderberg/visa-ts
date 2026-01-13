@@ -283,4 +283,4 @@ const instr = await rm.openResource('USB::0x1AB1::0x04CE::SIM001::INSTR');
 - [x] Phase 5: SCPI Utilities (scpi-parser.ts)
 - [x] Phase 7: Session Management (SessionManager, DeviceSession with polling)
 - [x] Auto-baud detection for serial ports (probeSerialPort utility)
-- [ ] Phase 8: Simulation Backend (typed device definitions, pattern matching, stateful properties)
+- [x] Phase 8: Simulation Backend (typed device definitions, pattern matching, stateful properties)
