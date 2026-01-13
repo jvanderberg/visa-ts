@@ -43,6 +43,7 @@ export function createSessionManager(config: SessionManagerConfig): SessionManag
   } = config;
 
   const sessions = new Map<string, DeviceSessionInternal>();
+  const connectingResources = new Set<string>();
   const eventHandlers = new Map<string, Set<EventHandler>>();
   let scanTimer: ReturnType<typeof setInterval> | null = null;
   let isRunning = false;
@@ -100,23 +101,32 @@ export function createSessionManager(config: SessionManagerConfig): SessionManag
   }
 
   async function scan(): Promise<void> {
+    if (!isRunning) return;
+
     try {
       const resources = await resourceManager.listResources();
       const currentResourceStrings = new Set(resources);
 
       // Find new resources
       for (const rs of resources) {
-        if (!sessions.has(rs) && matchesFilter(rs)) {
-          const session = await connectToResource(rs);
-          if (session) {
-            sessions.set(rs, session);
-            emit('session-added', session);
+        if (!isRunning) return;
+        if (!sessions.has(rs) && !connectingResources.has(rs) && matchesFilter(rs)) {
+          connectingResources.add(rs);
+          try {
+            const session = await connectToResource(rs);
+            if (session && isRunning) {
+              sessions.set(rs, session);
+              emit('session-added', session);
+            }
+          } finally {
+            connectingResources.delete(rs);
           }
         }
       }
 
       // Find removed resources
       for (const [rs, session] of sessions) {
+        if (!isRunning) return;
         if (!currentResourceStrings.has(rs)) {
           await session.close();
           sessions.delete(rs);

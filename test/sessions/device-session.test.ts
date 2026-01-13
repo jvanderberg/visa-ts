@@ -275,6 +275,43 @@ describe('createDeviceSession', () => {
       expect(result.ok).toBe(true);
       expect(session.state).toBe('connected');
     });
+
+    it('transitions to error state on consecutive timeouts', async () => {
+      const resource = createMockResource({
+        query: vi.fn().mockImplementation(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          return Ok('response');
+        }),
+      });
+      const session = createDeviceSession({
+        resourceString: 'USB0::0x1AB1::0x04CE::DS1ZA123::INSTR',
+        resource,
+        maxConsecutiveErrors: 3,
+      });
+
+      // Execute 3 operations that will timeout
+      const promises = [];
+      for (let i = 0; i < 3; i++) {
+        promises.push(
+          session.execute(
+            async (res) => {
+              return res.query('*IDN?');
+            },
+            { timeout: 100 }
+          )
+        );
+      }
+
+      // Advance time to trigger all timeouts
+      await vi.advanceTimersByTimeAsync(500);
+
+      const results = await Promise.all(promises);
+
+      // All should have timed out
+      expect(results.every((r) => !r.ok)).toBe(true);
+      expect(session.state).toBe('error');
+      expect(session.lastError?.message).toContain('timeout');
+    });
   });
 
   describe('onStatus', () => {

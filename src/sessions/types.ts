@@ -18,7 +18,9 @@ export type SessionState = 'connecting' | 'connected' | 'disconnected' | 'error'
  */
 export interface ExecuteOptions {
   /**
-   * Max time (ms) for the entire operation (including any reconnect wait).
+   * Max time (ms) for the operation before timing out.
+   * If the operation exceeds this time, it returns Err with a timeout error.
+   * Note: The underlying operation may continue running after timeout.
    * Default: 30000ms
    */
   timeout?: number;
@@ -130,7 +132,10 @@ export interface SessionManager {
   /** Stop all sessions and scanning */
   stop(): Promise<void>;
 
-  /** Get all active sessions as a Map */
+  /**
+   * Get all active sessions as a Map.
+   * Returns a shallow copy; modifications do not affect internal state.
+   */
   readonly sessions: Map<string, DeviceSession>;
 
   /**

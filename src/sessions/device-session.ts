@@ -111,25 +111,34 @@ export function createDeviceSession(config: DeviceSessionConfig): DeviceSessionI
   }
 
   async function executeTask<T>(task: QueuedTask<T>): Promise<Result<T, Error>> {
-    if (!resource) {
+    const currentResource = resource;
+    if (!currentResource) {
       return Err(new Error('Device not connected'));
     }
 
     let timeoutId: ReturnType<typeof setTimeout>;
+    let timedOut = false;
     const timeoutPromise = new Promise<Result<T, Error>>((resolve) => {
       timeoutId = setTimeout(() => {
-        resolve(Err(new Error(`Operation timeout after ${task.timeout}ms`)));
+        timedOut = true;
+        const err = new Error(`Operation timeout after ${task.timeout}ms`);
+        setError(err);
+        resolve(Err(err));
       }, task.timeout);
     });
 
     const taskPromise = (async (): Promise<Result<T, Error>> => {
       try {
-        const result = await task.fn(resource!);
-        resetErrors();
+        const result = await task.fn(currentResource);
+        if (!timedOut) {
+          resetErrors();
+        }
         return Ok(result);
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
-        setError(err);
+        if (!timedOut) {
+          setError(err);
+        }
         return Err(err);
       }
     })();
