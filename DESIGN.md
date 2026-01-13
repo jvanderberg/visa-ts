@@ -124,6 +124,23 @@ interface SerialOptions {
 
   /** Delay between commands in ms (default: 0) */
   commandDelay?: number;
+
+  /** Auto-detect baud rate by probing the device */
+  autoBaud?: AutoBaudOptions;
+}
+
+interface AutoBaudOptions {
+  /** Enable auto-baud detection (default: false) */
+  enabled: boolean;
+
+  /** Baud rates to try in order (default: [115200, 9600, 57600, 38400, 19200]) */
+  baudRates?: number[];
+
+  /** Command to send for probing (default: '*IDN?') */
+  probeCommand?: string;
+
+  /** Timeout for each probe attempt in ms (default: 500) */
+  probeTimeout?: number;
 }
 
 interface TCPIPOptions {
@@ -579,6 +596,19 @@ const instr = await rm.openResource('ASRL/dev/ttyUSB0::INSTR', {
     stopBits: 1,
     parity: 'none',
     commandDelay: 50,  // ms delay between commands
+  }
+});
+
+// With auto-baud detection (tries common baud rates until one works)
+const instr = await rm.openResource('ASRL/dev/ttyUSB0::INSTR', {
+  transport: {
+    autoBaud: {
+      enabled: true,
+      // Optional: custom baud rates to try (default: [115200, 9600, 57600, 38400, 19200])
+      baudRates: [115200, 9600],
+      // Optional: custom probe command (default: '*IDN?')
+      probeCommand: '*IDN?',
+    }
   }
 });
 ```
@@ -1219,4 +1249,8 @@ export type {
 
 // Resource string parsing (for advanced use)
 export { parseResourceString, buildResourceString, matchResourcePattern } from './resource-string';
+
+// Serial probe utility (for standalone auto-baud detection)
+export { probeSerialPort } from './util/serial-probe';
+export type { SerialProbeOptions, SerialProbeResult } from './util/serial-probe';
 ```

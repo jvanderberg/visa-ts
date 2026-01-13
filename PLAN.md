@@ -157,9 +157,10 @@ See DESIGN.md for full SessionManager and DeviceSession API.
 
 - [x] Phase 0: Repository setup
 - [x] Phase 6: Package configuration & tooling
-- [ ] Phase 1: Core Infrastructure (result.ts ✅, types.ts, resource-string.ts)
-- [ ] Phase 2: Transport Layer
-- [ ] Phase 3: Resource Classes
-- [ ] Phase 4: ResourceManager
-- [ ] Phase 5: SCPI Utilities
-- [ ] Phase 7: Session Management
+- [x] Phase 1: Core Infrastructure (result.ts, types.ts, resource-string.ts)
+- [x] Phase 2: Transport Layer (USB-TMC, Serial, TCP/IP)
+- [x] Phase 3: Resource Classes (MessageBasedResource)
+- [x] Phase 4: ResourceManager (discovery, opening, exclusive mode)
+- [x] Phase 5: SCPI Utilities (scpi-parser.ts)
+- [x] Phase 7: Session Management (SessionManager, DeviceSession with polling)
+- [x] Auto-baud detection for serial ports (probeSerialPort utility)

@@ -69,10 +69,24 @@ export interface USBTMCOptions {
 }
 
 /**
+ * Auto-baud detection options
+ */
+export interface AutoBaudOptions {
+  /** Enable auto-baud detection (default: false) */
+  enabled: boolean;
+  /** Baud rates to try (default: [115200, 9600, 57600, 38400, 19200]) */
+  baudRates?: number[];
+  /** Command to send for probing (default: '*IDN?') */
+  probeCommand?: string;
+  /** Timeout for each probe attempt in ms (default: 500) */
+  probeTimeout?: number;
+}
+
+/**
  * Serial transport options
  */
 export interface SerialOptions {
-  /** Baud rate (default: 9600) */
+  /** Baud rate (default: 9600). Ignored if autoBaud.enabled is true. */
   baudRate?: number;
   /** Data bits (default: 8) */
   dataBits?: 5 | 6 | 7 | 8;
@@ -84,6 +98,8 @@ export interface SerialOptions {
   flowControl?: 'none' | 'hardware' | 'software';
   /** Delay between commands in ms (default: 0) */
   commandDelay?: number;
+  /** Auto-detect baud rate by probing the device */
+  autoBaud?: AutoBaudOptions;
 }
 
 /**

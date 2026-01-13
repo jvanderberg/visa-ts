@@ -26,6 +26,7 @@ export type {
   TransportOptions,
   USBTMCOptions,
   SerialOptions,
+  AutoBaudOptions,
   TCPIPOptions,
   QueryOptions,
   AsciiValuesOptions,
@@ -72,3 +73,7 @@ export {
   parseArbitraryBlock,
 } from './util/scpi-parser.js';
 export type { ScpiBlockInfo } from './util/scpi-parser.js';
+
+// Serial probe utility
+export { probeSerialPort } from './util/serial-probe.js';
+export type { SerialProbeOptions, SerialProbeResult } from './util/serial-probe.js';
