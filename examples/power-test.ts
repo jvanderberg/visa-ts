@@ -9,7 +9,7 @@
  * operate independently. See Phase 10 in PLAN.md for future circuit simulation.
  */
 
-import { createResourceManager } from '../src/index.js';
+import { createResourceManager, simulatedPsu, simulatedLoad } from '../src/index.js';
 import type { MessageBasedResource } from '../src/index.js';
 
 interface TestPoint {
@@ -36,6 +36,10 @@ async function main() {
   console.log('╚════════════════════════════════════════════════════════════╝\n');
 
   const rm = createResourceManager();
+
+  // Register simulated devices
+  rm.registerSimulatedDevice('PSU', simulatedPsu);
+  rm.registerSimulatedDevice('LOAD', simulatedLoad);
 
   // List all available resources
   console.log('All available resources:');

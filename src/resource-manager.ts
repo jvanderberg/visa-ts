@@ -27,7 +27,6 @@ import { createTcpipTransport } from './transports/tcpip.js';
 import { createSerialTransport } from './transports/serial.js';
 import { createUsbtmcTransport } from './transports/usbtmc.js';
 import { createSimulationTransport } from './transports/simulation.js';
-import { simulatedPsu, simulatedLoad } from './simulation/index.js';
 import { listSerialPorts, listUsbDevices } from './discovery.js';
 import type { UsbDeviceInfo } from './discovery.js';
 import type { ResourceManager } from './resource-manager-types.js';
@@ -35,12 +34,6 @@ import { probeSerialPort } from './util/serial-probe.js';
 
 // Re-export types for convenience
 export type { ResourceManager } from './resource-manager-types.js';
-
-// Built-in simulated device registry
-const builtInDevices: Record<string, SimulatedDevice> = {
-  PSU: simulatedPsu,
-  LOAD: simulatedLoad,
-};
 
 /**
  * Create a new ResourceManager.
@@ -55,6 +48,7 @@ export function createResourceManager(): ResourceManager {
   const openResourcesList: MessageBasedResource[] = [];
   const exclusiveResources = new Set<string>();
   const openCounts = new Map<string, number>();
+  const simulatedDevices = new Map<string, SimulatedDevice>();
 
   function removeFromOpenList(resource: MessageBasedResource, isExclusive: boolean): void {
     const index = openResourcesList.indexOf(resource);
@@ -109,8 +103,8 @@ export function createResourceManager(): ResourceManager {
     async listResources(query = '?*::INSTR'): Promise<string[]> {
       const resources: string[] = [];
 
-      // List simulated devices
-      for (const deviceType of Object.keys(builtInDevices)) {
+      // List registered simulated devices
+      for (const deviceType of simulatedDevices.keys()) {
         const resourceString = `SIM::${deviceType}::INSTR`;
         if (matchResourcePattern(resourceString, query)) {
           resources.push(resourceString);
@@ -139,8 +133,8 @@ export function createResourceManager(): ResourceManager {
     async listResourcesInfo(query = '?*::INSTR'): Promise<ResourceInfo[]> {
       const infoList: ResourceInfo[] = [];
 
-      // List simulated devices
-      for (const deviceType of Object.keys(builtInDevices)) {
+      // List registered simulated devices
+      for (const deviceType of simulatedDevices.keys()) {
         const resourceString = `SIM::${deviceType}::INSTR`;
         if (matchResourcePattern(resourceString, query)) {
           const info: SimulationResourceInfo = {
@@ -314,12 +308,15 @@ export function createResourceManager(): ResourceManager {
 
         case 'SIM': {
           const simParsed = parsed as ParsedSimulationResource;
-          const device = builtInDevices[simParsed.deviceType];
+          const device = simulatedDevices.get(simParsed.deviceType);
           if (!device) {
+            const available = [...simulatedDevices.keys()];
             return Err(
               new Error(
                 `Unknown simulated device type: ${simParsed.deviceType}. ` +
-                  `Available: ${Object.keys(builtInDevices).join(', ')}`
+                  (available.length > 0
+                    ? `Available: ${available.join(', ')}`
+                    : 'No simulated devices registered. Use rm.registerSimulatedDevice() first.')
               )
             );
           }
@@ -371,6 +368,10 @@ export function createResourceManager(): ResourceManager {
       for (const resource of resourcesToClose) {
         await resource.close();
       }
+    },
+
+    registerSimulatedDevice(deviceType: string, device: SimulatedDevice): void {
+      simulatedDevices.set(deviceType.toUpperCase(), device);
     },
   };
 

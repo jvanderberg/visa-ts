@@ -5,13 +5,16 @@
  * Discovers available PSU by filtering resources.
  */
 
-import { createResourceManager } from '../src/index.js';
+import { createResourceManager, simulatedPsu } from '../src/index.js';
 import type { MessageBasedResource } from '../src/index.js';
 
 async function main() {
   console.log('=== PSU Example ===\n');
 
   const rm = createResourceManager();
+
+  // Register simulated devices
+  rm.registerSimulatedDevice('PSU', simulatedPsu);
 
   // List all available resources
   console.log('All available resources:');

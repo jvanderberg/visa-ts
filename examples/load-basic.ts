@@ -5,13 +5,16 @@
  * Discovers available load by filtering resources.
  */
 
-import { createResourceManager } from '../src/index.js';
+import { createResourceManager, simulatedLoad } from '../src/index.js';
 import type { MessageBasedResource } from '../src/index.js';
 
 async function main() {
   console.log('=== Electronic Load Example ===\n');
 
   const rm = createResourceManager();
+
+  // Register simulated devices
+  rm.registerSimulatedDevice('LOAD', simulatedLoad);
 
   // List all available resources
   console.log('All available resources:');

@@ -303,16 +303,14 @@ describe('ResourceManager', () => {
   });
 
   describe('listResources', () => {
-    it('returns only simulated devices when no hardware found', async () => {
+    it('returns empty array when no hardware found and no simulated devices registered', async () => {
       vi.mocked(listSerialPorts).mockResolvedValue([]);
       vi.mocked(listUsbDevices).mockResolvedValue([]);
 
       const rm = createResourceManager();
 
       const resources = await rm.listResources();
-      // Only simulated devices should be present
-      expect(resources.every((r) => r.startsWith('SIM::'))).toBe(true);
-      expect(resources.length).toBeGreaterThanOrEqual(2);
+      expect(resources).toEqual([]);
     });
 
     it('returns discovered serial ports', async () => {
@@ -370,16 +368,14 @@ describe('ResourceManager', () => {
   });
 
   describe('listResourcesInfo', () => {
-    it('returns only simulated devices when no hardware found', async () => {
+    it('returns empty array when no hardware found and no simulated devices registered', async () => {
       vi.mocked(listSerialPorts).mockResolvedValue([]);
       vi.mocked(listUsbDevices).mockResolvedValue([]);
 
       const rm = createResourceManager();
 
       const info = await rm.listResourcesInfo();
-      // Only simulated devices should be present
-      expect(info.every((i) => i.interfaceType === 'SIM')).toBe(true);
-      expect(info.length).toBeGreaterThanOrEqual(2);
+      expect(info).toEqual([]);
     });
 
     it('returns ResourceInfo for discovered devices', async () => {
@@ -391,8 +387,7 @@ describe('ResourceManager', () => {
       const rm = createResourceManager();
 
       const info = await rm.listResourcesInfo();
-      // Includes simulated devices (PSU, LOAD) plus discovered USB and serial
-      expect(info.length).toBeGreaterThanOrEqual(4);
+      expect(info).toHaveLength(2);
 
       const usbInfo = info.find((i) => i.interfaceType === 'USB');
       expect(usbInfo).toBeDefined();
@@ -401,9 +396,6 @@ describe('ResourceManager', () => {
       const serialInfo = info.find((i) => i.interfaceType === 'ASRL');
       expect(serialInfo).toBeDefined();
       expect(serialInfo?.resourceString).toContain('ASRL');
-
-      const simInfo = info.filter((i) => i.interfaceType === 'SIM');
-      expect(simInfo.length).toBeGreaterThanOrEqual(2);
     });
 
     it('filters ResourceInfo by pattern', async () => {
