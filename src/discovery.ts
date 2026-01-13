@@ -129,20 +129,22 @@ export async function getUsbSerialNumber(device: UsbDevice): Promise<string | un
 }
 
 /**
- * Check if a device is a known USB-TMC device by vendor ID.
+ * Known USB-TMC vendor IDs.
  * This is a simplified check - in production we'd enumerate interfaces.
  */
-export function isKnownTmcDevice(vendorId: number): boolean {
-  // Known USB-TMC vendor IDs
-  const knownVendors = [
-    0x1ab1, // Rigol
-    0x0957, // Agilent/Keysight
-    0x0699, // Tektronix
-    0x0b21, // Yokogawa
-    0x164e, // Siglent
-  ];
+const KNOWN_TMC_VENDORS = new Set([
+  0x1ab1, // Rigol
+  0x0957, // Agilent/Keysight
+  0x0699, // Tektronix
+  0x0b21, // Yokogawa
+  0x164e, // Siglent
+]);
 
-  return knownVendors.includes(vendorId);
+/**
+ * Check if a device is a known USB-TMC device by vendor ID.
+ */
+export function isKnownTmcDevice(vendorId: number): boolean {
+  return KNOWN_TMC_VENDORS.has(vendorId);
 }
 
 /**
