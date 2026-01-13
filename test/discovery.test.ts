@@ -9,14 +9,98 @@ import {
   listSerialPorts,
   listUsbDevices,
   getUsbSerialNumber,
-  isKnownTmcDevice,
+  isTmcDevice,
 } from '../src/discovery.js';
 import type { SerialPortModule, UsbDevice, UsbModule } from '../src/discovery.js';
+
+/** Helper to create a mock USB device with TMC interface */
+function createMockTmcDevice(options?: {
+  vendorId?: number;
+  productId?: number;
+  iSerialNumber?: number;
+  serialNumber?: string;
+  openThrows?: boolean;
+  closeThrows?: boolean;
+  descriptorError?: boolean;
+}): UsbDevice {
+  return {
+    deviceDescriptor: {
+      idVendor: options?.vendorId ?? 0x1234,
+      idProduct: options?.productId ?? 0x5678,
+      bDeviceClass: 0,
+      iSerialNumber: options?.iSerialNumber ?? 0,
+    },
+    configDescriptor: {
+      interfaces: [
+        [
+          {
+            descriptor: {
+              bInterfaceClass: 0xfe, // Application Specific
+              bInterfaceSubClass: 0x03, // USB-TMC
+              bInterfaceProtocol: 0,
+            },
+          },
+        ],
+      ],
+    },
+    open: options?.openThrows
+      ? vi.fn().mockImplementation(() => {
+          throw new Error('Device busy');
+        })
+      : vi.fn(),
+    close: options?.closeThrows
+      ? vi.fn().mockImplementation(() => {
+          throw new Error('Close failed');
+        })
+      : vi.fn(),
+    getStringDescriptor: vi.fn(
+      (_index: number, callback: (error: Error | undefined, data?: string) => void) => {
+        if (options?.descriptorError) {
+          callback(new Error('Failed to get descriptor'));
+        } else {
+          callback(undefined, options?.serialNumber);
+        }
+      }
+    ),
+  };
+}
+
+/** Helper to create a mock USB device without TMC interface */
+function createMockNonTmcDevice(options?: {
+  vendorId?: number;
+  productId?: number;
+  interfaceClass?: number;
+  interfaceSubClass?: number;
+}): UsbDevice {
+  return {
+    deviceDescriptor: {
+      idVendor: options?.vendorId ?? 0x1234,
+      idProduct: options?.productId ?? 0x5678,
+      bDeviceClass: 0,
+      iSerialNumber: 0,
+    },
+    configDescriptor: {
+      interfaces: [
+        [
+          {
+            descriptor: {
+              bInterfaceClass: options?.interfaceClass ?? 0x08, // Mass Storage
+              bInterfaceSubClass: options?.interfaceSubClass ?? 0x06,
+              bInterfaceProtocol: 0,
+            },
+          },
+        ],
+      ],
+    },
+    open: vi.fn(),
+    close: vi.fn(),
+    getStringDescriptor: vi.fn(),
+  };
+}
 
 describe('discovery', () => {
   describe('listSerialPorts', () => {
     it('returns empty array when serialport package is not available', async () => {
-      // Without _serialPort option, it tries to require('serialport') which will fail
       const ports = await listSerialPorts();
       expect(ports).toEqual([]);
     });
@@ -65,26 +149,18 @@ describe('discovery', () => {
 
   describe('listUsbDevices', () => {
     it('returns empty array when usb package is not available', async () => {
-      // Without _usb option, it tries to require('usb') which will fail
       const devices = await listUsbDevices();
       expect(devices).toEqual([]);
     });
 
-    it('returns USB-TMC devices from known vendors', async () => {
+    it('returns devices with USB-TMC interface class', async () => {
+      const mockDevice = createMockTmcDevice({
+        vendorId: 0x1ab1,
+        productId: 0x04ce,
+      });
+
       const mockUsb: UsbModule = {
-        getDeviceList: vi.fn().mockReturnValue([
-          {
-            deviceDescriptor: {
-              idVendor: 0x1ab1, // Rigol
-              idProduct: 0x04ce,
-              bDeviceClass: 0,
-              iSerialNumber: 0,
-            },
-            open: vi.fn(),
-            close: vi.fn(),
-            getStringDescriptor: vi.fn(),
-          },
-        ]),
+        getDeviceList: vi.fn().mockReturnValue([mockDevice]),
       };
 
       const devices = await listUsbDevices({ _usb: mockUsb });
@@ -97,21 +173,14 @@ describe('discovery', () => {
       });
     });
 
-    it('filters out devices from unknown vendors', async () => {
+    it('filters out devices without USB-TMC interface', async () => {
+      const mockDevice = createMockNonTmcDevice({
+        vendorId: 0x1234,
+        productId: 0x5678,
+      });
+
       const mockUsb: UsbModule = {
-        getDeviceList: vi.fn().mockReturnValue([
-          {
-            deviceDescriptor: {
-              idVendor: 0x1234, // Unknown vendor
-              idProduct: 0x5678,
-              bDeviceClass: 0,
-              iSerialNumber: 0,
-            },
-            open: vi.fn(),
-            close: vi.fn(),
-            getStringDescriptor: vi.fn(),
-          },
-        ]),
+        getDeviceList: vi.fn().mockReturnValue([mockDevice]),
       };
 
       const devices = await listUsbDevices({ _usb: mockUsb });
@@ -119,55 +188,27 @@ describe('discovery', () => {
       expect(devices).toEqual([]);
     });
 
-    it('includes devices from all known TMC vendors', async () => {
-      const knownVendors = [
-        { id: 0x1ab1, name: 'Rigol' },
-        { id: 0x0957, name: 'Agilent/Keysight' },
-        { id: 0x0699, name: 'Tektronix' },
-        { id: 0x0b21, name: 'Yokogawa' },
-        { id: 0x164e, name: 'Siglent' },
-      ];
-
-      const mockDevices = knownVendors.map((vendor) => ({
-        deviceDescriptor: {
-          idVendor: vendor.id,
-          idProduct: 0x0001,
-          bDeviceClass: 0,
-          iSerialNumber: 0,
-        },
-        open: vi.fn(),
-        close: vi.fn(),
-        getStringDescriptor: vi.fn(),
-      }));
+    it('returns only TMC devices from mixed device list', async () => {
+      const tmcDevice = createMockTmcDevice({ vendorId: 0x1ab1, productId: 0x04ce });
+      const nonTmcDevice = createMockNonTmcDevice({ vendorId: 0x0781, productId: 0x5567 });
 
       const mockUsb: UsbModule = {
-        getDeviceList: vi.fn().mockReturnValue(mockDevices),
+        getDeviceList: vi.fn().mockReturnValue([tmcDevice, nonTmcDevice]),
       };
 
       const devices = await listUsbDevices({ _usb: mockUsb });
 
-      expect(devices).toHaveLength(5);
-      knownVendors.forEach((vendor, index) => {
-        expect(devices[index].vendorId).toBe(vendor.id);
-      });
+      expect(devices).toHaveLength(1);
+      expect(devices[0].vendorId).toBe(0x1ab1);
     });
 
     it('retrieves serial number when iSerialNumber is non-zero', async () => {
-      const mockDevice: UsbDevice = {
-        deviceDescriptor: {
-          idVendor: 0x1ab1, // Rigol
-          idProduct: 0x04ce,
-          bDeviceClass: 0,
-          iSerialNumber: 3, // Non-zero indicates serial number available
-        },
-        open: vi.fn(),
-        close: vi.fn(),
-        getStringDescriptor: vi.fn(
-          (_index: number, callback: (error: Error | undefined, data?: string) => void) => {
-            callback(undefined, 'DS1ZA123456789');
-          }
-        ),
-      };
+      const mockDevice = createMockTmcDevice({
+        vendorId: 0x1ab1,
+        productId: 0x04ce,
+        iSerialNumber: 3,
+        serialNumber: 'DS1ZA123456789',
+      });
 
       const mockUsb: UsbModule = {
         getDeviceList: vi.fn().mockReturnValue([mockDevice]),
@@ -183,48 +224,10 @@ describe('discovery', () => {
     });
 
     it('returns undefined serial number when getStringDescriptor returns error', async () => {
-      const mockDevice: UsbDevice = {
-        deviceDescriptor: {
-          idVendor: 0x1ab1,
-          idProduct: 0x04ce,
-          bDeviceClass: 0,
-          iSerialNumber: 3,
-        },
-        open: vi.fn(),
-        close: vi.fn(),
-        getStringDescriptor: vi.fn(
-          (_index: number, callback: (error: Error | undefined, data?: string) => void) => {
-            callback(new Error('Failed to get descriptor'));
-          }
-        ),
-      };
-
-      const mockUsb: UsbModule = {
-        getDeviceList: vi.fn().mockReturnValue([mockDevice]),
-      };
-
-      const devices = await listUsbDevices({ _usb: mockUsb });
-
-      expect(devices).toHaveLength(1);
-      expect(devices[0].serialNumber).toBeUndefined();
-    });
-
-    it('returns undefined serial number when getStringDescriptor returns no data', async () => {
-      const mockDevice: UsbDevice = {
-        deviceDescriptor: {
-          idVendor: 0x1ab1,
-          idProduct: 0x04ce,
-          bDeviceClass: 0,
-          iSerialNumber: 3,
-        },
-        open: vi.fn(),
-        close: vi.fn(),
-        getStringDescriptor: vi.fn(
-          (_index: number, callback: (error: Error | undefined, data?: string) => void) => {
-            callback(undefined, undefined);
-          }
-        ),
-      };
+      const mockDevice = createMockTmcDevice({
+        iSerialNumber: 3,
+        descriptorError: true,
+      });
 
       const mockUsb: UsbModule = {
         getDeviceList: vi.fn().mockReturnValue([mockDevice]),
@@ -237,19 +240,10 @@ describe('discovery', () => {
     });
 
     it('returns undefined serial number when device.open() throws', async () => {
-      const mockDevice: UsbDevice = {
-        deviceDescriptor: {
-          idVendor: 0x1ab1,
-          idProduct: 0x04ce,
-          bDeviceClass: 0,
-          iSerialNumber: 3,
-        },
-        open: vi.fn().mockImplementation(() => {
-          throw new Error('Device busy');
-        }),
-        close: vi.fn(),
-        getStringDescriptor: vi.fn(),
-      };
+      const mockDevice = createMockTmcDevice({
+        iSerialNumber: 3,
+        openThrows: true,
+      });
 
       const mockUsb: UsbModule = {
         getDeviceList: vi.fn().mockReturnValue([mockDevice]),
@@ -262,23 +256,11 @@ describe('discovery', () => {
     });
 
     it('handles device.close() throwing without failing', async () => {
-      const mockDevice: UsbDevice = {
-        deviceDescriptor: {
-          idVendor: 0x1ab1,
-          idProduct: 0x04ce,
-          bDeviceClass: 0,
-          iSerialNumber: 3,
-        },
-        open: vi.fn(),
-        close: vi.fn().mockImplementation(() => {
-          throw new Error('Close failed');
-        }),
-        getStringDescriptor: vi.fn(
-          (_index: number, callback: (error: Error | undefined, data?: string) => void) => {
-            callback(undefined, 'SERIAL123');
-          }
-        ),
-      };
+      const mockDevice = createMockTmcDevice({
+        iSerialNumber: 3,
+        serialNumber: 'SERIAL123',
+        closeThrows: true,
+      });
 
       const mockUsb: UsbModule = {
         getDeviceList: vi.fn().mockReturnValue([mockDevice]),
@@ -286,7 +268,6 @@ describe('discovery', () => {
 
       const devices = await listUsbDevices({ _usb: mockUsb });
 
-      // Should still succeed and return the serial number
       expect(devices).toHaveLength(1);
       expect(devices[0].serialNumber).toBe('SERIAL123');
     });
@@ -306,17 +287,7 @@ describe('discovery', () => {
 
   describe('getUsbSerialNumber', () => {
     it('returns undefined when iSerialNumber is 0', async () => {
-      const mockDevice: UsbDevice = {
-        deviceDescriptor: {
-          idVendor: 0x1ab1,
-          idProduct: 0x04ce,
-          bDeviceClass: 0,
-          iSerialNumber: 0,
-        },
-        open: vi.fn(),
-        close: vi.fn(),
-        getStringDescriptor: vi.fn(),
-      };
+      const mockDevice = createMockTmcDevice({ iSerialNumber: 0 });
 
       const serialNumber = await getUsbSerialNumber(mockDevice);
 
@@ -325,21 +296,10 @@ describe('discovery', () => {
     });
 
     it('opens device, gets descriptor, and closes device', async () => {
-      const mockDevice: UsbDevice = {
-        deviceDescriptor: {
-          idVendor: 0x1ab1,
-          idProduct: 0x04ce,
-          bDeviceClass: 0,
-          iSerialNumber: 5,
-        },
-        open: vi.fn(),
-        close: vi.fn(),
-        getStringDescriptor: vi.fn(
-          (_index: number, callback: (error: Error | undefined, data?: string) => void) => {
-            callback(undefined, 'MY_SERIAL');
-          }
-        ),
-      };
+      const mockDevice = createMockTmcDevice({
+        iSerialNumber: 5,
+        serialNumber: 'MY_SERIAL',
+      });
 
       const serialNumber = await getUsbSerialNumber(mockDevice);
 
@@ -350,33 +310,119 @@ describe('discovery', () => {
     });
   });
 
-  describe('isKnownTmcDevice', () => {
-    it('returns true for Rigol vendor ID', () => {
-      expect(isKnownTmcDevice(0x1ab1)).toBe(true);
+  describe('isTmcDevice', () => {
+    it('returns true for device with USB-TMC interface (class=0xFE, subclass=0x03)', () => {
+      const device = createMockTmcDevice();
+      expect(isTmcDevice(device)).toBe(true);
     });
 
-    it('returns true for Agilent/Keysight vendor ID', () => {
-      expect(isKnownTmcDevice(0x0957)).toBe(true);
+    it('returns false for device without configDescriptor', () => {
+      const device: UsbDevice = {
+        deviceDescriptor: {
+          idVendor: 0x1234,
+          idProduct: 0x5678,
+          bDeviceClass: 0,
+          iSerialNumber: 0,
+        },
+        configDescriptor: undefined,
+        open: vi.fn(),
+        close: vi.fn(),
+        getStringDescriptor: vi.fn(),
+      };
+
+      expect(isTmcDevice(device)).toBe(false);
     });
 
-    it('returns true for Tektronix vendor ID', () => {
-      expect(isKnownTmcDevice(0x0699)).toBe(true);
+    it('returns false for device with wrong interface class', () => {
+      const device = createMockNonTmcDevice({
+        interfaceClass: 0x08, // Mass Storage
+        interfaceSubClass: 0x03,
+      });
+
+      expect(isTmcDevice(device)).toBe(false);
     });
 
-    it('returns true for Yokogawa vendor ID', () => {
-      expect(isKnownTmcDevice(0x0b21)).toBe(true);
+    it('returns false for device with wrong interface subclass', () => {
+      const device = createMockNonTmcDevice({
+        interfaceClass: 0xfe, // Application Specific
+        interfaceSubClass: 0x01, // Not TMC
+      });
+
+      expect(isTmcDevice(device)).toBe(false);
     });
 
-    it('returns true for Siglent vendor ID', () => {
-      expect(isKnownTmcDevice(0x164e)).toBe(true);
+    it('returns true when TMC interface is in second interface group', () => {
+      const device: UsbDevice = {
+        deviceDescriptor: {
+          idVendor: 0x1234,
+          idProduct: 0x5678,
+          bDeviceClass: 0,
+          iSerialNumber: 0,
+        },
+        configDescriptor: {
+          interfaces: [
+            [
+              {
+                descriptor: {
+                  bInterfaceClass: 0x08,
+                  bInterfaceSubClass: 0x06,
+                  bInterfaceProtocol: 0,
+                },
+              },
+            ],
+            [
+              {
+                descriptor: {
+                  bInterfaceClass: 0xfe,
+                  bInterfaceSubClass: 0x03,
+                  bInterfaceProtocol: 0,
+                },
+              },
+            ],
+          ],
+        },
+        open: vi.fn(),
+        close: vi.fn(),
+        getStringDescriptor: vi.fn(),
+      };
+
+      expect(isTmcDevice(device)).toBe(true);
     });
 
-    it('returns false for unknown vendor ID', () => {
-      expect(isKnownTmcDevice(0x1234)).toBe(false);
-    });
+    it('returns true when TMC interface is alternate setting', () => {
+      const device: UsbDevice = {
+        deviceDescriptor: {
+          idVendor: 0x1234,
+          idProduct: 0x5678,
+          bDeviceClass: 0,
+          iSerialNumber: 0,
+        },
+        configDescriptor: {
+          interfaces: [
+            [
+              {
+                descriptor: {
+                  bInterfaceClass: 0x08,
+                  bInterfaceSubClass: 0x06,
+                  bInterfaceProtocol: 0,
+                },
+              },
+              {
+                descriptor: {
+                  bInterfaceClass: 0xfe,
+                  bInterfaceSubClass: 0x03,
+                  bInterfaceProtocol: 0,
+                },
+              },
+            ],
+          ],
+        },
+        open: vi.fn(),
+        close: vi.fn(),
+        getStringDescriptor: vi.fn(),
+      };
 
-    it('returns false for vendor ID 0', () => {
-      expect(isKnownTmcDevice(0)).toBe(false);
+      expect(isTmcDevice(device)).toBe(true);
     });
   });
 });

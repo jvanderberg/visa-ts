@@ -29,6 +29,32 @@ export interface SerialPortModule {
 }
 
 /**
+ * USB interface descriptor
+ * @internal
+ */
+export interface UsbInterfaceDescriptor {
+  bInterfaceClass: number;
+  bInterfaceSubClass: number;
+  bInterfaceProtocol: number;
+}
+
+/**
+ * USB interface from the usb package
+ * @internal
+ */
+export interface UsbInterface {
+  descriptor: UsbInterfaceDescriptor;
+}
+
+/**
+ * USB configuration from the usb package
+ * @internal
+ */
+export interface UsbConfiguration {
+  interfaces: UsbInterface[][];
+}
+
+/**
  * USB device type for the usb package
  * @internal
  */
@@ -39,6 +65,7 @@ export interface UsbDevice {
     bDeviceClass: number;
     iSerialNumber: number;
   };
+  configDescriptor?: UsbConfiguration;
   open(): void;
   close(): void;
   getStringDescriptor(
@@ -128,23 +155,34 @@ export async function getUsbSerialNumber(device: UsbDevice): Promise<string | un
   });
 }
 
-/**
- * Known USB-TMC vendor IDs.
- * This is a simplified check - in production we'd enumerate interfaces.
- */
-const KNOWN_TMC_VENDORS = new Set([
-  0x1ab1, // Rigol
-  0x0957, // Agilent/Keysight
-  0x0699, // Tektronix
-  0x0b21, // Yokogawa
-  0x164e, // Siglent
-]);
+/** USB-TMC interface class (Application Specific) */
+const USB_CLASS_APPLICATION_SPECIFIC = 0xfe;
+
+/** USB-TMC interface subclass (Test and Measurement Class) */
+const USB_SUBCLASS_TMC = 0x03;
 
 /**
- * Check if a device is a known USB-TMC device by vendor ID.
+ * Check if a USB device has a USB-TMC interface.
+ * USB-TMC devices have bInterfaceClass=0xFE and bInterfaceSubClass=0x03.
  */
-export function isKnownTmcDevice(vendorId: number): boolean {
-  return KNOWN_TMC_VENDORS.has(vendorId);
+export function isTmcDevice(device: UsbDevice): boolean {
+  const config = device.configDescriptor;
+  if (!config) {
+    return false;
+  }
+
+  for (const ifaceGroup of config.interfaces) {
+    for (const iface of ifaceGroup) {
+      if (
+        iface.descriptor.bInterfaceClass === USB_CLASS_APPLICATION_SPECIFIC &&
+        iface.descriptor.bInterfaceSubClass === USB_SUBCLASS_TMC
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -166,10 +204,10 @@ export async function listUsbDevices(options?: ListUsbDevicesOptions): Promise<U
     const devices = usb.getDeviceList();
     const tmcDevices: UsbDeviceInfo[] = [];
 
-    // Filter for USB-TMC devices
+    // Filter for USB-TMC devices by interface class
     for (const device of devices) {
-      const desc = device.deviceDescriptor;
-      if (isKnownTmcDevice(desc.idVendor)) {
+      if (isTmcDevice(device)) {
+        const desc = device.deviceDescriptor;
         const serialNumber = await getUsbSerialNumber(device);
         tmcDevices.push({
           vendorId: desc.idVendor,
