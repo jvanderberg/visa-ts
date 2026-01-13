@@ -183,6 +183,7 @@ export function parseDefiniteLengthBlock(buffer: Buffer): Result<ScpiBlockInfo, 
  *
  * Format: #0<data>\n
  * The data continues until a newline character is encountered.
+ * If no newline is found, all remaining data after #0 is treated as the block content.
  *
  * This function only accepts indefinite length blocks (#0).
  *

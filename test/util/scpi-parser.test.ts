@@ -122,6 +122,68 @@ describe('parseScpiNumber', () => {
     expect(isErr(result)).toBe(true);
     if (isErr(result)) expect(result.error.message).toContain('Invalid number format');
   });
+
+  it('returns Err for Infinity string', () => {
+    const result = parseScpiNumber('Infinity');
+    expect(isErr(result)).toBe(true);
+  });
+
+  it('returns Err for -Infinity string', () => {
+    const result = parseScpiNumber('-Infinity');
+    expect(isErr(result)).toBe(true);
+  });
+
+  it('returns Err for NaN string', () => {
+    const result = parseScpiNumber('NaN');
+    expect(isErr(result)).toBe(true);
+  });
+
+  it('parses numbers with leading zeros', () => {
+    const result = parseScpiNumber('007');
+    expect(isOk(result)).toBe(true);
+    if (isOk(result)) expect(result.value).toBe(7);
+  });
+
+  it('parses decimal with leading zeros', () => {
+    const result = parseScpiNumber('00.123');
+    expect(isOk(result)).toBe(true);
+    if (isOk(result)) expect(result.value).toBe(0.123);
+  });
+
+  it('returns Err for numbers exceeding JavaScript limits', () => {
+    const result = parseScpiNumber('1e309');
+    expect(isErr(result)).toBe(true);
+  });
+
+  it('parses numbers at MAX_VALUE boundary', () => {
+    const result = parseScpiNumber('1.7976931348623157e+308');
+    expect(isOk(result)).toBe(true);
+    if (isOk(result)) expect(Number.isFinite(result.value)).toBe(true);
+  });
+
+  it('parses zero', () => {
+    const result = parseScpiNumber('0');
+    expect(isOk(result)).toBe(true);
+    if (isOk(result)) expect(result.value).toBe(0);
+  });
+
+  it('parses negative zero', () => {
+    const result = parseScpiNumber('-0');
+    expect(isOk(result)).toBe(true);
+    if (isOk(result)) expect(Object.is(result.value, -0)).toBe(true);
+  });
+
+  it('parses numbers with leading decimal', () => {
+    const result = parseScpiNumber('.5');
+    expect(isOk(result)).toBe(true);
+    if (isOk(result)) expect(result.value).toBe(0.5);
+  });
+
+  it('parses negative numbers with leading decimal', () => {
+    const result = parseScpiNumber('-.5');
+    expect(isOk(result)).toBe(true);
+    if (isOk(result)) expect(result.value).toBe(-0.5);
+  });
 });
 
 describe('parseScpiBool', () => {
@@ -195,6 +257,18 @@ describe('parseScpiBool', () => {
     if (isOk(result2)) expect(result2.value).toBe(true);
   });
 
+  it('returns Ok(true) for mixed case "TrUe"', () => {
+    const result = parseScpiBool('TrUe');
+    expect(isOk(result)).toBe(true);
+    if (isOk(result)) expect(result.value).toBe(true);
+  });
+
+  it('returns Ok(false) for mixed case "FaLsE"', () => {
+    const result = parseScpiBool('FaLsE');
+    expect(isOk(result)).toBe(true);
+    if (isOk(result)) expect(result.value).toBe(false);
+  });
+
   it('returns Err for unrecognized values', () => {
     const result1 = parseScpiBool('invalid');
     expect(isErr(result1)).toBe(true);
@@ -262,6 +336,19 @@ describe('parseScpiEnum', () => {
     const result2 = parseScpiEnum('1', numericModes);
     expect(isOk(result2)).toBe(true);
     if (isOk(result2)) expect(result2.value).toBe('manual');
+  });
+
+  it('returns Err with empty valid values list for empty mapping', () => {
+    const result = parseScpiEnum('VOLT', {});
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.message).toContain('Unknown enum value');
+  });
+
+  it('handles mixed-case keys in mapping', () => {
+    const mixedCaseMapping = { VoLt: 'voltage', CuRr: 'current' };
+    const result = parseScpiEnum('volt', mixedCaseMapping);
+    expect(isOk(result)).toBe(true);
+    if (isOk(result)) expect(result.value).toBe('voltage');
   });
 });
 
@@ -344,6 +431,24 @@ describe('parseDefiniteLengthBlock', () => {
     const buffer = Buffer.from('#3abc'); // 3 digits but "abc" is not a number
     const result = parseDefiniteLengthBlock(buffer);
     expect(isErr(result)).toBe(true);
+  });
+
+  it('correctly calculates length with binary data containing newlines', () => {
+    const buffer = Buffer.from('#15he\nlo'); // length says 5 bytes
+    const result = parseDefiniteLengthBlock(buffer);
+    expect(isOk(result)).toBe(true);
+    if (isOk(result)) {
+      expect(result.value.length).toBe(5);
+    }
+  });
+
+  it('handles binary data with null bytes', () => {
+    const buffer = Buffer.concat([Buffer.from('#15'), Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04])]);
+    const result = parseDefiniteLengthBlock(buffer);
+    expect(isOk(result)).toBe(true);
+    if (isOk(result)) {
+      expect(result.value.length).toBe(5);
+    }
   });
 });
 
