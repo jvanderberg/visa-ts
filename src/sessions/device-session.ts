@@ -55,6 +55,7 @@ export interface DeviceSessionInternal extends DeviceSession {
 interface QueuedTask<T> {
   fn: (resource: MessageBasedResource) => Promise<T>;
   timeout: number;
+  description?: string;
   resolve: (result: Result<T, Error>) => void;
 }
 
@@ -246,7 +247,8 @@ export function createDeviceSession(config: DeviceSessionConfig): DeviceSessionI
       timeoutId = setTimeout(() => {
         void (async () => {
           timedOut = true;
-          const err = new Error(`Operation timeout after ${task.timeout}ms`);
+          const desc = task.description ? ` (${task.description})` : '';
+          const err = new Error(`Operation timeout after ${task.timeout}ms${desc}`);
           // Timeout is fatal - immediately disconnect (fail-fast)
           await disconnect(err);
           resolve(Err(err));
@@ -347,6 +349,7 @@ export function createDeviceSession(config: DeviceSessionConfig): DeviceSessionI
         taskQueue.push({
           fn: fn as (resource: MessageBasedResource) => Promise<unknown>,
           timeout,
+          description: options?.description,
           resolve: resolve as (result: Result<unknown, Error>) => void,
         });
         void processQueue();

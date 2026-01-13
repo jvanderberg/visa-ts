@@ -24,6 +24,13 @@ export interface ExecuteOptions {
    * Default: 30000ms
    */
   timeout?: number;
+
+  /**
+   * Description of the operation (for debugging/error messages).
+   * If provided, timeout errors will include this description.
+   * @example 'query *IDN?', 'read waveform data'
+   */
+  description?: string;
 }
 
 /**

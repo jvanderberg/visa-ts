@@ -156,6 +156,10 @@ export function createResourceManager(): ResourceManager {
       resourceString: string,
       openOptions?: OpenOptions
     ): Promise<Result<MessageBasedResource, Error>> {
+      if (!resourceString || resourceString.trim() === '') {
+        return Err(new Error('Resource string cannot be empty'));
+      }
+
       const parseResult = parseResourceString(resourceString);
       if (!parseResult.ok) {
         return parseResult;
