@@ -82,7 +82,12 @@ export type { SerialProbeOptions, SerialProbeResult } from './util/serial-probe.
 export { createSimulationTransport } from './transports/simulation.js';
 export type { SimulationTransport } from './transports/simulation.js';
 
-export { createDeviceState, createCommandHandler } from './simulation/index.js';
+export {
+  createDeviceState,
+  createCommandHandler,
+  simulatedPsu,
+  simulatedLoad,
+} from './simulation/index.js';
 export type {
   SimulatedDevice,
   DeviceInfo,

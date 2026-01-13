@@ -35,15 +35,15 @@ export interface EndOfMessage {
  * Dialogues define simple command-response pairs without state.
  */
 export interface Dialogue {
-  /** Query pattern - string for exact match, RegExp for pattern match */
-  q: string | RegExp;
+  /** Command pattern - string for exact match, RegExp for pattern match */
+  pattern: string | RegExp;
   /**
    * Response to return:
    * - string: literal response
    * - function: dynamic response generation (receives RegExp match array)
    * - null: no response (for commands like *RST)
    */
-  r: string | ((match: RegExpMatchArray) => string) | null;
+  response: string | ((match: RegExpMatchArray) => string) | null;
 }
 
 /**
@@ -61,10 +61,10 @@ export interface Property<T = number | string | boolean> {
    * Getter configuration - how to query this property
    */
   getter?: {
-    /** Query pattern that retrieves this property */
-    q: string | RegExp;
+    /** Command pattern that retrieves this property */
+    pattern: string | RegExp;
     /** Format function to convert value to response string */
-    r: (value: T) => string;
+    format: (value: T) => string;
   };
 
   /**
@@ -72,7 +72,7 @@ export interface Property<T = number | string | boolean> {
    */
   setter?: {
     /** Command pattern that sets this property */
-    q: string | RegExp;
+    pattern: string | RegExp;
     /** Parse function to extract value from command match */
     parse: (match: RegExpMatchArray) => T;
   };

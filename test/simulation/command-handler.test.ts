@@ -7,7 +7,7 @@ describe('createCommandHandler', () => {
     it('matches exact string dialogue', () => {
       const device: SimulatedDevice = {
         device: { manufacturer: 'Test', model: 'T1', serial: '001' },
-        dialogues: [{ q: '*IDN?', r: 'Test,T1,001,1.0' }],
+        dialogues: [{ pattern: '*IDN?', response: 'Test,T1,001,1.0' }],
       };
 
       const handler = createCommandHandler(device);
@@ -20,7 +20,7 @@ describe('createCommandHandler', () => {
     it('matches case-sensitive string dialogue', () => {
       const device: SimulatedDevice = {
         device: { manufacturer: 'Test', model: 'T1', serial: '001' },
-        dialogues: [{ q: '*idn?', r: 'lower' }],
+        dialogues: [{ pattern: '*idn?', response: 'lower' }],
       };
 
       const handler = createCommandHandler(device);
@@ -32,7 +32,7 @@ describe('createCommandHandler', () => {
     it('matches RegExp dialogue pattern', () => {
       const device: SimulatedDevice = {
         device: { manufacturer: 'Test', model: 'T1', serial: '001' },
-        dialogues: [{ q: /^\*IDN\?$/i, r: 'Test,T1,001,1.0' }],
+        dialogues: [{ pattern: /^\*IDN\?$/i, response: 'Test,T1,001,1.0' }],
       };
 
       const handler = createCommandHandler(device);
@@ -44,7 +44,7 @@ describe('createCommandHandler', () => {
     it('returns null response for write-only commands', () => {
       const device: SimulatedDevice = {
         device: { manufacturer: 'Test', model: 'T1', serial: '001' },
-        dialogues: [{ q: '*RST', r: null }],
+        dialogues: [{ pattern: '*RST', response: null }],
       };
 
       const handler = createCommandHandler(device);
@@ -57,7 +57,7 @@ describe('createCommandHandler', () => {
     it('calls dynamic response function', () => {
       const device: SimulatedDevice = {
         device: { manufacturer: 'Test', model: 'T1', serial: '001' },
-        dialogues: [{ q: ':MEAS:FREQ?', r: () => '1000.5' }],
+        dialogues: [{ pattern: ':MEAS:FREQ?', response: () => '1000.5' }],
       };
 
       const handler = createCommandHandler(device);
@@ -72,8 +72,8 @@ describe('createCommandHandler', () => {
         device: { manufacturer: 'Test', model: 'T1', serial: '001' },
         dialogues: [
           {
-            q: /^:CHAN(\d):DISP\?$/,
-            r: (match) => `Channel ${match[1]} display`,
+            pattern: /^:CHAN(\d):DISP\?$/,
+            response: (match) => `Channel ${match[1]} display`,
           },
         ],
       };
@@ -88,7 +88,7 @@ describe('createCommandHandler', () => {
     it('returns unmatched for unknown command', () => {
       const device: SimulatedDevice = {
         device: { manufacturer: 'Test', model: 'T1', serial: '001' },
-        dialogues: [{ q: '*IDN?', r: 'Test,T1,001,1.0' }],
+        dialogues: [{ pattern: '*IDN?', response: 'Test,T1,001,1.0' }],
       };
 
       const handler = createCommandHandler(device);
@@ -101,7 +101,7 @@ describe('createCommandHandler', () => {
     it('returns unmatched for empty command', () => {
       const device: SimulatedDevice = {
         device: { manufacturer: 'Test', model: 'T1', serial: '001' },
-        dialogues: [{ q: '*IDN?', r: 'Test,T1,001,1.0' }],
+        dialogues: [{ pattern: '*IDN?', response: 'Test,T1,001,1.0' }],
       };
 
       const handler = createCommandHandler(device);
@@ -120,8 +120,8 @@ describe('createCommandHandler', () => {
           voltage: {
             default: 12.0,
             getter: {
-              q: ':VOLT?',
-              r: (v) => v.toFixed(3),
+              pattern: ':VOLT?',
+              format: (v) => v.toFixed(3),
             },
           },
         },
@@ -141,8 +141,8 @@ describe('createCommandHandler', () => {
           voltage: {
             default: 12.0,
             getter: {
-              q: /^:VOLT(?:AGE)?\?$/i,
-              r: (v) => String(v),
+              pattern: /^:VOLT(?:AGE)?\?$/i,
+              format: (v) => String(v),
             },
           },
         },
@@ -164,12 +164,12 @@ describe('createCommandHandler', () => {
           voltage: {
             default: 12.0,
             setter: {
-              q: /^:VOLT\s+(.+)$/,
+              pattern: /^:VOLT\s+(.+)$/,
               parse: (m) => parseFloat(m[1]),
             },
             getter: {
-              q: ':VOLT?',
-              r: (v) => String(v),
+              pattern: ':VOLT?',
+              format: (v) => String(v),
             },
           },
         },
@@ -194,7 +194,7 @@ describe('createCommandHandler', () => {
           voltage: {
             default: 12.0,
             setter: {
-              q: /^:VOLT\s+(.+)$/,
+              pattern: /^:VOLT\s+(.+)$/,
               parse: (m) => parseFloat(m[1]),
             },
             validate: (v) => v >= 0 && v <= 30,
@@ -221,11 +221,11 @@ describe('createCommandHandler', () => {
     it('checks dialogues before properties', () => {
       const device: SimulatedDevice = {
         device: { manufacturer: 'Test', model: 'T1', serial: '001' },
-        dialogues: [{ q: '*IDN?', r: 'Custom response' }],
+        dialogues: [{ pattern: '*IDN?', response: 'Custom response' }],
         properties: {
           idn: {
             default: 'Property response',
-            getter: { q: '*IDN?', r: (v) => v },
+            getter: { pattern: '*IDN?', format: (v) => v },
           },
         },
       };
@@ -245,13 +245,13 @@ describe('createCommandHandler', () => {
         properties: {
           voltage: {
             default: 12.0,
-            setter: { q: /^:VOLT\s+(.+)$/, parse: (m) => parseFloat(m[1]) },
-            getter: { q: ':VOLT?', r: (v) => String(v) },
+            setter: { pattern: /^:VOLT\s+(.+)$/, parse: (m) => parseFloat(m[1]) },
+            getter: { pattern: ':VOLT?', format: (v) => String(v) },
           },
           enabled: {
             default: false,
-            setter: { q: /^:OUTP\s+(ON|OFF)$/i, parse: (m) => m[1].toUpperCase() === 'ON' },
-            getter: { q: ':OUTP?', r: (v) => (v ? '1' : '0') },
+            setter: { pattern: /^:OUTP\s+(ON|OFF)$/i, parse: (m) => m[1].toUpperCase() === 'ON' },
+            getter: { pattern: ':OUTP?', format: (v) => (v ? '1' : '0') },
           },
         },
       };
@@ -310,7 +310,7 @@ describe('createCommandHandler', () => {
     it('uses explicit *IDN? dialogue over auto-generated', () => {
       const device: SimulatedDevice = {
         device: { manufacturer: 'RIGOL', model: 'DS1054Z', serial: 'DS1ZA001' },
-        dialogues: [{ q: '*IDN?', r: 'Custom IDN Response' }],
+        dialogues: [{ pattern: '*IDN?', response: 'Custom IDN Response' }],
       };
 
       const handler = createCommandHandler(device);
@@ -327,8 +327,8 @@ describe('createCommandHandler', () => {
         properties: {
           voltage: {
             default: 12.0,
-            setter: { q: /^:VOLT\s+(.+)$/, parse: (m) => parseFloat(m[1]) },
-            getter: { q: ':VOLT?', r: (v) => String(v) },
+            setter: { pattern: /^:VOLT\s+(.+)$/, parse: (m) => parseFloat(m[1]) },
+            getter: { pattern: ':VOLT?', format: (v) => String(v) },
           },
         },
       };
@@ -351,12 +351,12 @@ describe('createCommandHandler', () => {
     it('resets state when *RST is handled by dialogue', () => {
       const device: SimulatedDevice = {
         device: { manufacturer: 'Test', model: 'T1', serial: '001' },
-        dialogues: [{ q: '*RST', r: null }],
+        dialogues: [{ pattern: '*RST', response: null }],
         properties: {
           voltage: {
             default: 12.0,
-            setter: { q: /^:VOLT\s+(.+)$/, parse: (m) => parseFloat(m[1]) },
-            getter: { q: ':VOLT?', r: (v) => String(v) },
+            setter: { pattern: /^:VOLT\s+(.+)$/, parse: (m) => parseFloat(m[1]) },
+            getter: { pattern: ':VOLT?', format: (v) => String(v) },
           },
         },
       };

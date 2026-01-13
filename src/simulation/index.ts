@@ -25,3 +25,6 @@ export type { DeviceState } from './device-state.js';
 // Command handler
 export { createCommandHandler } from './command-handler.js';
 export type { CommandHandler } from './command-handler.js';
+
+// Example devices
+export { simulatedPsu, simulatedLoad } from './devices/index.js';

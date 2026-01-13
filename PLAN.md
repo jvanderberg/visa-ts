@@ -159,14 +159,14 @@ interface SimulatedDevice {
 }
 
 interface Dialogue {
-  q: string | RegExp;
-  r: string | ((match: RegExpMatchArray) => string) | null;
+  pattern: string | RegExp;
+  response: string | ((match: RegExpMatchArray) => string) | null;
 }
 
 interface Property<T = number | string | boolean> {
   default: T;
-  getter?: { q: string | RegExp; r: (value: T) => string };
-  setter?: { q: string | RegExp; parse: (match: RegExpMatchArray) => T };
+  getter?: { pattern: string | RegExp; format: (value: T) => string };
+  setter?: { pattern: string | RegExp; parse: (match: RegExpMatchArray) => T };
   validate?: (value: T) => boolean;
 }
 ```
@@ -185,16 +185,16 @@ export const rigolDS1054Z: SimulatedDevice = {
   },
 
   dialogues: [
-    { q: '*IDN?', r: 'RIGOL TECHNOLOGIES,DS1054Z,DS1ZA000000001,00.04.04' },
-    { q: '*RST', r: null },
-    { q: ':MEAS:FREQ?', r: () => (1000 + Math.random() * 0.5).toExponential(6) },
+    { pattern: '*IDN?', response: 'RIGOL TECHNOLOGIES,DS1054Z,DS1ZA000000001,00.04.04' },
+    { pattern: '*RST', response: null },
+    { pattern: ':MEAS:FREQ?', response: () => (1000 + Math.random() * 0.5).toExponential(6) },
   ],
 
   properties: {
     timebase: {
       default: 1e-3,
-      getter: { q: ':TIM:MAIN:SCAL?', r: (v) => v.toExponential(6) },
-      setter: { q: /^:TIM:MAIN:SCAL\s+(.+)$/, parse: (m) => parseFloat(m[1]) },
+      getter: { pattern: ':TIM:MAIN:SCAL?', format: (v) => v.toExponential(6) },
+      setter: { pattern: /^:TIM:MAIN:SCAL\s+(.+)$/, parse: (m) => parseFloat(m[1] ?? '0') },
       validate: (v) => [5e-9, 1e-8, 2e-8, 5e-8, 1e-7].includes(v),
     },
   },
@@ -245,6 +245,214 @@ const instr = await rm.openResource('USB::0x1AB1::0x04CE::SIM001::INSTR');
 | Validation | Manual if/else | Declarative with `validate` function |
 | Response generation | Template literals | Functions with full flexibility |
 
+### Phase 9: Code Quality Cleanup
+
+Tighten type safety and coding standards across the codebase.
+
+#### 9.1 Remove Type Assertions
+
+Audit and eliminate `as` and `!` assertions where possible:
+
+| Location | Issue | Fix |
+|----------|-------|-----|
+| `src/simulation/command-handler.ts:49` | `[command] as RegExpMatchArray` | Create proper match object factory |
+| `src/simulation/command-handler.ts:112` | `value as never` | Improve Property generic typing |
+| `src/simulation/device-state.ts:84,96` | `as T`, `as never` | Stricter generic constraints |
+| `src/simulation/devices/*.ts` | `as number`, `as string` in formatters | Narrow Property type or use type guards |
+| `src/transports/*.ts` | `port!`, `socket!`, `device!` | State machine pattern or discriminated unions |
+| `src/resource-manager.ts` | Multiple `parsed as` casts | Discriminated union for parsed resources |
+
+#### 9.2 Strengthen Generic Types
+
+The `Property<T>` type loses type information when used in `Record<string, Property>`:
+
+```typescript
+// Current: T defaults to union, loses specificity
+properties?: Record<string, Property>;
+
+// Consider: Builder pattern or stricter typing
+properties?: PropertyMap; // with better inference
+```
+
+#### 9.3 Transport State Safety
+
+Current pattern relies on runtime checks + assertions:
+```typescript
+if (!isOpen) return Err(...);
+socket!.write(...); // assertion because TS can't track state
+```
+
+Consider discriminated union pattern:
+```typescript
+type TransportState =
+  | { status: 'closed' }
+  | { status: 'open'; socket: Socket };
+```
+
+#### 9.4 ESLint Rules
+
+Add stricter lint rules:
+
+| Rule | Purpose |
+|------|---------|
+| `@typescript-eslint/no-non-null-assertion` | Ban `!` assertions |
+| `@typescript-eslint/no-explicit-any` | Ban `any` type |
+| `@typescript-eslint/no-unsafe-*` | Catch unsafe type operations |
+| `@typescript-eslint/strict-boolean-expressions` | Require explicit boolean checks |
+
+#### 9.5 Documentation Sync
+
+- Update PLAN.md examples to use `pattern`/`response`/`format` (not `q`/`r`)
+- Review DESIGN.md for accuracy
+- Ensure JSDoc matches implementation
+
+#### 9.6 Example Devices
+
+- [x] Add `simulatedPsu` - DC power supply simulation
+- [x] Add `simulatedLoad` - Electronic load simulation
+- [ ] Add example oscilloscope device (Rigol DS1054Z pattern)
+- [ ] Add example DMM device
+
+### Phase 10: Circuit Simulation
+
+Enable realistic multi-instrument simulation by connecting device outputs to inputs with simulated physics.
+
+#### 10.1 Design Goals
+
+- **Coupled device state** - PSU output current reflects what Load is drawing
+- **Wire/connection modeling** - Configurable resistance, inductance
+- **Realistic device physics** - PSU current limiting, Load modes affect circuit
+- **Observable measurements** - `MEAS:VOLT?` and `MEAS:CURR?` reflect actual circuit state
+
+#### 10.2 Core Concepts
+
+**Circuit** - Container that connects simulated devices:
+```typescript
+const circuit = createCircuit();
+
+const psu = circuit.addDevice('psu', simulatedPsu);
+const load = circuit.addDevice('load', simulatedLoad);
+
+// Connect PSU output to Load input through a wire
+circuit.connect(psu.output, load.input, { resistance: 0.01 }); // 10mΩ wire
+```
+
+**Nodes** - Connection points with voltage/current state:
+```typescript
+interface CircuitNode {
+  voltage: number;      // Volts
+  current: number;      // Amps (into node)
+}
+```
+
+**Connections** - Wires with parasitic properties:
+```typescript
+interface Connection {
+  resistance: number;   // Ohms (default: 0.01)
+  inductance?: number;  // Henries (optional, for transient sim)
+}
+```
+
+#### 10.3 Device Physics
+
+**PSU behavior:**
+- **CV mode (normal)**: Output voltage = setpoint, current ≤ limit
+- **CC mode (limiting)**: Current = limit, voltage drops as needed
+- **OVP/OCP**: Trip and disable output if exceeded
+
+```typescript
+interface PsuState {
+  mode: 'CV' | 'CC' | 'OFF' | 'OVP_TRIP' | 'OCP_TRIP';
+  outputVoltage: number;  // Actual output (may differ from setpoint in CC)
+  outputCurrent: number;  // Actual current being drawn
+}
+```
+
+**Load behavior:**
+- **CC mode**: Draw constant current (if voltage available)
+- **CV mode**: Draw whatever current needed to clamp voltage
+- **CR mode**: I = V / R (Ohm's law)
+- **CP mode**: I = P / V (constant power)
+
+```typescript
+interface LoadState {
+  inputVoltage: number;   // What's being supplied
+  inputCurrent: number;   // What we're drawing
+  mode: 'CC' | 'CV' | 'CR' | 'CP';
+}
+```
+
+#### 10.4 Simulation Loop
+
+Each "tick" or query triggers circuit resolution:
+
+```typescript
+function resolveCircuit(circuit: Circuit): void {
+  // 1. Get PSU voltage setpoint and current limit
+  // 2. Get Load demand based on mode
+  // 3. Calculate actual current (min of supply capability and demand)
+  // 4. Apply wire resistance: V_load = V_psu - I * R_wire
+  // 5. Check for PSU mode transitions (CV→CC, OCP trip, etc.)
+  // 6. Update all device MEAS values
+}
+```
+
+#### 10.5 Example Usage
+
+```typescript
+import { createCircuit, simulatedPsu, simulatedLoad } from 'visa-ts';
+
+const circuit = createCircuit();
+const psu = circuit.addDevice('psu', simulatedPsu);
+const load = circuit.addDevice('load', simulatedLoad);
+
+circuit.connect(psu.output, load.input, { resistance: 0.05 }); // 50mΩ
+
+// Configure PSU: 12V, 2A limit
+await psu.transport.write('VOLT 12');
+await psu.transport.write('CURR 2');
+await psu.transport.write('OUTP ON');
+
+// Configure Load: CC mode, 1.5A
+await load.transport.write('MODE CC');
+await load.transport.write('CURR 1.5');
+await load.transport.write('INP ON');
+
+// Query actual values (reflects circuit physics)
+const psuCurrent = await psu.transport.query('MEAS:CURR?');
+// Returns "1.500" - PSU is supplying what Load draws
+
+const loadVoltage = await load.transport.query('MEAS:VOLT?');
+// Returns "11.925" - 12V - (1.5A × 0.05Ω) = 11.925V
+
+// Increase load beyond PSU limit
+await load.transport.write('CURR 3.0');
+
+const psuMode = await psu.transport.query('STAT:OPER?'); // Or similar
+// PSU now in CC mode, limiting at 2A
+
+const actualCurrent = await psu.transport.query('MEAS:CURR?');
+// Returns "2.000" - limited by PSU
+```
+
+#### 10.6 File Structure
+
+| File | Description |
+|------|-------------|
+| `src/simulation/circuit.ts` | Circuit container, connection management |
+| `src/simulation/circuit-node.ts` | Node voltage/current state |
+| `src/simulation/solver.ts` | Circuit resolution algorithm |
+| `src/simulation/devices/psu-physics.ts` | PSU electrical model |
+| `src/simulation/devices/load-physics.ts` | Load electrical model |
+
+#### 10.7 Future Extensions
+
+- **Transient simulation** - Model inductance, capacitance, settling time
+- **Fault injection** - Simulate shorts, opens, overcurrent events
+- **Multi-output PSU** - Multiple independent or tracking outputs
+- **Waveform sources** - Function generator simulation
+- **Oscilloscope probes** - Attach to nodes and capture waveforms
+
 ---
 
 ## Testing Strategy
@@ -284,3 +492,4 @@ const instr = await rm.openResource('USB::0x1AB1::0x04CE::SIM001::INSTR');
 - [x] Phase 7: Session Management (SessionManager, DeviceSession with polling)
 - [x] Auto-baud detection for serial ports (probeSerialPort utility)
 - [x] Phase 8: Simulation Backend (typed device definitions, pattern matching, stateful properties)
+- [ ] Phase 9: Code Quality Cleanup

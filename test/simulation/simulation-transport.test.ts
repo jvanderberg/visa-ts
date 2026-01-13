@@ -6,15 +6,15 @@ describe('createSimulationTransport', () => {
   const testDevice: SimulatedDevice = {
     device: { manufacturer: 'Test', model: 'T1', serial: '001' },
     dialogues: [
-      { q: '*IDN?', r: 'Test,T1,001,1.0' },
-      { q: '*RST', r: null },
-      { q: ':MEAS:VOLT?', r: () => '12.345' },
+      { pattern: '*IDN?', response: 'Test,T1,001,1.0' },
+      { pattern: '*RST', response: null },
+      { pattern: ':MEAS:VOLT?', response: () => '12.345' },
     ],
     properties: {
       voltage: {
         default: 12.0,
-        getter: { q: ':VOLT?', r: (v) => v.toFixed(3) },
-        setter: { q: /^:VOLT\s+(.+)$/, parse: (m) => parseFloat(m[1]) },
+        getter: { pattern: ':VOLT?', format: (v) => v.toFixed(3) },
+        setter: { pattern: /^:VOLT\s+(.+)$/, parse: (m) => parseFloat(m[1]) },
       },
     },
   };

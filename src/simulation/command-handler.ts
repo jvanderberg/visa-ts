@@ -66,19 +66,19 @@ function matchPattern(command: string, pattern: string | RegExp): RegExpMatchArr
  * @returns CommandResult if matched, null otherwise
  */
 function tryDialogue(command: string, dialogue: Dialogue): CommandResult | null {
-  const match = matchPattern(command, dialogue.q);
+  const match = matchPattern(command, dialogue.pattern);
   if (!match) {
     return null;
   }
 
   // Determine response
   let response: string | null;
-  if (dialogue.r === null) {
+  if (dialogue.response === null) {
     response = null;
-  } else if (typeof dialogue.r === 'function') {
-    response = dialogue.r(match);
+  } else if (typeof dialogue.response === 'function') {
+    response = dialogue.response(match);
   } else {
-    response = dialogue.r;
+    response = dialogue.response;
   }
 
   return { matched: true, response };
@@ -103,13 +103,13 @@ function tryPropertyGetter(
     return null;
   }
 
-  const match = matchPattern(command, prop.getter.q);
+  const match = matchPattern(command, prop.getter.pattern);
   if (!match) {
     return null;
   }
 
   const value = state.get(name);
-  const response = prop.getter.r(value as never);
+  const response = prop.getter.format(value as never);
 
   return { matched: true, response };
 }
@@ -133,7 +133,7 @@ function tryPropertySetter(
     return null;
   }
 
-  const match = matchPattern(command, prop.setter.q);
+  const match = matchPattern(command, prop.setter.pattern);
   if (!match) {
     return null;
   }
@@ -166,19 +166,19 @@ export function createCommandHandler(device: SimulatedDevice): CommandHandler {
   // Check if any dialogue handles *IDN? (case-insensitive check for detection)
   // If a dialogue exists that looks like IDN, don't auto-generate
   const hasIdnDialogue = dialogues.some((d) => {
-    if (typeof d.q === 'string') {
-      return d.q.toUpperCase() === '*IDN?';
+    if (typeof d.pattern === 'string') {
+      return d.pattern.toUpperCase() === '*IDN?';
     }
     // For RegExp, test both cases
-    return d.q.test('*IDN?') || d.q.test('*idn?');
+    return d.pattern.test('*IDN?') || d.pattern.test('*idn?');
   });
 
   // Check if any dialogue handles *RST (case-insensitive check for detection)
   const hasRstDialogue = dialogues.some((d) => {
-    if (typeof d.q === 'string') {
-      return d.q.toUpperCase() === '*RST';
+    if (typeof d.pattern === 'string') {
+      return d.pattern.toUpperCase() === '*RST';
     }
-    return d.q.test('*RST') || d.q.test('*rst');
+    return d.pattern.test('*RST') || d.pattern.test('*rst');
   });
 
   return {
