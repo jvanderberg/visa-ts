@@ -159,14 +159,14 @@ interface SimulatedDevice {
 }
 
 interface Dialogue {
-  q: string | RegExp;
-  r: string | ((match: RegExpMatchArray) => string) | null;
+  pattern: string | RegExp;
+  response: string | ((match: RegExpMatchArray) => string) | null;
 }
 
 interface Property<T = number | string | boolean> {
   default: T;
-  getter?: { q: string | RegExp; r: (value: T) => string };
-  setter?: { q: string | RegExp; parse: (match: RegExpMatchArray) => T };
+  getter?: { pattern: string | RegExp; format: (value: T) => string };
+  setter?: { pattern: string | RegExp; parse: (match: RegExpMatchArray) => T };
   validate?: (value: T) => boolean;
 }
 ```
@@ -185,16 +185,16 @@ export const rigolDS1054Z: SimulatedDevice = {
   },
 
   dialogues: [
-    { q: '*IDN?', r: 'RIGOL TECHNOLOGIES,DS1054Z,DS1ZA000000001,00.04.04' },
-    { q: '*RST', r: null },
-    { q: ':MEAS:FREQ?', r: () => (1000 + Math.random() * 0.5).toExponential(6) },
+    { pattern: '*IDN?', response: 'RIGOL TECHNOLOGIES,DS1054Z,DS1ZA000000001,00.04.04' },
+    { pattern: '*RST', response: null },
+    { pattern: ':MEAS:FREQ?', response: () => (1000 + Math.random() * 0.5).toExponential(6) },
   ],
 
   properties: {
     timebase: {
       default: 1e-3,
-      getter: { q: ':TIM:MAIN:SCAL?', r: (v) => v.toExponential(6) },
-      setter: { q: /^:TIM:MAIN:SCAL\s+(.+)$/, parse: (m) => parseFloat(m[1]) },
+      getter: { pattern: ':TIM:MAIN:SCAL?', format: (v) => v.toExponential(6) },
+      setter: { pattern: /^:TIM:MAIN:SCAL\s+(.+)$/, parse: (m) => parseFloat(m[1] ?? '0') },
       validate: (v) => [5e-9, 1e-8, 2e-8, 5e-8, 1e-7].includes(v),
     },
   },

@@ -10,6 +10,7 @@ import type {
   ParsedSerialResource,
   ParsedTCPIPSocketResource,
   ParsedTCPIPInstrResource,
+  ParsedSimulationResource,
 } from './types.js';
 import type { Result } from './result.js';
 import { Ok, Err } from './result.js';
@@ -44,6 +45,8 @@ export function parseResourceString(resourceString: string): Result<ParsedResour
     return parseSerialResource(trimmed);
   } else if (upperStr.startsWith('TCPIP')) {
     return parseTCPIPResource(trimmed);
+  } else if (upperStr.startsWith('SIM')) {
+    return parseSimulationResource(trimmed);
   } else if (upperStr.startsWith('GPIB')) {
     return Err(new Error('Unsupported interface type: GPIB'));
   }
@@ -274,6 +277,35 @@ function parseTCPIPResource(
 }
 
 /**
+ * Parse Simulation resource string.
+ * Format: SIM::deviceType::INSTR
+ */
+function parseSimulationResource(resourceString: string): Result<ParsedSimulationResource, Error> {
+  // Match SIM resource pattern: SIM::deviceType::INSTR
+  const simRegex = /^SIM::([^:]+)::(\w+)$/i;
+  const match = resourceString.match(simRegex);
+
+  if (!match) {
+    return Err(new Error('Invalid SIM resource string format. Expected: SIM::deviceType::INSTR'));
+  }
+
+  const deviceType = match[1];
+  const resourceClass = match[2];
+
+  if (!deviceType || !resourceClass) {
+    return Err(new Error('Invalid SIM resource string: missing device type'));
+  }
+
+  return Ok({
+    interfaceType: 'SIM',
+    boardNumber: 0,
+    deviceType: deviceType.toUpperCase(),
+    resourceClass: resourceClass.toUpperCase(),
+    resourceString,
+  });
+}
+
+/**
  * Build a VISA resource string from parsed components.
  *
  * @param resource - Parsed resource object
@@ -305,6 +337,8 @@ export function buildResourceString(resource: ParsedResource): string {
       } else {
         return buildTCPIPInstrResourceString(resource as ParsedTCPIPInstrResource);
       }
+    case 'SIM':
+      return buildSimulationResourceString(resource);
   }
 }
 
@@ -333,6 +367,10 @@ function buildTCPIPSocketResourceString(resource: ParsedTCPIPSocketResource): st
 
 function buildTCPIPInstrResourceString(resource: ParsedTCPIPInstrResource): string {
   return `TCPIP${resource.boardNumber}::${resource.host}::${resource.lanDeviceName}::${resource.resourceClass}`;
+}
+
+function buildSimulationResourceString(resource: ParsedSimulationResource): string {
+  return `SIM::${resource.deviceType}::${resource.resourceClass}`;
 }
 
 /**

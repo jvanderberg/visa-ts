@@ -7,6 +7,7 @@
 import type { OpenOptions, ResourceInfo } from './types.js';
 import type { Result } from './result.js';
 import type { MessageBasedResource } from './resources/message-based-resource.js';
+import type { SimulatedDevice } from './simulation/types.js';
 
 /**
  * ResourceManager interface for discovering and opening instrument connections.
@@ -49,4 +50,24 @@ export interface ResourceManager {
    * Get list of currently open resources.
    */
   readonly openResources: MessageBasedResource[];
+
+  /**
+   * Register a simulated device.
+   *
+   * Registered devices appear in listResources() with SIM::deviceType::INSTR
+   * resource strings and can be opened like any other resource.
+   *
+   * @param deviceType - Device type identifier (e.g., 'PSU', 'DMM')
+   * @param device - SimulatedDevice configuration
+   *
+   * @example
+   * ```typescript
+   * rm.registerSimulatedDevice('PSU', simulatedPsu);
+   * rm.registerSimulatedDevice('MY_DEVICE', {
+   *   info: { manufacturer: 'Test', model: 'SIM-1' },
+   *   properties: { voltage: { default: 0 } }
+   * });
+   * ```
+   */
+  registerSimulatedDevice(deviceType: string, device: SimulatedDevice): void;
 }

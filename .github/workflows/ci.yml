@@ -32,6 +32,12 @@ jobs:
       - name: Check coverage thresholds
         run: npm run test:coverage
 
+      - name: Run examples
+        run: |
+          npx tsx examples/psu-basic.ts
+          npx tsx examples/load-basic.ts
+          npx tsx examples/power-test.ts
+
       - name: Upload coverage
         if: matrix.node-version == 20
         uses: codecov/codecov-action@v4
