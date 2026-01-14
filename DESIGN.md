@@ -1197,20 +1197,15 @@ await manager.stop();
 
 Circuit simulation enables multiple simulated instruments to interact with realistic physics. For example, a simulated PSU can supply current to a simulated Load, with the PSU's measured current matching what the Load draws.
 
-### Architecture: Bus-Based Communication
+### Architecture: Pub/Sub Bus
 
-Instead of a central solver that knows about all device types, each device owns its own physics. Devices communicate through a shared **bus** that holds the electrical state (voltage, current).
+Devices communicate through a shared **bus** using publish/subscribe. Each device owns its own physics and reacts to bus state changes.
 
 ```
-┌─────────┐         ┌─────────┐         ┌─────────┐
-│   PSU   │◄───────►│   Bus   │◄───────►│  Load   │
-└─────────┘         │  V, I   │         └─────────┘
-                    └─────────┘
-                         ▲
-                         │
-                    ┌─────────┐
-                    │   DMM   │
-                    └─────────┘
+┌─────────┐  publish   ┌─────────┐  publish   ┌─────────┐
+│   PSU   │───────────►│   Bus   │◄───────────│  Load   │
+│         │◄───────────│  V, I   │───────────►│         │
+└─────────┘  subscribe └─────────┘  subscribe └─────────┘
 ```
 
 ### Core Types
@@ -1222,42 +1217,166 @@ interface BusState {
   current: number;
 }
 
-/** Interface for devices that participate in circuit simulation */
-interface CircuitParticipant {
-  /**
-   * Called when bus state changes. Device applies its physics/constraints
-   * and returns updated state, or null if no change needed.
-   */
-  onBusUpdate(state: BusState): BusState | null;
+/** Bus for device communication */
+interface Bus {
+  state: BusState;
+  publish(state: BusState): void;
+  subscribe(callback: (state: BusState) => void): void;
+}
+
+/** Device with physics behavior */
+interface BusParticipant {
+  /** Compute device's desired bus state given current bus state */
+  physics(bus: BusState): BusState;
 }
 ```
 
-### How Settlement Works
+### How Devices Connect
 
-The bus iterates until no device needs to change state:
+When a device connects to a bus, it subscribes to receive state changes and publishes its physics response:
 
 ```typescript
-interface Bus {
-  state: BusState;
-  participants: CircuitParticipant[];
+function connectToBus(device: BusParticipant, bus: Bus): void {
+  device.bus = bus;
 
-  settle(): void {
-    let changed = true;
-    let iterations = 0;
-    const maxIterations = 100;
-
-    while (changed && iterations < maxIterations) {
-      changed = false;
-      iterations++;
-
-      for (const participant of this.participants) {
-        const newState = participant.onBusUpdate(this.state);
-        if (newState !== null) {
-          this.state = newState;
-          changed = true;
-        }
-      }
+  bus.subscribe((busState) => {
+    const myState = device.physics(busState);
+    // Only publish if different (compare values, not references)
+    if (myState.voltage !== busState.voltage || myState.current !== busState.current) {
+      // Use setTimeout(0) to avoid reentrant publish during iteration
+      setTimeout(() => bus.publish(myState), 0);
     }
+  });
+}
+```
+
+### How Device Setters Work
+
+When a device's state changes via SCPI command, it publishes to the bus:
+
+```typescript
+set voltage(v: number) {
+  this._voltage = v;
+  if (this.bus) {
+    this.bus.publish(this.physics(this.bus.state));
+  }
+}
+
+set output(on: boolean) {
+  this._output = on;
+  if (this.bus) {
+    this.bus.publish(this.physics(this.bus.state));
+  }
+}
+```
+
+### How Measurements Work
+
+- **Setpoint queries** (`VOLT?`, `CURR?`) → return device state (what user set)
+- **Measurement queries** (`MEAS:VOLT?`, `MEAS:CURR?`) → return bus state (physical reality)
+
+```typescript
+get measuredVoltage(): number {
+  return this.bus?.state.voltage ?? this._voltage;
+}
+
+get measuredCurrent(): number {
+  return this.bus?.state.current ?? this._current;
+}
+```
+
+If no bus is connected, measurements fall back to device setpoints (standalone simulation behavior).
+
+### Settlement
+
+The bus handles settlement internally. When a device publishes, it triggers subscribers, who may publish back, until no device has changes. Devices don't know about settlement — they just publish and subscribe.
+
+```typescript
+function createBus(): Bus {
+  let state: BusState = { voltage: 0, current: 0 };
+  const subscribers: ((state: BusState) => void)[] = [];
+  let settling = false;
+  let iterations = 0;
+  const maxIterations = 100;
+  const epsilon = 1e-9;
+
+  return {
+    get state() { return state; },
+
+    subscribe(callback) {
+      subscribers.push(callback);
+    },
+
+    publish(newState) {
+      // Close enough? No change needed (damping for convergence)
+      if (Math.abs(newState.voltage - state.voltage) < epsilon &&
+          Math.abs(newState.current - state.current) < epsilon) {
+        return;
+      }
+
+      state = newState;
+
+      if (settling) return; // Already in settlement loop
+
+      settling = true;
+      iterations = 0;
+
+      while (iterations < maxIterations) {
+        iterations++;
+        const prevState = state;
+
+        for (const subscriber of subscribers) {
+          subscriber(state);
+        }
+
+        // If state didn't change, we've settled
+        if (state === prevState) break;
+      }
+
+      settling = false;
+    }
+  };
+}
+```
+
+### Initial State
+
+First device to publish sets the bus state. Bus starts at `{ voltage: 0, current: 0 }`.
+
+### Example: PSU Physics
+
+```typescript
+function physics(bus: BusState): BusState {
+  if (!this.output) {
+    return { voltage: 0, current: 0 };
+  }
+
+  // PSU is a voltage source with current limiting
+  if (bus.current > this.currentLimit) {
+    return { voltage: bus.voltage, current: this.currentLimit };
+  }
+
+  return { voltage: this.voltage, current: bus.current };
+}
+```
+
+### Example: Load Physics
+
+```typescript
+function physics(bus: BusState): BusState {
+  if (!this.input) {
+    return { voltage: bus.voltage, current: 0 };
+  }
+
+  switch (this.mode) {
+    case 'CC': // Constant current
+      return { voltage: bus.voltage, current: this.current };
+    case 'CR': // Constant resistance
+      return { voltage: bus.voltage, current: bus.voltage / this.resistance };
+    case 'CP': // Constant power
+      return { voltage: bus.voltage, current: this.power / bus.voltage };
+    default:
+      return bus;
   }
 }
 ```
@@ -1265,119 +1384,78 @@ interface Bus {
 ### Example: PSU Current Limiting
 
 ```
-1. PSU output ON at 5V, 0.5A limit
+1. PSU: output ON at 5V, 0.5A limit
    → publishes { voltage: 5, current: 0 }
 
-2. Load in CC mode wants 1A
-   → sees 5V, publishes { voltage: 5, current: 1 }
+2. Load: CC mode wants 1A, sees 5V
+   → publishes { voltage: 5, current: 1 }
 
-3. PSU sees 1A > 0.5A limit
-   → must reduce voltage to limit current
-   → publishes { voltage: 2.5, current: 0.5 }
+3. PSU: sees 1A > 0.5A limit
+   → publishes { voltage: 5, current: 0.5 }
 
-4. Load sees 2.5V, still wants 1A but only 0.5A available
-   → accepts { voltage: 2.5, current: 0.5 }
+4. Load: still wants 1A but only 0.5A available
+   → publishes { voltage: 5, current: 0.5 } (no change)
 
-5. Bus settled — no more changes
-```
-
-### Circuit API
-
-```typescript
-interface Circuit {
-  /** Add a device to the circuit */
-  addDevice(id: string, device: SimulatedDevice): Result<CircuitDevice, Error>;
-
-  /** Register all devices with a ResourceManager */
-  registerWith(rm: ResourceManager): void;
-}
-
-function createCircuit(): Circuit;
+5. Settled — no more changes
 ```
 
 ### Usage Example
 
 ```typescript
-import { createResourceManager, createCircuit, simulatedPsu, simulatedLoad } from 'visa-ts';
+import { createBus, createPsu, createLoad } from 'visa-ts';
 
-// Create circuit and add devices
-const rm = createResourceManager();
-const circuit = createCircuit();
+const bus = createBus();
+const psu = createPsu();
+const load = createLoad();
 
-circuit.addDevice('psu', simulatedPsu);
-circuit.addDevice('load', simulatedLoad);
+// Connect devices to bus
+psu.connectTo(bus);
+load.connectTo(bus);
 
-// Register with ResourceManager — devices available via standard API
-circuit.registerWith(rm);
+// Configure via SCPI (setters publish to bus automatically)
+psu.write('VOLT 12');
+psu.write('CURR 2');     // 2A current limit
+psu.write('OUTP ON');
 
-// Open instruments normally
-const psuResult = await rm.openResource('SIM::PSU::INSTR');
-const loadResult = await rm.openResource('SIM::LOAD::INSTR');
-
-const psu = psuResult.value;
-const load = loadResult.value;
-
-// Configure PSU
-await psu.write('VOLT 12');
-await psu.write('CURR 2');    // 2A current limit
-await psu.write('OUTP ON');
-
-// Configure Load in constant current mode
-await load.write('MODE CC');
-await load.write('CURR 1.5'); // Draw 1.5A
-await load.write('INP ON');
+load.write('MODE CC');
+load.write('CURR 1.5');  // Draw 1.5A
+load.write('INP ON');
 
 // Measurements reflect circuit physics
-const psuCurrent = await psu.query('MEAS:CURR?');   // "1.500"
-const loadCurrent = await load.query('MEAS:CURR?'); // "1.500"
+psu.query('MEAS:CURR?');   // "1.500"
+load.query('MEAS:CURR?');  // "1.500"
 
-// If load demands more than PSU can provide...
-await load.write('CURR 5');  // Want 5A, but PSU limited to 2A
-
-const limitedCurrent = await psu.query('MEAS:CURR?'); // "2.000" (PSU limiting)
+// Load demands more than PSU can provide
+load.write('CURR 5');      // Want 5A, but PSU limited to 2A
+psu.query('MEAS:CURR?');   // "2.000" (PSU limiting)
 ```
 
 ### Device Behavior Summary
 
-| Device | `onBusUpdate` Behavior |
-|--------|------------------------|
-| PSU (CV) | Sets voltage to setpoint, enforces current limit |
+| Device | Physics Behavior |
+|--------|------------------|
+| PSU (on) | Sets voltage to setpoint, enforces current limit |
 | PSU (off) | Returns { voltage: 0, current: 0 } |
-| Load (CC) | At given voltage, draws constant current |
-| Load (CV) | Draws current to maintain constant voltage |
+| Load (CC) | Draws constant current at given voltage |
 | Load (CR) | Draws I = V / R (Ohm's law) |
 | Load (CP) | Draws I = P / V (constant power) |
-| Load (off) | Returns null (no change, high impedance) |
-| DMM | Returns { voltage: V, current: ~0 } (high impedance) |
+| Load (off) | Returns { voltage: V, current: 0 } |
 
-### Implementation Note
+### Convergence
 
-The existing `simulatedPsu` and `simulatedLoad` are state stores with command handlers — they don't currently implement physics. To support circuit simulation, devices need to be extended with `CircuitParticipant` implementations that read the device's internal state and apply the appropriate physics.
+The bus uses epsilon comparison ("close enough") to handle floating-point precision and prevent oscillation. A max iteration limit (default 100) prevents infinite loops in pathological cases.
 
-```typescript
-// Example: PSU participant reads state and applies current limiting
-function createPsuParticipant(getState: () => DeviceState): CircuitParticipant {
-  return {
-    onBusUpdate(bus: BusState): BusState | null {
-      const { voltage, current, output } = getState();
+### Constraints
 
-      if (!output) return { voltage: 0, current: 0 };
-      if (bus.current > current) return { voltage: bus.voltage, current };
-      if (bus.voltage !== voltage) return { voltage, current: bus.current };
+- **Single bus = single node**: This models a simple single-node circuit (PSU → Load). Multi-channel PSUs and complex topologies can be added later.
+- **Don't connect two PSUs**: Just like real life, connecting two voltage sources to the same bus causes conflicts.
 
-      return null;
-    }
-  };
-}
-```
-
-### Benefits of Bus Architecture
+### Benefits
 
 1. **Decoupled** — Each device only knows its own physics
-2. **Extensible** — Add new device types by implementing `CircuitParticipant`
+2. **Extensible** — Add new device types by implementing `physics()`
 3. **Testable** — Test each device's behavior in isolation
-4. **Multi-device** — Multiple loads sum their current draw automatically
-5. **Transparent** — Users interact via standard ResourceManager API
+4. **Transparent** — Settlement happens automatically via pub/sub
 
 ---
 
