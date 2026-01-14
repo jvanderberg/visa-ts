@@ -285,16 +285,30 @@ describe('Circuit Solver', () => {
   });
 
   describe('edge cases', () => {
-    it('handles floating point comparison near limit correctly', () => {
+    it('reports CC mode when demand exceeds limit beyond tolerance', () => {
       const psu = makePsuState({ voltageSetpoint: 12.0, currentLimit: 2.0 });
-      // Current demand very slightly above limit
+      // Demand is 2.0 + 1e-7, which exceeds limit + tolerance (1e-9)
       const load = makeLoadState({ mode: 'CC', currentSetpoint: 2.0000001 });
       const wireResistance = 0.1;
 
       const result = solveCircuit({ psu, load, wireResistance });
 
-      // Should be treated as at limit (CV mode) due to tolerance
+      // Demand clearly exceeds limit, so CC mode
+      expect(result.psuMode).toBe('CC');
       expect(result.current).toBeCloseTo(2.0, 6);
+    });
+
+    it('reports CV mode when demand is within tolerance of limit', () => {
+      const psu = makePsuState({ voltageSetpoint: 12.0, currentLimit: 2.0 });
+      // Demand exactly at limit - within tolerance, not "exceeding"
+      const load = makeLoadState({ mode: 'CC', currentSetpoint: 2.0 });
+      const wireResistance = 0.1;
+
+      const result = solveCircuit({ psu, load, wireResistance });
+
+      // Demand equals limit (not exceeding), so CV mode
+      expect(result.psuMode).toBe('CV');
+      expect(result.current).toBe(2.0);
     });
 
     it('handles zero Load current demand', () => {

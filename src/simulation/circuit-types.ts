@@ -8,8 +8,6 @@
  * @packageDocumentation
  */
 
-import type { SimulationTransport } from '../transports/simulation.js';
-
 /**
  * Operating mode of a power supply in a circuit
  *
@@ -92,30 +90,6 @@ export interface Connection {
   toNode: string;
   /** Wire resistance (Ω) - default: 0.01 */
   resistance: number;
-}
-
-/**
- * Configuration for adding a device to a circuit
- */
-export interface CircuitDeviceConfig {
-  /** Device identifier (must be unique within circuit) */
-  id: string;
-  /** Device type */
-  type: 'psu' | 'load';
-}
-
-/**
- * A device connected to a circuit
- */
-export interface CircuitDevice {
-  /** Device identifier */
-  id: string;
-  /** Device type */
-  type: 'psu' | 'load';
-  /** Transport for SCPI communication */
-  transport: SimulationTransport;
-  /** Output node (for PSU) or input node (for Load) */
-  port: CircuitNode;
 }
 
 /**
