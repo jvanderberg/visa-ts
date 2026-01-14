@@ -447,6 +447,133 @@ psu.query('MEAS:CURR?');  // "2.000"
 | `src/simulation/circuit/bus.ts` | createBus() factory |
 | `src/simulation/circuit/index.ts` | Public exports |
 
+### Phase 11: npm Publishing
+
+Prepare the package for public npm release.
+
+#### Package Metadata
+
+Update `package.json` with:
+
+```json
+{
+  "author": "Your Name <email@example.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jvanderberg/visa-ts.git"
+  },
+  "homepage": "https://github.com/jvanderberg/visa-ts#readme",
+  "bugs": {
+    "url": "https://github.com/jvanderberg/visa-ts/issues"
+  }
+}
+```
+
+#### Build Safety
+
+Add `prepublishOnly` script to ensure build and tests pass before publish:
+
+```json
+{
+  "scripts": {
+    "prepublishOnly": "npm run test:ci && npm run build"
+  }
+}
+```
+
+#### Subpath Exports
+
+Add simulation devices as a subpath export:
+
+```json
+{
+  "exports": {
+    ".": { ... },
+    "./sessions": { ... },
+    "./simulation": {
+      "types": "./dist/simulation/index.d.ts",
+      "import": "./dist/simulation/index.js"
+    }
+  }
+}
+```
+
+#### CHANGELOG.md
+
+Create a changelog following [Keep a Changelog](https://keepachangelog.com/) format:
+
+```markdown
+# Changelog
+
+## [0.1.0] - YYYY-MM-DD
+
+### Added
+- Initial release
+- USB-TMC, Serial, TCP/IP transports
+- ResourceManager with device discovery
+- MessageBasedResource with SCPI utilities
+- Session management with auto-reconnect
+- Simulation backend with PSU and Load devices
+```
+
+#### CI Publish Workflow
+
+Add `.github/workflows/publish.yml` to auto-publish on GitHub release:
+
+```yaml
+name: Publish to npm
+on:
+  release:
+    types: [published]
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm ci
+      - run: npm run test:ci
+      - run: npm run build
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+```
+
+#### README Enhancements
+
+Add badges:
+
+```markdown
+[![npm version](https://img.shields.io/npm/v/visa-ts)](https://www.npmjs.com/package/visa-ts)
+[![Build Status](https://github.com/jvanderberg/visa-ts/actions/workflows/ci.yml/badge.svg)](https://github.com/jvanderberg/visa-ts/actions)
+[![Coverage](https://img.shields.io/codecov/c/github/jvanderberg/visa-ts)](https://codecov.io/gh/jvanderberg/visa-ts)
+```
+
+#### Verification
+
+Before first publish:
+
+1. Run `npm pack` to create tarball
+2. Inspect contents with `tar -tzf visa-ts-0.1.0.tgz`
+3. Test install in a separate project: `npm install ../visa-ts/visa-ts-0.1.0.tgz`
+4. Verify imports work correctly
+
+#### Checklist
+
+| Item | Description |
+|------|-------------|
+| Package metadata | author, repository, homepage, bugs |
+| prepublishOnly | Build + test before publish |
+| Subpath exports | /sessions, /simulation |
+| CHANGELOG.md | Version history |
+| Publish workflow | GitHub Actions → npm |
+| README badges | npm, build, coverage |
+| npm pack test | Verify package contents |
+| Install test | Test in separate project |
+
 ---
 
 ## Testing Strategy
@@ -488,3 +615,4 @@ psu.query('MEAS:CURR?');  // "2.000"
 - [x] Phase 8: Simulation Backend (typed device definitions, pattern matching, stateful properties)
 - [x] Phase 9: Example Simulated Devices (PSU, Electronic Load)
 - [ ] Phase 10: Circuit Simulation (pub/sub bus with device physics)
+- [ ] Phase 11: npm Publishing (metadata, changelog, CI workflow, verification)
