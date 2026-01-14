@@ -26,5 +26,20 @@ export type { DeviceState } from './device-state.js';
 export { createCommandHandler } from './command-handler.js';
 export type { CommandHandler } from './command-handler.js';
 
-// Example devices
+// Example devices (static definitions)
 export { simulatedPsu, simulatedLoad } from './devices/index.js';
+
+// Circuit simulation (physics-based devices with bus connectivity)
+export { createBus, createPsu, createLoad } from './circuit/index.js';
+
+export type {
+  Bus,
+  BusOptions,
+  BusParticipant,
+  BusState,
+  BusSubscriber,
+  Unsubscribe,
+  SimulatedPsu,
+  SimulatedLoad,
+  LoadMode,
+} from './circuit/index.js';
