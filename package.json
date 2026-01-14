@@ -13,6 +13,10 @@
     "./sessions": {
       "types": "./dist/sessions/index.d.ts",
       "import": "./dist/sessions/index.js"
+    },
+    "./simulation": {
+      "types": "./dist/simulation/index.d.ts",
+      "import": "./dist/simulation/index.js"
     }
   },
   "files": [
@@ -30,7 +34,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:ci": "npm run typecheck && npm run format:check && npm run lint && npm run test:run",
-    "prepare": "husky"
+    "prepare": "husky",
+    "prepublishOnly": "npm run test:ci && npm run build"
   },
   "keywords": [
     "visa",
@@ -41,8 +46,16 @@
     "instruments",
     "gpib"
   ],
-  "author": "",
+  "author": "jvanderberg",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jvanderberg/visa-ts.git"
+  },
+  "homepage": "https://github.com/jvanderberg/visa-ts#readme",
+  "bugs": {
+    "url": "https://github.com/jvanderberg/visa-ts/issues"
+  },
   "dependencies": {
     "serialport": "^12.0.0",
     "usb": "^2.9.0"
