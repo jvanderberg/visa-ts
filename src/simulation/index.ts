@@ -46,8 +46,8 @@ export { createCircuit } from './circuit.js';
 export type { Circuit, CircuitDevice, CircuitDeviceConfig } from './circuit.js';
 
 // Physics models
-export { extractPsuState, resolvePsuWithLoad } from './psu-physics.js';
-export { extractLoadState, calculateLoadCurrentDemand } from './load-physics.js';
+export { extractPsuState, resolvePsuWithLoad } from './devices/psu-physics.js';
+export { extractLoadState, calculateLoadCurrentDemand } from './devices/load-physics.js';
 
 // Circuit solver
 export { solveCircuit } from './solver.js';

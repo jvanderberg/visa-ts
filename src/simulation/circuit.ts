@@ -10,8 +10,8 @@
 import { Ok, Err, type Result } from '../result.js';
 import type { SimulationTransport } from '../transports/simulation.js';
 import type { CircuitSolution, ConnectOptions } from './circuit-types.js';
-import { extractPsuState } from './psu-physics.js';
-import { extractLoadState } from './load-physics.js';
+import { extractPsuState } from './devices/psu-physics.js';
+import { extractLoadState } from './devices/load-physics.js';
 import { solveCircuit } from './solver.js';
 
 /**

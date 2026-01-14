@@ -6,8 +6,8 @@
  * @packageDocumentation
  */
 
-import type { SimulationTransport } from '../transports/simulation.js';
-import type { PsuState, PsuMode } from './circuit-types.js';
+import type { SimulationTransport } from '../../transports/simulation.js';
+import type { PsuState, PsuMode } from '../circuit-types.js';
 
 /**
  * Parse a numeric response from a query result.

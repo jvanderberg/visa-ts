@@ -5,10 +5,13 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createSimulationTransport } from '../../src/transports/simulation.js';
-import { simulatedPsu } from '../../src/simulation/devices/psu.js';
-import { extractPsuState, resolvePsuWithLoad } from '../../src/simulation/psu-physics.js';
-import type { PsuState } from '../../src/simulation/circuit-types.js';
+import { createSimulationTransport } from '../../../src/transports/simulation.js';
+import { simulatedPsu } from '../../../src/simulation/devices/psu.js';
+import {
+  extractPsuState,
+  resolvePsuWithLoad,
+} from '../../../src/simulation/devices/psu-physics.js';
+import type { PsuState } from '../../../src/simulation/circuit-types.js';
 
 describe('PSU Physics Model', () => {
   let transport: ReturnType<typeof createSimulationTransport>;

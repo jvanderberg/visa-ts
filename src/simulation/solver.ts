@@ -8,7 +8,7 @@
  */
 
 import type { PsuState, LoadState, PsuMode, CircuitSolution } from './circuit-types.js';
-import { calculateLoadCurrentDemand } from './load-physics.js';
+import { calculateLoadCurrentDemand } from './devices/load-physics.js';
 
 /**
  * Parameters for circuit solver

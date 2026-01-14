@@ -5,10 +5,13 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createSimulationTransport } from '../../src/transports/simulation.js';
-import { simulatedLoad } from '../../src/simulation/devices/load.js';
-import { extractLoadState, calculateLoadCurrentDemand } from '../../src/simulation/load-physics.js';
-import type { LoadState } from '../../src/simulation/circuit-types.js';
+import { createSimulationTransport } from '../../../src/transports/simulation.js';
+import { simulatedLoad } from '../../../src/simulation/devices/load.js';
+import {
+  extractLoadState,
+  calculateLoadCurrentDemand,
+} from '../../../src/simulation/devices/load-physics.js';
+import type { LoadState } from '../../../src/simulation/circuit-types.js';
 
 describe('Load Physics Model', () => {
   let transport: ReturnType<typeof createSimulationTransport>;
