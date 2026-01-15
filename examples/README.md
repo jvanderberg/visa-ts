@@ -2,69 +2,82 @@
 
 Example scripts demonstrating visa-ts instrument control.
 
-These examples discover devices using `listResources()` with pattern filtering. Change the filter pattern to discover real hardware instead of simulated devices.
+## Structure
 
-## Running Examples
+```
+examples/
+├── psu-basic.ts       # Simulated PSU (runs in CI)
+├── load-basic.ts      # Simulated Load (runs in CI)
+├── power-test.ts      # Simulated PSU + Load (runs in CI)
+└── hardware/          # Real hardware (requires physical instruments)
+    ├── real-power-test.ts
+    ├── scope-test.ts
+    ├── scope-screenshot.ts
+    └── scope-waveform.ts
+```
+
+## Simulated Examples
+
+These run against simulated devices and are safe for CI:
 
 ```bash
-# From the project root:
 npx tsx examples/psu-basic.ts
 npx tsx examples/load-basic.ts
 npx tsx examples/power-test.ts
 ```
 
-## Device Discovery
+## Hardware Examples
 
-Examples use pattern filtering to find devices:
+These require real instruments connected via USB or serial:
 
-```typescript
-const rm = createResourceManager();
+```bash
+# Oscilloscope (Rigol DS1000Z series)
+npx tsx examples/hardware/scope-test.ts
+npx tsx examples/hardware/scope-screenshot.ts
+npx tsx examples/hardware/scope-waveform.ts
 
-// List all available resources
-const all = await rm.listResources();
-
-// Filter for simulated PSU
-const psuList = await rm.listResources('SIM::PSU::*');
-
-// Filter for real USB instruments
-const usbList = await rm.listResources('USB*::INSTR');
-
-// Filter for TCP/IP instruments
-const tcpipList = await rm.listResources('TCPIP*::INSTR');
-
-// Open the first matching device
-const psu = await rm.openResource(psuList[0]);
+# PSU + Electronic Load
+npx tsx examples/hardware/real-power-test.ts
 ```
 
-## Available Simulated Devices
-
-- `SIM::PSU::INSTR` - DC Power Supply
-- `SIM::LOAD::INSTR` - Electronic Load
-
-## Examples
+## Simulated Examples
 
 ### psu-basic.ts
 
-Basic power supply operations:
-- Discover PSU using resource filtering
-- Query device identification
+Basic power supply operations with simulated PSU:
 - Set voltage and current limits
 - Configure OVP/OCP protection
 - Enable/disable output
 
 ### load-basic.ts
 
-Basic electronic load operations:
-- Discover Load using resource filtering
+Basic electronic load operations with simulated load:
 - Configure operating mode (CC/CV/CR/CP)
-- Set load parameters (current, voltage, resistance, power)
-- Set slew rate
+- Set load parameters
 - Enable/disable input
 
 ### power-test.ts
 
-Combined PSU + Load test scenario:
-- Discover both instruments using filtering
-- Run parametric tests across voltage/current combinations
-- Verify instrument settings
-- Display results in a formatted table
+Combined PSU + Load demonstrating voltage sag under current limiting.
+
+## Hardware Examples
+
+### real-power-test.ts
+
+Same voltage sag test with real hardware:
+- Matrix WPS300S-8010 PSU (serial @ 115200 baud)
+- Rigol DL3021 Electronic Load (USB-TMC)
+
+### scope-test.ts
+
+Query oscilloscope settings and measurements:
+- Timebase, channel scales, trigger settings
+- Frequency, Vpp, Vrms measurements
+
+### scope-screenshot.ts
+
+Capture oscilloscope display as PNG image.
+
+### scope-waveform.ts
+
+Download waveform data as CSV with time and voltage columns.

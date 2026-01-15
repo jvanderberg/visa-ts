@@ -485,34 +485,70 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
           return sendResult;
         }
 
-        // Read response
-        const readResult = await bulkIn(DEFAULT_CHUNK_SIZE);
-        if (!readResult.ok) {
-          return readResult;
-        }
-
-        const response = readResult.value;
-        if (response.length < USB_TMC_HEADER_SIZE) {
-          return Err(new Error('Invalid USB-TMC response: too short'));
-        }
-
-        const header = parseBulkInHeader(response);
-        if (header.msgType !== DEV_DEP_MSG_IN) {
-          return Err(new Error(`Unexpected USB-TMC message type: ${header.msgType}`));
-        }
-
-        const payload = response.subarray(
-          USB_TMC_HEADER_SIZE,
-          USB_TMC_HEADER_SIZE + header.transferSize
-        );
-
-        chunks.push(payload);
-
-        // In rigol mode, continue reading until EOM is set
-        // In normal mode, a single read is sufficient
+        // Rigol DS1000Z USBTMC Quirk Mode
+        //
+        // PROBLEM: Rigol's USBTMC header lies about transferSize. If we trust it,
+        // we stop reading too early, leaving bytes in the USB buffer. These leftover
+        // bytes corrupt the next response.
+        //
+        // SOLUTION: Ignore transferSize. For each REQUEST, read until we get a short
+        // USB packet (< 64 bytes), which indicates the device finished responding.
+        //
+        // See: signal-drift/server/devices/docs/rigol-usbtmc-quirk.md
         if (quirks === 'rigol') {
-          isComplete = header.isEom;
+          const responseChunks: Buffer[] = [];
+          let hasEom = false;
+
+          // Read USB packets until short packet (< 64 bytes) = end of response
+          for (let i = 0; i < 1000; i++) {
+            const pktResult = await bulkIn(512);
+            if (!pktResult.ok) {
+              return pktResult;
+            }
+            const pkt = pktResult.value;
+            if (pkt.length === 0) break;
+            responseChunks.push(pkt);
+
+            // Check EOM from first packet's header
+            if (i === 0 && pkt.length >= USB_TMC_HEADER_SIZE) {
+              const header = parseBulkInHeader(pkt);
+              hasEom = header.isEom;
+            }
+
+            if (pkt.length < 64) break; // Short packet = end of response
+          }
+
+          const response = Buffer.concat(responseChunks);
+          if (response.length >= USB_TMC_HEADER_SIZE) {
+            // Strip 12-byte USBTMC header, ignore its lying transferSize
+            const payload = response.subarray(USB_TMC_HEADER_SIZE);
+            chunks.push(payload);
+          }
+
+          isComplete = hasEom;
         } else {
+          // Standard mode: single read, trust the header
+          const readResult = await bulkIn(DEFAULT_CHUNK_SIZE);
+          if (!readResult.ok) {
+            return readResult;
+          }
+
+          const response = readResult.value;
+          if (response.length < USB_TMC_HEADER_SIZE) {
+            return Err(new Error('Invalid USB-TMC response: too short'));
+          }
+
+          const header = parseBulkInHeader(response);
+          if (header.msgType !== DEV_DEP_MSG_IN) {
+            return Err(new Error(`Unexpected USB-TMC message type: ${header.msgType}`));
+          }
+
+          const payload = response.subarray(
+            USB_TMC_HEADER_SIZE,
+            USB_TMC_HEADER_SIZE + header.transferSize
+          );
+
+          chunks.push(payload);
           isComplete = true;
         }
       }
@@ -589,7 +625,33 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
         return sendResult;
       }
 
-      // Read response
+      // Rigol quirks mode: read USB packets until short packet (< 64 bytes)
+      // This drains the full response buffer regardless of what transferSize claims
+      if (quirks === 'rigol') {
+        const responseChunks: Buffer[] = [];
+
+        for (let i = 0; i < 1000; i++) {
+          const pktResult = await bulkIn(512);
+          if (!pktResult.ok) {
+            return pktResult;
+          }
+          const pkt = pktResult.value;
+          if (pkt.length === 0) break;
+          responseChunks.push(pkt);
+          if (pkt.length < 64) break; // Short packet = end of response
+        }
+
+        const response = Buffer.concat(responseChunks);
+        if (response.length < USB_TMC_HEADER_SIZE) {
+          return Err(new Error('Invalid USB-TMC response: too short'));
+        }
+
+        // Strip 12-byte USBTMC header, ignore its lying transferSize
+        const payload = response.subarray(USB_TMC_HEADER_SIZE);
+        return Ok(Buffer.from(payload));
+      }
+
+      // Standard mode: single read, trust the header
       const readResult = await bulkIn(maxSize + USB_TMC_HEADER_SIZE);
       if (!readResult.ok) {
         return readResult;
