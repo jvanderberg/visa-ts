@@ -356,6 +356,80 @@ export type MethodMap<T> = {
 };
 
 // ─────────────────────────────────────────────────────────────────
+// Identity Configuration
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Standard *IDN? identity query (default behavior).
+ */
+export interface StandardIdentity {
+  /** Use standard *IDN? query (default) */
+  standard: true;
+}
+
+/**
+ * Custom identity query for devices with non-standard identity commands.
+ */
+export interface CustomIdentity {
+  /** Custom query command to send */
+  query: string;
+
+  /** Parse the response into identity fields */
+  parse: (response: string) => {
+    manufacturer: string;
+    model: string;
+    serialNumber?: string;
+    firmwareVersion?: string;
+  };
+}
+
+/**
+ * Static identity for devices that don't support identity queries (e.g., no *IDN?).
+ */
+export interface StaticIdentity {
+  /** Skip identity query, use these static values */
+  static: true;
+
+  /** Manufacturer name */
+  manufacturer: string;
+
+  /** Model number */
+  model: string;
+
+  /** Serial number (optional) */
+  serialNumber?: string;
+
+  /** Firmware version (optional) */
+  firmwareVersion?: string;
+
+  /**
+   * Optional probe command to verify device is responding.
+   * If provided, the device must respond successfully for connect() to succeed.
+   */
+  probeCommand?: string;
+}
+
+/**
+ * Identity configuration for a driver.
+ * Controls how the driver identifies the instrument on connect.
+ */
+export type IdentityConfig = StandardIdentity | CustomIdentity | StaticIdentity;
+
+/**
+ * Check if identity config uses static values (no query).
+ */
+export function isStaticIdentity(config: IdentityConfig): config is StaticIdentity {
+  return 'static' in config && config.static === true;
+}
+
+/**
+ * Check if identity config uses a custom query.
+ */
+export function isCustomIdentity(config: IdentityConfig): config is CustomIdentity {
+  return 'query' in config && typeof config.query === 'string';
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Driver Specification
 // ─────────────────────────────────────────────────────────────────
 
@@ -371,6 +445,14 @@ interface DriverSpecBase<T, TChannel> {
 
   /** Supported model numbers */
   models?: string[];
+
+  /**
+   * Identity configuration. Controls how the driver identifies the instrument.
+   * - undefined or { standard: true }: Use *IDN? query (default)
+   * - { query, parse }: Use custom query command
+   * - { static: true, ... }: Use static values (for devices without identity query)
+   */
+  identity?: IdentityConfig;
 
   /** Global properties - must define all properties from T */
   properties: TypedPropertyMap<T>;

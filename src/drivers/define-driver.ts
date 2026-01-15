@@ -9,6 +9,8 @@ import type { MessageBasedResource } from '../resources/message-based-resource.j
 import {
   isSupported,
   isCommandSupported,
+  isStaticIdentity,
+  isCustomIdentity,
   type DriverSpec,
   type DriverContext,
   type PropertyDef,
@@ -16,8 +18,72 @@ import {
   type DriverSettings,
   type DriverHooks,
   type ChannelSpec,
+  type IdentityConfig,
 } from './types.js';
 import { delay, toGetterName, toSetterName, createChannelAccessor } from './channel.js';
+
+/**
+ * Identity information returned from device.
+ */
+interface DeviceIdentity {
+  manufacturer: string;
+  model: string;
+  serialNumber: string;
+  firmwareVersion: string;
+}
+
+/**
+ * Query device identity based on configuration.
+ */
+async function queryIdentity(
+  resource: MessageBasedResource,
+  config?: IdentityConfig
+): Promise<Result<DeviceIdentity, Error>> {
+  // Static identity - no query needed
+  if (config && isStaticIdentity(config)) {
+    // Optionally probe to verify device is responding
+    if (config.probeCommand) {
+      const probeResult = await resource.query(config.probeCommand);
+      if (!probeResult.ok) {
+        return Err(new Error(`Device probe failed: ${probeResult.error.message}`));
+      }
+    }
+
+    return Ok({
+      manufacturer: config.manufacturer,
+      model: config.model,
+      serialNumber: config.serialNumber ?? '',
+      firmwareVersion: config.firmwareVersion ?? '',
+    });
+  }
+
+  // Custom identity query
+  if (config && isCustomIdentity(config)) {
+    const result = await resource.query(config.query);
+    if (!result.ok) return result;
+
+    const parsed = config.parse(result.value);
+    return Ok({
+      manufacturer: parsed.manufacturer,
+      model: parsed.model,
+      serialNumber: parsed.serialNumber ?? '',
+      firmwareVersion: parsed.firmwareVersion ?? '',
+    });
+  }
+
+  // Standard *IDN? query (default)
+  const idnResult = await resource.query('*IDN?');
+  if (!idnResult.ok) return idnResult;
+
+  // Parse identity: manufacturer,model,serial,firmware
+  const idnParts = idnResult.value.trim().split(',');
+  return Ok({
+    manufacturer: idnParts[0] ?? '',
+    model: idnParts[1] ?? '',
+    serialNumber: idnParts[2] ?? '',
+    firmwareVersion: idnParts[3] ?? '',
+  });
+}
 
 /**
  * Extended driver interface with spec access.

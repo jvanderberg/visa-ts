@@ -21,12 +21,10 @@ import type {
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * DP832 channel interface - extends base with measurements and protection.
+ * DP832 channel interface - extends base with mode query and protection.
  */
 export interface DP832Channel extends PowerSupplyChannel {
-  // Measurements
-  getMeasuredVoltage(): Promise<Result<number, Error>>;
-  getMeasuredCurrent(): Promise<Result<number, Error>>;
+  // Power measurement is required (not optional) on DP832
   getMeasuredPower(): Promise<Result<number, Error>>;
 
   // Status

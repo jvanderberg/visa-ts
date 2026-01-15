@@ -49,12 +49,10 @@ export type VoltageRange = 'HIGH' | 'LOW' | 'AUTO';
 /**
  * Base power supply channel interface.
  *
- * Defines the minimum functionality all PSU channels have:
+ * Defines common functionality for PSU channels:
  * - Output enable/disable
- * - Voltage setpoint
- * - Current limit
- *
- * Device-specific drivers extend this to add measurements, protection, etc.
+ * - Voltage/current setpoints
+ * - Voltage/current/power measurements
  */
 export interface PowerSupplyChannel {
   /** Channel number (1-based) */
@@ -77,6 +75,15 @@ export interface PowerSupplyChannel {
 
   /** Set current limit in A */
   setCurrent(amps: number): Promise<Result<void, Error>>;
+
+  /** Measure actual output voltage in V */
+  getMeasuredVoltage(): Promise<Result<number, Error>>;
+
+  /** Measure actual output current in A */
+  getMeasuredCurrent(): Promise<Result<number, Error>>;
+
+  /** Measure actual output power in W (optional - not all PSUs have direct measurement) */
+  getMeasuredPower?(): Promise<Result<number, Error>>;
 }
 
 // ─────────────────────────────────────────────────────────────────
