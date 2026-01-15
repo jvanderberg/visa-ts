@@ -29,7 +29,7 @@ import { createUsbtmcTransport } from './transports/usbtmc.js';
 import { createSimulationTransport } from './transports/simulation.js';
 import { listSerialPorts, listUsbDevices } from './discovery.js';
 import type { UsbDeviceInfo } from './discovery.js';
-import type { ResourceManager } from './resource-manager-types.js';
+import type { ResourceManager, RegisterSimulatedDeviceOptions } from './resource-manager-types.js';
 import { probeSerialPort } from './util/serial-probe.js';
 
 // Re-export types for convenience
@@ -44,11 +44,18 @@ export type { ResourceManager } from './resource-manager-types.js';
  * const rm = createResourceManager();
  * const resources = await rm.listResources();
  */
+const DEFAULT_BUS = 'default';
+
+interface SimulatedDeviceEntry {
+  device: SimulatedDevice;
+  bus: string;
+}
+
 export function createResourceManager(): ResourceManager {
   const openResourcesList: MessageBasedResource[] = [];
   const exclusiveResources = new Set<string>();
   const openCounts = new Map<string, number>();
-  const simulatedDevices = new Map<string, SimulatedDevice>();
+  const simulatedDevices = new Map<string, SimulatedDeviceEntry>();
 
   function removeFromOpenList(resource: MessageBasedResource, isExclusive: boolean): void {
     const index = openResourcesList.indexOf(resource);
@@ -308,8 +315,8 @@ export function createResourceManager(): ResourceManager {
 
         case 'SIM': {
           const simParsed = parsed as ParsedSimulationResource;
-          const device = simulatedDevices.get(simParsed.deviceType);
-          if (!device) {
+          const entry = simulatedDevices.get(simParsed.deviceType);
+          if (!entry) {
             const available = [...simulatedDevices.keys()];
             return Err(
               new Error(
@@ -320,7 +327,17 @@ export function createResourceManager(): ResourceManager {
               )
             );
           }
-          transport = createSimulationTransport({ device });
+          // Collect all other devices on the same bus
+          const busDevices: SimulatedDevice[] = [];
+          for (const [type, other] of simulatedDevices) {
+            if (type !== simParsed.deviceType && other.bus === entry.bus) {
+              busDevices.push(other.device);
+            }
+          }
+          transport = createSimulationTransport({
+            device: entry.device,
+            busDevices,
+          });
           resourceInfo = {
             resourceString,
             interfaceType: 'SIM',
@@ -370,8 +387,13 @@ export function createResourceManager(): ResourceManager {
       }
     },
 
-    registerSimulatedDevice(deviceType: string, device: SimulatedDevice): void {
-      simulatedDevices.set(deviceType.toUpperCase(), device);
+    registerSimulatedDevice(
+      deviceType: string,
+      device: SimulatedDevice,
+      options?: RegisterSimulatedDeviceOptions
+    ): void {
+      const bus = options?.bus ?? DEFAULT_BUS;
+      simulatedDevices.set(deviceType.toUpperCase(), { device, bus });
     },
   };
 

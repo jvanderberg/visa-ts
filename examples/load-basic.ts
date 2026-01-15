@@ -5,7 +5,7 @@
  * Discovers available load by filtering resources.
  */
 
-import { createResourceManager, simulatedLoad } from '../src/index.js';
+import { createResourceManager, createSimulatedLoad } from '../src/index.js';
 import type { MessageBasedResource } from '../src/index.js';
 
 async function main() {
@@ -14,7 +14,7 @@ async function main() {
   const rm = createResourceManager();
 
   // Register simulated devices
-  rm.registerSimulatedDevice('LOAD', simulatedLoad);
+  rm.registerSimulatedDevice('LOAD', createSimulatedLoad());
 
   // List all available resources
   console.log('All available resources:');

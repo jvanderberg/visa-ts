@@ -82,23 +82,22 @@ export type { SerialProbeOptions, SerialProbeResult } from './util/serial-probe.
 
 // Simulation backend
 export { createSimulationTransport } from './transports/simulation.js';
-export type { SimulationTransport } from './transports/simulation.js';
+export type { SimulationTransport, SimulationTransportConfig } from './transports/simulation.js';
 
 export {
-  createDeviceState,
   createCommandHandler,
-  simulatedPsu,
-  simulatedLoad,
+  createSimulatedPsu,
+  createSimulatedLoad,
+  createSimulatedDmm,
+  solveCircuit,
 } from './simulation/index.js';
 export type {
   SimulatedDevice,
-  DeviceInfo,
-  EndOfMessage,
-  Dialogue,
   Property,
-  SimulationTransportConfig,
-  SimulatedResourceManagerConfig,
-  CommandResult,
-  DeviceState,
   CommandHandler,
+  DeviceInfo,
+  Dialogue,
+  CommandResult,
+  DeviceBehavior,
+  CircuitDevice,
 } from './simulation/index.js';
