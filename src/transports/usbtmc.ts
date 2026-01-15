@@ -7,7 +7,10 @@
 import type { Transport, TransportState, TransportConfig } from './transport.js';
 import type { Result } from '../result.js';
 import { Ok, Err } from '../result.js';
-import usb from 'usb';
+import * as usbModule from 'usb';
+
+// Handle ESM/CJS interop - tsx doesn't resolve the default export correctly
+const usb = (usbModule as unknown as { default?: typeof usbModule }).default || usbModule;
 
 // USB-TMC Message Types
 const DEV_DEP_MSG_OUT = 1;
@@ -297,9 +300,9 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
 
       try {
         // Find device
-        device =
+        const foundDevice =
           (usb.findByIds(config.vendorId, config.productId) as UsbDevice | undefined) ?? null;
-        if (!device) {
+        if (!foundDevice) {
           state = 'error';
           return Err(
             new Error(
@@ -308,24 +311,42 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
           );
         }
 
+        device = foundDevice;
+
+        // Open device first (required before getStringDescriptor on macOS)
+        foundDevice.open();
+
         // Check serial number if specified
         if (config.serialNumber) {
           const serialResult = await new Promise<Result<string, Error>>((resolve) => {
-            device!.getStringDescriptor(device!.deviceDescriptor.iSerialNumber, (err, str) => {
-              if (err) {
-                resolve(Err(err));
-              } else {
-                resolve(Ok(str ?? ''));
+            foundDevice.getStringDescriptor(
+              foundDevice.deviceDescriptor.iSerialNumber,
+              (err, str) => {
+                if (err) {
+                  resolve(Err(err));
+                } else {
+                  resolve(Ok(str ?? ''));
+                }
               }
-            });
+            );
           });
 
           if (!serialResult.ok) {
+            try {
+              foundDevice.close();
+            } catch {
+              // Ignore close errors
+            }
             state = 'error';
             return serialResult;
           }
 
           if (serialResult.value !== config.serialNumber) {
+            try {
+              foundDevice.close();
+            } catch {
+              // Ignore close errors
+            }
             state = 'error';
             return Err(
               new Error(
@@ -334,9 +355,6 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
             );
           }
         }
-
-        // Open device
-        device.open();
 
         // Get interface
         usbInterface = device.interface(interfaceNumber);
