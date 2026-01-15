@@ -244,6 +244,58 @@ describe('defineDriver', () => {
 
       expect(write).toHaveBeenCalledWith('*CLS');
     });
+
+    it('returns Err when resetOnConnect fails', async () => {
+      interface TestInstrument {
+        getValue(): Promise<Result<number, Error>>;
+      }
+
+      const spec: DriverSpec<TestInstrument> = {
+        properties: {
+          value: { get: ':VAL?' },
+        },
+        quirks: {
+          resetOnConnect: true,
+        },
+      };
+
+      const write = vi.fn().mockResolvedValue(Err(new Error('Reset failed')));
+      const resource = createMockResource({ write });
+
+      const driver = defineDriver(spec);
+      const result = await driver.connect(resource);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toBe('Reset failed');
+      }
+    });
+
+    it('returns Err when clearOnConnect fails', async () => {
+      interface TestInstrument {
+        getValue(): Promise<Result<number, Error>>;
+      }
+
+      const spec: DriverSpec<TestInstrument> = {
+        properties: {
+          value: { get: ':VAL?' },
+        },
+        quirks: {
+          clearOnConnect: true,
+        },
+      };
+
+      const write = vi.fn().mockResolvedValue(Err(new Error('Clear failed')));
+      const resource = createMockResource({ write });
+
+      const driver = defineDriver(spec);
+      const result = await driver.connect(resource);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toBe('Clear failed');
+      }
+    });
   });
 
   describe('property access', () => {
@@ -372,6 +424,37 @@ describe('defineDriver', () => {
         }
         // Write should not be called for invalid value
         expect(write).toHaveBeenCalledTimes(1);
+      }
+    });
+
+    it('returns default error when validator returns false', async () => {
+      interface TestInstrument {
+        setVoltage(v: number): Promise<Result<void, Error>>;
+      }
+
+      const spec: DriverSpec<TestInstrument> = {
+        properties: {
+          voltage: {
+            get: ':VOLT?',
+            set: ':VOLT {value}',
+            validate: (v: number) => v >= 0 && v <= 30,
+          },
+        },
+      };
+
+      const write = vi.fn().mockResolvedValue(Ok(undefined));
+      const resource = createMockResource({ write });
+
+      const driver = defineDriver(spec);
+      const result = await driver.connect(resource);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const invalidResult = await result.value.setVoltage(50);
+        expect(invalidResult.ok).toBe(false);
+        if (!invalidResult.ok) {
+          expect(invalidResult.error.message).toBe('Validation failed');
+        }
       }
     });
 
@@ -579,7 +662,127 @@ describe('defineDriver', () => {
     });
   });
 
+  describe('command transform hooks', () => {
+    it('transforms command before sending', async () => {
+      interface TestInstrument {
+        reset(): Promise<Result<void, Error>>;
+      }
+
+      const spec: DriverSpec<TestInstrument> = {
+        properties: {},
+        commands: {
+          reset: { command: '*RST' },
+        },
+        hooks: {
+          transformCommand: (cmd) => cmd.toLowerCase(),
+        },
+      };
+
+      const write = vi.fn().mockResolvedValue(Ok(undefined));
+      const resource = createMockResource({ write });
+
+      const driver = defineDriver(spec);
+      const result = await driver.connect(resource);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        await result.value.reset();
+        expect(write).toHaveBeenCalledWith('*rst');
+      }
+    });
+  });
+
+  describe('unsupported commands', () => {
+    it('returns Err for unsupported command with description', async () => {
+      interface TestInstrument {
+        specialFeature(): Promise<Result<void, Error>>;
+      }
+
+      const spec: DriverSpec<TestInstrument> = {
+        properties: {},
+        commands: {
+          specialFeature: {
+            notSupported: true,
+            description: 'Special feature not available on this model',
+          },
+        },
+      };
+
+      const resource = createMockResource();
+
+      const driver = defineDriver(spec);
+      const result = await driver.connect(resource);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const cmdResult = await result.value.specialFeature();
+        expect(cmdResult.ok).toBe(false);
+        if (!cmdResult.ok) {
+          expect(cmdResult.error.message).toBe('Special feature not available on this model');
+        }
+      }
+    });
+
+    it('returns default error for unsupported command without description', async () => {
+      interface TestInstrument {
+        specialFeature(): Promise<Result<void, Error>>;
+      }
+
+      const spec: DriverSpec<TestInstrument> = {
+        properties: {},
+        commands: {
+          specialFeature: {
+            notSupported: true,
+          },
+        },
+      };
+
+      const resource = createMockResource();
+
+      const driver = defineDriver(spec);
+      const result = await driver.connect(resource);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const cmdResult = await result.value.specialFeature();
+        expect(cmdResult.ok).toBe(false);
+        if (!cmdResult.ok) {
+          expect(cmdResult.error.message).toBe('Not supported by this device');
+        }
+      }
+    });
+  });
+
   describe('close()', () => {
+    it('returns Err when onDisconnect hook fails', async () => {
+      interface TestInstrument {
+        close(): Promise<Result<void, Error>>;
+      }
+
+      const onDisconnect = vi.fn().mockResolvedValue(Err(new Error('Cleanup failed')));
+
+      const spec: DriverSpec<TestInstrument> = {
+        properties: {},
+        hooks: {
+          onDisconnect,
+        },
+      };
+
+      const resource = createMockResource();
+
+      const driver = defineDriver(spec);
+      const result = await driver.connect(resource);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const closeResult = await result.value.close();
+        expect(closeResult.ok).toBe(false);
+        if (!closeResult.ok) {
+          expect(closeResult.error.message).toBe('Cleanup failed');
+        }
+      }
+    });
+
     it('calls onDisconnect hook when closing', async () => {
       interface TestInstrument {
         close(): Promise<Result<void, Error>>;
