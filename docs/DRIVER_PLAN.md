@@ -359,9 +359,9 @@ interface BaseInstrument {
 ```typescript
 interface Oscilloscope extends BaseInstrument {
   // === Channel System ===
-  readonly analogChannelCount: number;
+  readonly channelCount: number;
   readonly digitalChannelCount: number;      // 0 if no digital channels
-  analogChannel(n: number): OscilloscopeAnalogChannel;
+  channel(n: number): OscilloscopeChannel;
   digitalChannel?(n: number): OscilloscopeDigitalChannel;  // Optional
 
   // === Timebase ===
@@ -421,7 +421,7 @@ interface Oscilloscope extends BaseInstrument {
   getDecodedData?(protocol: Protocol): Promise<Result<DecodedData, Error>>;
 }
 
-interface OscilloscopeAnalogChannel {
+interface OscilloscopeChannel {
   readonly channelNumber: number;
 
   getEnabled(): Promise<Result<boolean, Error>>;
@@ -1380,8 +1380,8 @@ if (!scope.ok) throw scope.error;
 
 // Typed  - IDE autocomplete, compile-time checks
 await scope.value.setTimebase(1e-3);
-await scope.value.analogChannel(1).setEnabled(true);
-await scope.value.analogChannel(1).setScale(0.5);
+await scope.value.channel(1).setEnabled(true);
+await scope.value.channel(1).setScale(0.5);
 await scope.value.run();
 
 const waveform = await scope.value.getWaveform(1);
