@@ -14,8 +14,6 @@ export type {
   SupportedPropertyDef,
   UnsupportedPropertyDef,
   PropertyDef,
-  PropertyMap,
-  StrictPropertyMap,
   // Command definitions
   SupportedCommandDef,
   UnsupportedCommandDef,
@@ -23,14 +21,12 @@ export type {
   CommandMap,
   // Channel specifications
   ChannelSpec,
-  StrictChannelSpec,
   // Driver configuration
   QuirkConfig,
   DriverContext,
   DriverHooks,
   MethodMap,
   DriverSpec,
-  StrictDriverSpec,
   Driver,
 } from './types.js';
 

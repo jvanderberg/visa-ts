@@ -107,7 +107,6 @@ export { defineDriver, parseIdentity, parseError } from './drivers/index.js';
 export type {
   // Core driver types
   PropertyDef,
-  PropertyMap,
   CommandDef,
   CommandMap,
   ChannelSpec,

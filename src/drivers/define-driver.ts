@@ -15,15 +15,16 @@ import {
   type CommandDef,
   type QuirkConfig,
   type DriverHooks,
+  type ChannelSpec,
 } from './types.js';
 import { delay, toGetterName, toSetterName, createChannelAccessor } from './channel.js';
 
 /**
  * Extended driver interface with spec access.
  */
-export interface DefinedDriver<T> {
+export interface DefinedDriver<T, TChannel = never> {
   /** The driver specification */
-  readonly spec: DriverSpec<T>;
+  readonly spec: DriverSpec<T, TChannel>;
 
   /** Connect to an instrument and return a typed instance */
   connect(resource: MessageBasedResource): Promise<Result<T, Error>>;
@@ -191,6 +192,7 @@ function createCommand(
  * Define a typed driver from a specification.
  *
  * @typeParam T - The interface type this driver produces
+ * @typeParam TChannel - The channel interface type (optional)
  * @param spec - The driver specification
  * @returns A driver that can connect to instruments
  *
@@ -214,7 +216,9 @@ function createCommand(
  * const psu = await myDriver.connect(resource);
  * ```
  */
-export function defineDriver<T>(spec: DriverSpec<T>): DefinedDriver<T> {
+export function defineDriver<T, TChannel = never>(
+  spec: DriverSpec<T, TChannel>
+): DefinedDriver<T, TChannel> {
   return {
     spec,
 
@@ -267,7 +271,8 @@ export function defineDriver<T>(spec: DriverSpec<T>): DefinedDriver<T> {
       };
 
       // Generate getters and setters for properties
-      for (const [propName, propDef] of Object.entries(spec.properties)) {
+      for (const [propName, value] of Object.entries(spec.properties)) {
+        const propDef = value as PropertyDef<unknown>;
         // Generate getter
         const getterName = toGetterName(propName);
         instance[getterName] = createGetter(resource, propDef, spec.quirks, spec.hooks);
@@ -297,13 +302,13 @@ export function defineDriver<T>(spec: DriverSpec<T>): DefinedDriver<T> {
       }
 
       // Add channel support if channels are defined
-      if (spec.channels) {
-        const channelCount = spec.channels.count;
-        instance.channelCount = channelCount;
+      const channels = spec.channels as ChannelSpec<TChannel> | undefined;
+      if (channels) {
+        instance.channelCount = channels.count;
 
         // Create channel accessor function
         instance.channel = (n: number) => {
-          return createChannelAccessor(resource, spec.channels!, n, spec.quirks, spec.hooks);
+          return createChannelAccessor(resource, channels, n, spec.quirks, spec.hooks);
         };
       }
 

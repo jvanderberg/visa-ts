@@ -34,13 +34,12 @@ type ExtractProperties<T> = {
 };
 
 /**
- * Check if interface has a setter for a property.
- * e.g., HasSetter<MyInterface, 'voltage'> checks for setVoltage method.
- * @internal Reserved for future use
+ * Typed property map that requires all properties from interface T.
+ * Each property extracted from getter methods must be defined.
  */
-export type HasSetter<T, PropName extends string> = `set${Capitalize<PropName>}` extends keyof T
-  ? true
-  : false;
+type TypedPropertyMap<T> = {
+  [K in keyof ExtractProperties<T>]: PropertyDef<ExtractProperties<T>[K]>;
+};
 
 // ─────────────────────────────────────────────────────────────────
 // Property Definitions
@@ -119,19 +118,6 @@ export function isSupported<T>(prop: PropertyDef<T>): prop is SupportedPropertyD
   return !('notSupported' in prop);
 }
 
-/**
- * Map of property names to their definitions (loosely typed for internal use).
- */
-export type PropertyMap = Record<string, PropertyDef<unknown>>;
-
-/**
- * Strictly typed property map that requires all properties from interface T.
- * Each property extracted from getter methods must be defined.
- */
-export type StrictPropertyMap<T> = {
-  [K in keyof ExtractProperties<T>]: PropertyDef<ExtractProperties<T>[K]>;
-};
-
 // ─────────────────────────────────────────────────────────────────
 // Command Definitions
 // ─────────────────────────────────────────────────────────────────
@@ -199,27 +185,12 @@ export type CommandMap = Record<string, CommandDef>;
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Channel specification for multi-channel instruments (loosely typed).
+ * Channel specification for multi-channel instruments.
+ * TypeScript enforces all properties from TChannel interface are defined.
+ *
+ * @typeParam TChannel - The channel interface type
  */
-export interface ChannelSpec {
-  /** Number of channels this instrument has */
-  count: number;
-
-  /** Starting index for channel numbering (default: 1) */
-  indexStart?: number;
-
-  /** Properties available on each channel */
-  properties: PropertyMap;
-
-  /** Commands available on each channel */
-  commands?: CommandMap;
-}
-
-/**
- * Strictly typed channel specification.
- * Requires all properties from channel interface TChannel.
- */
-export interface StrictChannelSpec<TChannel> {
+export interface ChannelSpec<TChannel> {
   /** Number of channels this instrument has */
   count: number;
 
@@ -227,7 +198,7 @@ export interface StrictChannelSpec<TChannel> {
   indexStart?: number;
 
   /** Properties available on each channel - must match TChannel interface */
-  properties: StrictPropertyMap<TChannel>;
+  properties: TypedPropertyMap<TChannel>;
 
   /** Commands available on each channel */
   commands?: CommandMap;
@@ -306,46 +277,8 @@ export type MethodMap<T> = {
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Full driver specification (loosely typed).
- * Use StrictDriverSpec for compile-time property enforcement.
- *
- * @typeParam T - The interface type this driver produces
- */
-export interface DriverSpec<T> {
-  /** Equipment category (e.g., 'oscilloscope', 'power-supply') */
-  type?: string;
-
-  /** Manufacturer name */
-  manufacturer?: string;
-
-  /** Supported model numbers */
-  models?: string[];
-
-  /** Global properties (not per-channel) */
-  properties: PropertyMap;
-
-  /** Global commands (not per-channel) */
-  commands?: CommandMap;
-
-  /** Channel configuration for multi-channel instruments */
-  channels?: ChannelSpec;
-
-  /** Lifecycle hooks */
-  hooks?: DriverHooks;
-
-  /** Custom method implementations */
-  methods?: MethodMap<T>;
-
-  /** Hardware quirks configuration */
-  quirks?: QuirkConfig;
-
-  /** Declared capabilities */
-  capabilities?: string[];
-}
-
-/**
- * Strictly typed driver specification.
- * Enforces at compile-time that all properties from T are defined.
+ * Full driver specification with compile-time property enforcement.
+ * TypeScript enforces all properties from T (and TChannel) are defined.
  *
  * @typeParam T - The instrument interface type
  * @typeParam TChannel - The channel interface type (optional)
@@ -363,7 +296,7 @@ export interface DriverSpec<T> {
  * }
  *
  * // TypeScript enforces 'timebase' property is defined
- * const spec: StrictDriverSpec<MyScope, MyScopeChannel> = {
+ * const spec: DriverSpec<MyScope, MyScopeChannel> = {
  *   properties: {
  *     timebase: { get: ':TIM:SCAL?', set: ':TIM:SCAL {value}' },
  *   },
@@ -376,7 +309,7 @@ export interface DriverSpec<T> {
  * };
  * ```
  */
-export interface StrictDriverSpec<T, TChannel = never> {
+export interface DriverSpec<T, TChannel = never> {
   /** Equipment category (e.g., 'oscilloscope', 'power-supply') */
   type?: string;
 
@@ -387,13 +320,13 @@ export interface StrictDriverSpec<T, TChannel = never> {
   models?: string[];
 
   /** Global properties - must define all properties from T */
-  properties: StrictPropertyMap<T>;
+  properties: TypedPropertyMap<T>;
 
   /** Global commands (not per-channel) */
   commands?: CommandMap;
 
   /** Channel configuration - must define all properties from TChannel */
-  channels?: [TChannel] extends [never] ? never : StrictChannelSpec<TChannel>;
+  channels?: [TChannel] extends [never] ? never : ChannelSpec<TChannel>;
 
   /** Lifecycle hooks */
   hooks?: DriverHooks;

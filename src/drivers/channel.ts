@@ -227,9 +227,9 @@ export function createChannelCommand(
  * The channel accessor provides getter/setter methods for all properties
  * and command methods defined in the ChannelSpec.
  */
-export function createChannelAccessor(
+export function createChannelAccessor<TChannel>(
   resource: MessageBasedResource,
-  channelSpec: ChannelSpec,
+  channelSpec: ChannelSpec<TChannel>,
   channelNum: number,
   quirks: QuirkConfig | undefined,
   hooks: DriverHooks | undefined
@@ -247,7 +247,8 @@ export function createChannelAccessor(
   };
 
   // Generate getters and setters for channel properties
-  for (const [propName, propDef] of Object.entries(channelSpec.properties)) {
+  for (const [propName, value] of Object.entries(channelSpec.properties)) {
+    const propDef = value as PropertyDef<unknown>;
     // Generate getter
     const getterName = toGetterName(propName);
     channelInstance[getterName] = createChannelGetter(

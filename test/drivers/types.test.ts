@@ -12,9 +12,6 @@ import type {
   UnsupportedCommandDef,
   ChannelSpec,
   DriverSpec,
-  StrictDriverSpec,
-  StrictPropertyMap,
-  StrictChannelSpec,
   QuirkConfig,
 } from '../../src/drivers/types.js';
 import { isSupported, isCommandSupported } from '../../src/drivers/types.js';
@@ -430,7 +427,7 @@ describe('Driver Types', () => {
     });
   });
 
-  describe('StrictDriverSpec', () => {
+  describe('DriverSpec type enforcement', () => {
     it('enforces all properties from interface are defined', () => {
       // Define an interface with getter methods
       interface TestInstrument {
@@ -439,8 +436,8 @@ describe('Driver Types', () => {
         getCurrent(): Promise<Result<number, Error>>;
       }
 
-      // StrictDriverSpec requires 'voltage' and 'current' properties
-      const spec: StrictDriverSpec<TestInstrument> = {
+      // DriverSpec requires 'voltage' and 'current' properties
+      const spec: DriverSpec<TestInstrument> = {
         properties: {
           voltage: {
             get: ':VOLT?',
@@ -463,7 +460,7 @@ describe('Driver Types', () => {
       }
 
       // All properties must be defined, but can be marked unsupported
-      const spec: StrictDriverSpec<TestInstrument> = {
+      const spec: DriverSpec<TestInstrument> = {
         properties: {
           voltage: {
             get: ':VOLT?',
@@ -491,8 +488,8 @@ describe('Driver Types', () => {
         getOffset(): Promise<Result<number, Error>>;
       }
 
-      // StrictDriverSpec with channel type requires channel properties
-      const spec: StrictDriverSpec<TestInstrument, TestChannel> = {
+      // DriverSpec with channel type requires channel properties
+      const spec: DriverSpec<TestInstrument, TestChannel> = {
         properties: {
           timebase: {
             get: ':TIM:SCAL?',
@@ -527,7 +524,7 @@ describe('Driver Types', () => {
         getProbeAttenuation(): Promise<Result<number, Error>>;
       }
 
-      const spec: StrictDriverSpec<TestInstrument, TestChannel> = {
+      const spec: DriverSpec<TestInstrument, TestChannel> = {
         properties: {},
         channels: {
           count: 2,
@@ -554,7 +551,7 @@ describe('Driver Types', () => {
         reset(): Promise<Result<void, Error>>;
       }
 
-      const spec: StrictDriverSpec<PowerSupply> = {
+      const spec: DriverSpec<PowerSupply> = {
         type: 'power-supply',
         manufacturer: 'Rigol',
         models: ['DP832'],
@@ -585,26 +582,7 @@ describe('Driver Types', () => {
     });
   });
 
-  describe('StrictPropertyMap', () => {
-    it('extracts property names from getter methods', () => {
-      interface TestInterface {
-        getVoltage(): Promise<Result<number, Error>>;
-        getCurrent(): Promise<Result<number, Error>>;
-        setVoltage(v: number): Promise<Result<void, Error>>;
-      }
-
-      // StrictPropertyMap<TestInterface> requires 'voltage' and 'current'
-      const props: StrictPropertyMap<TestInterface> = {
-        voltage: { get: ':VOLT?' },
-        current: { get: ':CURR?' },
-      };
-
-      expect(props.voltage.get).toBe(':VOLT?');
-      expect(props.current.get).toBe(':CURR?');
-    });
-  });
-
-  describe('StrictChannelSpec', () => {
+  describe('ChannelSpec type enforcement', () => {
     it('requires all channel interface properties', () => {
       interface ChannelInterface {
         getScale(): Promise<Result<number, Error>>;
@@ -612,7 +590,7 @@ describe('Driver Types', () => {
         getCoupling(): Promise<Result<string, Error>>;
       }
 
-      const channelSpec: StrictChannelSpec<ChannelInterface> = {
+      const channelSpec: ChannelSpec<ChannelInterface> = {
         count: 4,
         indexStart: 1,
         properties: {
