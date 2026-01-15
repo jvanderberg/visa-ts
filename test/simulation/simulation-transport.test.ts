@@ -2,45 +2,51 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createSimulationTransport } from '../../src/transports/simulation.js';
 import type { SimulatedDevice } from '../../src/simulation/types.js';
 
-describe('createSimulationTransport', () => {
-  const testDevice: SimulatedDevice = {
+function createTestDevice(): SimulatedDevice {
+  let voltage = 12.0;
+  const initialVoltage = 12.0;
+  return {
     device: { manufacturer: 'Test', model: 'T1', serial: '001' },
     dialogues: [
       { pattern: '*IDN?', response: 'Test,T1,001,1.0' },
-      { pattern: '*RST', response: null },
       { pattern: ':MEAS:VOLT?', response: () => '12.345' },
     ],
     properties: {
       voltage: {
-        default: 12.0,
-        getter: { pattern: ':VOLT?', format: (v) => v.toFixed(3) },
-        setter: { pattern: /^:VOLT\s+(.+)$/, parse: (m) => parseFloat(m[1]) },
+        get: () => voltage,
+        set: (v) => {
+          voltage = v as number;
+        },
+        getter: { pattern: ':VOLT?', format: (v) => (v as number).toFixed(3) },
+        setter: { pattern: /^:VOLT\s+(.+)$/, parse: (m) => parseFloat(m[1] ?? initialVoltage) },
       },
     },
   };
+}
 
+describe('createSimulationTransport', () => {
   describe('initial state', () => {
     it('starts in closed state', () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
 
       expect(transport.state).toBe('closed');
       expect(transport.isOpen).toBe(false);
     });
 
     it('has default timeout of 2000ms', () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
 
       expect(transport.timeout).toBe(2000);
     });
 
     it('uses configured timeout', () => {
-      const transport = createSimulationTransport({ device: testDevice, timeout: 5000 });
+      const transport = createSimulationTransport({ device: createTestDevice(), timeout: 5000 });
 
       expect(transport.timeout).toBe(5000);
     });
 
     it('has default termination characters', () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
 
       expect(transport.readTermination).toBe('\n');
       expect(transport.writeTermination).toBe('\n');
@@ -48,7 +54,7 @@ describe('createSimulationTransport', () => {
 
     it('uses configured termination characters', () => {
       const transport = createSimulationTransport({
-        device: testDevice,
+        device: createTestDevice(),
         readTermination: '\r\n',
         writeTermination: '\r',
       });
@@ -60,7 +66,7 @@ describe('createSimulationTransport', () => {
 
   describe('open', () => {
     it('opens successfully', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
 
       const result = await transport.open();
 
@@ -70,7 +76,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('returns Err when already open', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       const result = await transport.open();
@@ -84,7 +90,7 @@ describe('createSimulationTransport', () => {
 
   describe('close', () => {
     it('closes successfully', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       const result = await transport.close();
@@ -95,7 +101,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('returns Ok when already closed', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
 
       const result = await transport.close();
 
@@ -105,7 +111,7 @@ describe('createSimulationTransport', () => {
 
   describe('write', () => {
     it('writes successfully when open', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       const result = await transport.write('*RST');
@@ -114,7 +120,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('returns Err when not open', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
 
       const result = await transport.write('*RST');
 
@@ -127,7 +133,7 @@ describe('createSimulationTransport', () => {
 
   describe('read', () => {
     it('returns pending response after write', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       await transport.write('*IDN?');
@@ -140,7 +146,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('overwrites pending response on second write', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       // First write with response
@@ -158,7 +164,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('returns Err when no pending response', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       // Write a command that has no response
@@ -172,7 +178,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('returns Err when not open', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
 
       const result = await transport.read();
 
@@ -185,7 +191,7 @@ describe('createSimulationTransport', () => {
 
   describe('query', () => {
     it('writes and reads in one call', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       const result = await transport.query('*IDN?');
@@ -197,7 +203,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('handles dynamic responses', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       const result = await transport.query(':MEAS:VOLT?');
@@ -209,7 +215,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('handles property getters', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       const result = await transport.query(':VOLT?');
@@ -221,7 +227,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('handles property setters', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       // Set value
@@ -237,7 +243,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('returns Err for unknown command', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       const result = await transport.query(':UNKNOWN?');
@@ -249,7 +255,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('returns Err for empty command', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       const result = await transport.query('');
@@ -261,7 +267,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('returns Err when not open', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
 
       const result = await transport.query('*IDN?');
 
@@ -272,7 +278,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('supports query delay', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       const start = Date.now();
@@ -294,7 +300,7 @@ describe('createSimulationTransport', () => {
 
     it('adds configured latency to responses', async () => {
       const transport = createSimulationTransport({
-        device: testDevice,
+        device: createTestDevice(),
         latencyMs: 100,
       });
       await transport.open();
@@ -311,7 +317,7 @@ describe('createSimulationTransport', () => {
 
   describe('writeRaw', () => {
     it('writes raw bytes and returns count', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       const data = Buffer.from('*RST\n');
@@ -324,7 +330,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('returns Err when not open', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
 
       const result = await transport.writeRaw(Buffer.from('test'));
 
@@ -334,7 +340,7 @@ describe('createSimulationTransport', () => {
 
   describe('readRaw', () => {
     it('reads raw bytes from pending response', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       await transport.write('*IDN?');
@@ -348,7 +354,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('reads partial bytes with size limit', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       await transport.write('*IDN?');
@@ -370,7 +376,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('returns Err when no pending response', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       const result = await transport.readRaw();
@@ -381,7 +387,7 @@ describe('createSimulationTransport', () => {
 
   describe('readBytes', () => {
     it('reads exact number of bytes', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       await transport.write('*IDN?');
@@ -395,7 +401,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('returns Err when not enough bytes', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       await transport.write('*IDN?');
@@ -408,7 +414,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('returns Err when no pending response', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       // No write, so no pending response
@@ -421,7 +427,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('keeps remainder in pending when reading partial data', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       // Response is "Test,T1,001,1.0\n" = 16 bytes
@@ -443,7 +449,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('clears pending when reading exactly all bytes', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       // Response is "Test,T1,001,1.0" + "\n" = 16 bytes
@@ -464,7 +470,7 @@ describe('createSimulationTransport', () => {
 
   describe('clear', () => {
     it('clears pending response', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       await transport.write('*IDN?');
@@ -479,7 +485,7 @@ describe('createSimulationTransport', () => {
 
   describe('trigger', () => {
     it('returns Ok', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       const result = await transport.trigger();
@@ -488,7 +494,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('returns Err when not open', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
 
       const result = await transport.trigger();
 
@@ -498,7 +504,7 @@ describe('createSimulationTransport', () => {
 
   describe('readStb', () => {
     it('returns simulated status byte', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       const result = await transport.readStb();
@@ -510,7 +516,7 @@ describe('createSimulationTransport', () => {
     });
 
     it('returns Err when not open', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
 
       const result = await transport.readStb();
 
@@ -520,7 +526,7 @@ describe('createSimulationTransport', () => {
 
   describe('termination handling', () => {
     it('strips write termination before processing', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       // write() adds termination, which should be stripped before matching
@@ -535,7 +541,7 @@ describe('createSimulationTransport', () => {
 
   describe('state after *RST', () => {
     it('resets device state on *RST', async () => {
-      const transport = createSimulationTransport({ device: testDevice });
+      const transport = createSimulationTransport({ device: createTestDevice() });
       await transport.open();
 
       // Modify state

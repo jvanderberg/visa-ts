@@ -896,4 +896,195 @@ describe('ResourceManager', () => {
       );
     });
   });
+
+  describe('simulated devices', () => {
+    it('registers a simulated device', () => {
+      const rm = createResourceManager();
+      const device = {
+        device: { manufacturer: 'Test', model: 'SIM', serial: '001' },
+      };
+
+      // Should not throw
+      rm.registerSimulatedDevice('DMM', device);
+    });
+
+    it('lists registered simulated devices', async () => {
+      const rm = createResourceManager();
+      rm.registerSimulatedDevice('PSU', {
+        device: { manufacturer: 'Test', model: 'PSU', serial: '001' },
+      });
+
+      const resources = await rm.listResources();
+
+      expect(resources).toContain('SIM::PSU::INSTR');
+    });
+
+    it('normalizes device type to uppercase', async () => {
+      const rm = createResourceManager();
+      rm.registerSimulatedDevice('psu', {
+        device: { manufacturer: 'Test', model: 'PSU', serial: '001' },
+      });
+
+      const resources = await rm.listResources();
+
+      expect(resources).toContain('SIM::PSU::INSTR');
+    });
+
+    it('opens a simulated device', async () => {
+      const rm = createResourceManager();
+      rm.registerSimulatedDevice('PSU', {
+        device: { manufacturer: 'Test', model: 'PSU', serial: '001' },
+      });
+
+      const result = await rm.openResource('SIM::PSU::INSTR');
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.isOpen).toBe(true);
+        expect(result.value.resourceInfo.interfaceType).toBe('SIM');
+      }
+    });
+
+    it('returns Err for unregistered simulated device', async () => {
+      const rm = createResourceManager();
+
+      const result = await rm.openResource('SIM::UNKNOWN::INSTR');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('Unknown simulated device');
+      }
+    });
+
+    it('lists available devices in error message', async () => {
+      const rm = createResourceManager();
+      rm.registerSimulatedDevice('PSU', {
+        device: { manufacturer: 'Test', model: 'PSU', serial: '001' },
+      });
+      rm.registerSimulatedDevice('LOAD', {
+        device: { manufacturer: 'Test', model: 'LOAD', serial: '002' },
+      });
+
+      const result = await rm.openResource('SIM::DMM::INSTR');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('PSU');
+        expect(result.error.message).toContain('LOAD');
+      }
+    });
+
+    describe('bus-based connections', () => {
+      it('devices on same bus are connected for physics', async () => {
+        const rm = createResourceManager();
+
+        // Create a device with getBehavior to test bus wiring
+        const psu = {
+          device: { manufacturer: 'Test', model: 'PSU', serial: '001' },
+          getBehavior: () => ({
+            enabled: true,
+            behavior: { type: 'voltage-source' as const, voltage: 12, currentLimit: 2 },
+          }),
+          setMeasured: vi.fn(),
+        };
+
+        const load = {
+          device: { manufacturer: 'Test', model: 'LOAD', serial: '002' },
+          getBehavior: () => ({
+            enabled: true,
+            behavior: { type: 'resistance' as const, resistance: 10 },
+          }),
+          setMeasured: vi.fn(),
+        };
+
+        rm.registerSimulatedDevice('PSU', psu, { bus: 'bench1' });
+        rm.registerSimulatedDevice('LOAD', load, { bus: 'bench1' });
+
+        // Open PSU - it should find LOAD as partner
+        const psuResult = await rm.openResource('SIM::PSU::INSTR');
+        expect(psuResult.ok).toBe(true);
+
+        // Open LOAD - it should find PSU as partner
+        const loadResult = await rm.openResource('SIM::LOAD::INSTR');
+        expect(loadResult.ok).toBe(true);
+      });
+
+      it('devices on different buses are not connected', async () => {
+        const rm = createResourceManager();
+
+        const psu = {
+          device: { manufacturer: 'Test', model: 'PSU', serial: '001' },
+          getBehavior: () => ({
+            enabled: true,
+            behavior: { type: 'voltage-source' as const, voltage: 12, currentLimit: 2 },
+          }),
+          setMeasured: vi.fn(),
+        };
+
+        const load = {
+          device: { manufacturer: 'Test', model: 'LOAD', serial: '002' },
+          getBehavior: () => ({
+            enabled: true,
+            behavior: { type: 'resistance' as const, resistance: 10 },
+          }),
+          setMeasured: vi.fn(),
+        };
+
+        // Register on different buses
+        rm.registerSimulatedDevice('PSU', psu, { bus: 'bench1' });
+        rm.registerSimulatedDevice('LOAD', load, { bus: 'bench2' });
+
+        // Open both
+        const psuResult = await rm.openResource('SIM::PSU::INSTR');
+        const loadResult = await rm.openResource('SIM::LOAD::INSTR');
+
+        expect(psuResult.ok).toBe(true);
+        expect(loadResult.ok).toBe(true);
+
+        // When we write to the PSU, the load's setMeasured should NOT be called
+        // because they're on different buses
+        if (psuResult.ok) {
+          await psuResult.value.write('OUTP ON');
+          // Load's setMeasured should not have been called
+          expect(load.setMeasured).not.toHaveBeenCalled();
+        }
+      });
+
+      it('uses default bus when no bus option specified', async () => {
+        const rm = createResourceManager();
+
+        const psu = {
+          device: { manufacturer: 'Test', model: 'PSU', serial: '001' },
+          getBehavior: () => ({
+            enabled: true,
+            behavior: { type: 'voltage-source' as const, voltage: 12, currentLimit: 2 },
+          }),
+          setMeasured: vi.fn(),
+        };
+
+        const load = {
+          device: { manufacturer: 'Test', model: 'LOAD', serial: '002' },
+          getBehavior: () => ({
+            enabled: true,
+            behavior: { type: 'resistance' as const, resistance: 10 },
+          }),
+          setMeasured: vi.fn(),
+        };
+
+        // Register without bus option - should use default bus
+        rm.registerSimulatedDevice('PSU', psu);
+        rm.registerSimulatedDevice('LOAD', load);
+
+        // Open PSU and write to trigger circuit update
+        const psuResult = await rm.openResource('SIM::PSU::INSTR');
+        expect(psuResult.ok).toBe(true);
+
+        if (psuResult.ok) {
+          await psuResult.value.write('OUTP ON');
+          // Both are on default bus, so load should get updated
+          expect(load.setMeasured).toHaveBeenCalled();
+        }
+      });
+    });
+  });
 });

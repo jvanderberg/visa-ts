@@ -13,170 +13,102 @@
 
 import type { SimulatedDevice } from '../types.js';
 
-/**
- * Maximum voltage in volts
- */
 const MAX_VOLTAGE = 30;
-
-/**
- * Maximum current in amps
- */
 const MAX_CURRENT = 5;
-
-/**
- * Default OVP level (10% above max)
- */
 const DEFAULT_OVP = 33;
-
-/**
- * Default OCP level (10% above max)
- */
 const DEFAULT_OCP = 5.5;
 
 /**
- * Parse a numeric value from a command match.
+ * Create a simulated PSU device instance.
  */
-function parseNumber(match: RegExpMatchArray): number {
-  return parseFloat(match[1] ?? '0');
+export function createSimulatedPsu(): SimulatedDevice {
+  // Internal state
+  let voltage = 0;
+  let current = 0;
+  let output = false;
+  let ovp = DEFAULT_OVP;
+  let ocp = DEFAULT_OCP;
+  let measuredVoltage = 0;
+  let measuredCurrent = 0;
+
+  return {
+    device: {
+      manufacturer: 'VISA-TS',
+      model: 'SIM-PSU',
+      serial: 'PSU001',
+    },
+
+    properties: {
+      measuredVoltage: {
+        get: () => measuredVoltage,
+        getter: { pattern: 'MEAS:VOLT?', format: (v) => (v as number).toFixed(3) },
+      },
+      measuredCurrent: {
+        get: () => measuredCurrent,
+        getter: { pattern: 'MEAS:CURR?', format: (v) => (v as number).toFixed(3) },
+      },
+      voltage: {
+        get: () => voltage,
+        set: (v) => {
+          voltage = v as number;
+        },
+        getter: { pattern: 'VOLT?', format: (v) => (v as number).toFixed(3) },
+        setter: { pattern: /^VOLT\s+([\d.]+)$/, parse: (m) => parseFloat(m[1] ?? '0') },
+        validate: (v) => (v as number) >= 0 && (v as number) <= MAX_VOLTAGE,
+      },
+      current: {
+        get: () => current,
+        set: (v) => {
+          current = v as number;
+        },
+        getter: { pattern: 'CURR?', format: (v) => (v as number).toFixed(3) },
+        setter: { pattern: /^CURR\s+([\d.]+)$/, parse: (m) => parseFloat(m[1] ?? '0') },
+        validate: (v) => (v as number) >= 0 && (v as number) <= MAX_CURRENT,
+      },
+      output: {
+        get: () => output,
+        set: (v) => {
+          output = v as boolean;
+        },
+        getter: { pattern: 'OUTP?', format: (v) => (v ? 'ON' : 'OFF') },
+        setter: {
+          pattern: /^OUTP\s+(ON|OFF|1|0)$/i,
+          parse: (m) => m[1]?.toUpperCase() === 'ON' || m[1] === '1',
+        },
+      },
+      ovp: {
+        get: () => ovp,
+        set: (v) => {
+          ovp = v as number;
+        },
+        getter: { pattern: 'VOLT:PROT?', format: (v) => (v as number).toFixed(3) },
+        setter: { pattern: /^VOLT:PROT\s+([\d.]+)$/, parse: (m) => parseFloat(m[1] ?? '0') },
+        validate: (v) => (v as number) >= 0 && (v as number) <= 36,
+      },
+      ocp: {
+        get: () => ocp,
+        set: (v) => {
+          ocp = v as number;
+        },
+        getter: { pattern: 'CURR:PROT?', format: (v) => (v as number).toFixed(3) },
+        setter: { pattern: /^CURR:PROT\s+([\d.]+)$/, parse: (m) => parseFloat(m[1] ?? '0') },
+        validate: (v) => (v as number) >= 0 && (v as number) <= 6,
+      },
+    },
+
+    getBehavior() {
+      if (!output) {
+        return { enabled: false, behavior: { type: 'open' as const } };
+      }
+      return {
+        enabled: true,
+        behavior: { type: 'voltage-source' as const, voltage, currentLimit: current },
+      };
+    },
+
+    setMeasured(v: number, i: number) {
+      measuredVoltage = v;
+      measuredCurrent = i;
+    },
+  };
 }
-
-/**
- * Parse output state from command (ON/OFF/1/0).
- */
-function parseOutputState(match: RegExpMatchArray): boolean {
-  const val = (match[1] ?? '').toUpperCase();
-  return val === 'ON' || val === '1';
-}
-
-/**
- * Format a number with 3 decimal places.
- */
-function formatValue(value: number | string | boolean): string {
-  return (value as number).toFixed(3);
-}
-
-/**
- * Format output state as ON/OFF.
- */
-function formatOutputState(value: number | string | boolean): string {
-  return value ? 'ON' : 'OFF';
-}
-
-/**
- * Validate a numeric value is within range.
- */
-function validateRange(min: number, max: number): (value: number | string | boolean) => boolean {
-  return (v) => (v as number) >= min && (v as number) <= max;
-}
-
-/**
- * Simulated PSU device definition.
- *
- * Simulates a 30V/5A programmable DC power supply.
- *
- * @example
- * ```typescript
- * import { createSimulationTransport } from 'visa-ts';
- * import { simulatedPsu } from 'visa-ts/simulation/devices/psu';
- *
- * const transport = createSimulationTransport({ device: simulatedPsu });
- * await transport.open();
- *
- * await transport.write('VOLT 12.5');
- * await transport.write('CURR 2');
- * await transport.write('OUTP ON');
- *
- * const voltage = await transport.query('MEAS:VOLT?');
- * console.log(voltage.value); // '12.500'
- * ```
- */
-export const simulatedPsu: SimulatedDevice = {
-  device: {
-    manufacturer: 'VISA-TS',
-    model: 'SIM-PSU',
-    serial: 'PSU001',
-  },
-
-  properties: {
-    // Measured values - in this simple simulation, MEAS returns the set value
-    measuredVoltage: {
-      default: 0,
-      getter: {
-        pattern: 'MEAS:VOLT?',
-        format: formatValue,
-      },
-    },
-
-    measuredCurrent: {
-      default: 0,
-      getter: {
-        pattern: 'MEAS:CURR?',
-        format: formatValue,
-      },
-    },
-
-    voltage: {
-      default: 0,
-      getter: {
-        pattern: 'VOLT?',
-        format: formatValue,
-      },
-      setter: {
-        pattern: /^VOLT\s+([\d.]+)$/,
-        parse: parseNumber,
-      },
-      validate: validateRange(0, MAX_VOLTAGE),
-    },
-
-    current: {
-      default: 0,
-      getter: {
-        pattern: 'CURR?',
-        format: formatValue,
-      },
-      setter: {
-        pattern: /^CURR\s+([\d.]+)$/,
-        parse: parseNumber,
-      },
-      validate: validateRange(0, MAX_CURRENT),
-    },
-
-    output: {
-      default: false,
-      getter: {
-        pattern: 'OUTP?',
-        format: formatOutputState,
-      },
-      setter: {
-        pattern: /^OUTP\s+(ON|OFF|1|0)$/i,
-        parse: parseOutputState,
-      },
-    },
-
-    ovp: {
-      default: DEFAULT_OVP,
-      getter: {
-        pattern: 'VOLT:PROT?',
-        format: formatValue,
-      },
-      setter: {
-        pattern: /^VOLT:PROT\s+([\d.]+)$/,
-        parse: parseNumber,
-      },
-      validate: validateRange(0, 36),
-    },
-
-    ocp: {
-      default: DEFAULT_OCP,
-      getter: {
-        pattern: 'CURR:PROT?',
-        format: formatValue,
-      },
-      setter: {
-        pattern: /^CURR:PROT\s+([\d.]+)$/,
-        parse: parseNumber,
-      },
-      validate: validateRange(0, 6),
-    },
-  },
-};

@@ -10,6 +10,26 @@ import type { MessageBasedResource } from './resources/message-based-resource.js
 import type { SimulatedDevice } from './simulation/types.js';
 
 /**
+ * Options for registering a simulated device
+ */
+export interface RegisterSimulatedDeviceOptions {
+  /**
+   * Circuit bus name for physics simulation.
+   *
+   * Devices on the same bus interact electrically (e.g., PSU and Load).
+   * Defaults to 'default'. Use different bus names to isolate devices.
+   *
+   * @example
+   * ```typescript
+   * rm.registerSimulatedDevice('PSU', psu, { bus: 'bench1' });
+   * rm.registerSimulatedDevice('LOAD', load, { bus: 'bench1' });
+   * rm.registerSimulatedDevice('PSU2', psu2, { bus: 'bench2' }); // isolated
+   * ```
+   */
+  bus?: string;
+}
+
+/**
  * ResourceManager interface for discovering and opening instrument connections.
  */
 export interface ResourceManager {
@@ -58,16 +78,18 @@ export interface ResourceManager {
    * resource strings and can be opened like any other resource.
    *
    * @param deviceType - Device type identifier (e.g., 'PSU', 'DMM')
-   * @param device - SimulatedDevice configuration
+   * @param device - SimulatedDevice instance
+   * @param options - Optional registration options
    *
    * @example
    * ```typescript
-   * rm.registerSimulatedDevice('PSU', simulatedPsu);
-   * rm.registerSimulatedDevice('MY_DEVICE', {
-   *   info: { manufacturer: 'Test', model: 'SIM-1' },
-   *   properties: { voltage: { default: 0 } }
-   * });
+   * rm.registerSimulatedDevice('PSU', createSimulatedPsu());
+   * rm.registerSimulatedDevice('LOAD', createSimulatedLoad());
    * ```
    */
-  registerSimulatedDevice(deviceType: string, device: SimulatedDevice): void;
+  registerSimulatedDevice(
+    deviceType: string,
+    device: SimulatedDevice,
+    options?: RegisterSimulatedDeviceOptions
+  ): void;
 }

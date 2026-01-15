@@ -7,6 +7,33 @@
  * @packageDocumentation
  */
 
+import type { DeviceBehavior } from './circuit/solver.js';
+
+/**
+ * Device property value types
+ */
+export type PropertyValue = number | string | boolean;
+
+/**
+ * Device state - runtime values of all device properties
+ */
+export type DeviceState = Record<string, PropertyValue>;
+
+/**
+ * Electrical state on a circuit bus.
+ *
+ * Represents the voltage and current at a single electrical node.
+ * Used for physics simulation where devices interact.
+ */
+export interface BusState {
+  /** Voltage in volts */
+  voltage: number;
+  /** Current in amps */
+  current: number;
+  /** True when PSU is actively current-limiting (in CC mode) */
+  currentLimited?: boolean;
+}
+
 /**
  * Device identification information
  */
@@ -47,60 +74,34 @@ export interface Dialogue {
 }
 
 /**
- * A stateful property definition.
- *
- * Properties allow simulated devices to maintain state between commands.
- *
- * @template T - Type of the property value
+ * A device property with get/set accessors.
  */
-export interface Property<T = number | string | boolean> {
-  /** Initial/default value of the property */
-  default: T;
-
-  /**
-   * Getter configuration - how to query this property
-   */
+export interface Property {
+  get(): PropertyValue;
+  set?(value: PropertyValue): void;
   getter?: {
-    /** Command pattern that retrieves this property */
     pattern: string | RegExp;
-    /** Format function to convert value to response string */
-    format: (value: T) => string;
+    format: (value: PropertyValue) => string;
   };
-
-  /**
-   * Setter configuration - how to set this property
-   */
   setter?: {
-    /** Command pattern that sets this property */
     pattern: string | RegExp;
-    /** Parse function to extract value from command match */
-    parse: (match: RegExpMatchArray) => T;
+    parse: (match: RegExpMatchArray) => PropertyValue;
   };
-
-  /**
-   * Optional validation function.
-   * Return false to reject invalid values (command will return error).
-   */
-  validate?: (value: T) => boolean;
+  validate?(value: PropertyValue): boolean;
 }
 
 /**
- * A complete simulated device definition.
- *
- * Defines the identity, dialogues, and stateful properties of a simulated instrument.
+ * A simulated device instance.
  */
 export interface SimulatedDevice {
-  /** Device identification */
   device: DeviceInfo;
-
-  /** End-of-message configuration (optional) */
   eom?: EndOfMessage;
-
-  /** Static command-response dialogues */
   dialogues?: Dialogue[];
-
-  /** Stateful device properties */
   properties?: Record<string, Property>;
+  /** Get electrical behavior based on internal state */
+  getBehavior?(): { enabled: boolean; behavior: DeviceBehavior };
+  /** Update measured values from circuit simulation */
+  setMeasured?(voltage: number, current: number): void;
 }
 
 /**
@@ -121,6 +122,9 @@ export interface SimulationTransportConfig {
 
   /** Write termination character (default: '\n') */
   writeTermination?: string;
+
+  /** Partner device for circuit simulation (e.g., load for PSU) */
+  partner?: SimulatedDevice;
 }
 
 /**

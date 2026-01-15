@@ -15,254 +15,152 @@
 
 import type { SimulatedDevice } from '../types.js';
 
-/**
- * Maximum current in amps
- */
 const MAX_CURRENT = 30;
-
-/**
- * Maximum voltage in volts
- */
 const MAX_VOLTAGE = 150;
-
-/**
- * Minimum resistance in ohms
- */
 const MIN_RESISTANCE = 0.1;
-
-/**
- * Maximum resistance in ohms
- */
 const MAX_RESISTANCE = 10000;
-
-/**
- * Default resistance in ohms
- */
 const DEFAULT_RESISTANCE = 1000;
-
-/**
- * Maximum power in watts
- */
 const MAX_POWER = 300;
-
-/**
- * Default slew rate in A/us
- */
 const DEFAULT_SLEW_RATE = 1;
+const INTERNAL_MIN_RESISTANCE = 0.001;
+
+type LoadMode = 'CC' | 'CV' | 'CR' | 'CP';
 
 /**
- * Valid operating modes
+ * Create a simulated electronic load device instance.
  */
-const LOAD_MODES = ['CC', 'CV', 'CR', 'CP'] as const;
-type LoadMode = (typeof LOAD_MODES)[number];
+export function createSimulatedLoad(): SimulatedDevice {
+  // Internal state
+  let mode: LoadMode = 'CC';
+  let input = false;
+  let current = 0;
+  let voltage = 0;
+  let resistance = DEFAULT_RESISTANCE;
+  let power = 0;
+  let slewRate = DEFAULT_SLEW_RATE;
+  let measuredVoltage = 0;
+  let measuredCurrent = 0;
+  let measuredPower = 0;
 
-function isLoadMode(value: string): value is LoadMode {
-  return LOAD_MODES.includes(value as LoadMode);
+  return {
+    device: {
+      manufacturer: 'VISA-TS',
+      model: 'SIM-LOAD',
+      serial: 'LOAD001',
+    },
+
+    properties: {
+      measuredVoltage: {
+        get: () => measuredVoltage,
+        getter: { pattern: 'MEAS:VOLT?', format: (v) => (v as number).toFixed(3) },
+      },
+      measuredCurrent: {
+        get: () => measuredCurrent,
+        getter: { pattern: 'MEAS:CURR?', format: (v) => (v as number).toFixed(3) },
+      },
+      measuredPower: {
+        get: () => measuredPower,
+        getter: { pattern: 'MEAS:POW?', format: (v) => (v as number).toFixed(3) },
+      },
+      mode: {
+        get: () => mode,
+        set: (v) => {
+          mode = v as LoadMode;
+        },
+        getter: { pattern: 'MODE?', format: (v) => v as string },
+        setter: { pattern: /^MODE\s+(CC|CV|CR|CP)$/i, parse: (m) => (m[1] ?? 'CC').toUpperCase() },
+      },
+      input: {
+        get: () => input,
+        set: (v) => {
+          input = v as boolean;
+        },
+        getter: { pattern: 'INP?', format: (v) => (v ? 'ON' : 'OFF') },
+        setter: {
+          pattern: /^INP\s+(ON|OFF|1|0)$/i,
+          parse: (m) => m[1]?.toUpperCase() === 'ON' || m[1] === '1',
+        },
+      },
+      current: {
+        get: () => current,
+        set: (v) => {
+          current = v as number;
+        },
+        getter: { pattern: 'CURR?', format: (v) => (v as number).toFixed(3) },
+        setter: { pattern: /^CURR\s+([\d.]+)$/, parse: (m) => parseFloat(m[1] ?? '0') },
+        validate: (v) => (v as number) >= 0 && (v as number) <= MAX_CURRENT,
+      },
+      voltage: {
+        get: () => voltage,
+        set: (v) => {
+          voltage = v as number;
+        },
+        getter: { pattern: 'VOLT?', format: (v) => (v as number).toFixed(3) },
+        setter: { pattern: /^VOLT\s+([\d.]+)$/, parse: (m) => parseFloat(m[1] ?? '0') },
+        validate: (v) => (v as number) >= 0 && (v as number) <= MAX_VOLTAGE,
+      },
+      resistance: {
+        get: () => resistance,
+        set: (v) => {
+          resistance = v as number;
+        },
+        getter: { pattern: 'RES?', format: (v) => (v as number).toFixed(3) },
+        setter: { pattern: /^RES\s+([\d.]+)$/, parse: (m) => parseFloat(m[1] ?? '0') },
+        validate: (v) => (v as number) >= MIN_RESISTANCE && (v as number) <= MAX_RESISTANCE,
+      },
+      power: {
+        get: () => power,
+        set: (v) => {
+          power = v as number;
+        },
+        getter: { pattern: 'POW?', format: (v) => (v as number).toFixed(3) },
+        setter: { pattern: /^POW\s+([\d.]+)$/, parse: (m) => parseFloat(m[1] ?? '0') },
+        validate: (v) => (v as number) >= 0 && (v as number) <= MAX_POWER,
+      },
+      slewRate: {
+        get: () => slewRate,
+        set: (v) => {
+          slewRate = v as number;
+        },
+        getter: { pattern: 'CURR:SLEW?', format: (v) => (v as number).toFixed(3) },
+        setter: { pattern: /^CURR:SLEW\s+([\d.]+)$/, parse: (m) => parseFloat(m[1] ?? '0') },
+        validate: (v) => (v as number) >= 0.001 && (v as number) <= 10,
+      },
+    },
+
+    getBehavior() {
+      if (!input) {
+        return { enabled: false, behavior: { type: 'open' as const } };
+      }
+      switch (mode) {
+        case 'CC':
+          return {
+            enabled: true,
+            behavior: {
+              type: 'current-sink' as const,
+              current,
+              minResistance: INTERNAL_MIN_RESISTANCE,
+            },
+          };
+        case 'CR':
+          return {
+            enabled: true,
+            behavior: { type: 'resistance' as const, resistance },
+          };
+        case 'CP':
+          return {
+            enabled: true,
+            behavior: { type: 'power-sink' as const, power },
+          };
+        default:
+          return { enabled: true, behavior: { type: 'open' as const } };
+      }
+    },
+
+    setMeasured(v: number, i: number) {
+      measuredVoltage = v;
+      measuredCurrent = i;
+      measuredPower = v * i;
+    },
+  };
 }
-
-/**
- * Parse a numeric value from a command match.
- */
-function parseNumber(match: RegExpMatchArray): number {
-  return parseFloat(match[1] ?? '0');
-}
-
-/**
- * Parse input state from command (ON/OFF/1/0).
- */
-function parseInputState(match: RegExpMatchArray): boolean {
-  const val = (match[1] ?? '').toUpperCase();
-  return val === 'ON' || val === '1';
-}
-
-/**
- * Parse mode from command.
- */
-function parseMode(match: RegExpMatchArray): LoadMode {
-  const val = (match[1] ?? '').toUpperCase();
-  if (isLoadMode(val)) {
-    return val;
-  }
-  return 'CC';
-}
-
-/**
- * Format a number with 3 decimal places.
- */
-function formatValue(value: number | string | boolean): string {
-  return (value as number).toFixed(3);
-}
-
-/**
- * Format input state as ON/OFF.
- */
-function formatInputState(value: number | string | boolean): string {
-  return value ? 'ON' : 'OFF';
-}
-
-/**
- * Format mode.
- */
-function formatMode(value: number | string | boolean): string {
-  return value as string;
-}
-
-/**
- * Validate a numeric value is within range.
- */
-function validateRange(min: number, max: number): (value: number | string | boolean) => boolean {
-  return (v) => (v as number) >= min && (v as number) <= max;
-}
-
-/**
- * Simulated Electronic Load device definition.
- *
- * Simulates a 150V/30A/300W programmable electronic load.
- *
- * @example
- * ```typescript
- * import { createSimulationTransport } from 'visa-ts';
- * import { simulatedLoad } from 'visa-ts/simulation/devices/load';
- *
- * const transport = createSimulationTransport({ device: simulatedLoad });
- * await transport.open();
- *
- * // Set to constant current mode and draw 2A
- * await transport.write('MODE CC');
- * await transport.write('CURR 2');
- * await transport.write('INP ON');
- *
- * const current = await transport.query('CURR?');
- * console.log(current.value); // '2.000'
- * ```
- */
-export const simulatedLoad: SimulatedDevice = {
-  device: {
-    manufacturer: 'VISA-TS',
-    model: 'SIM-LOAD',
-    serial: 'LOAD001',
-  },
-
-  properties: {
-    // Measured values - in this simple simulation, return default 0
-    measuredVoltage: {
-      default: 0,
-      getter: {
-        pattern: 'MEAS:VOLT?',
-        format: formatValue,
-      },
-    },
-
-    measuredCurrent: {
-      default: 0,
-      getter: {
-        pattern: 'MEAS:CURR?',
-        format: formatValue,
-      },
-    },
-
-    measuredPower: {
-      default: 0,
-      getter: {
-        pattern: 'MEAS:POW?',
-        format: formatValue,
-      },
-    },
-
-    // Operating mode
-    mode: {
-      default: 'CC' as LoadMode,
-      getter: {
-        pattern: 'MODE?',
-        format: formatMode,
-      },
-      setter: {
-        pattern: /^MODE\s+(CC|CV|CR|CP)$/i,
-        parse: parseMode,
-      },
-    },
-
-    // Input state
-    input: {
-      default: false,
-      getter: {
-        pattern: 'INP?',
-        format: formatInputState,
-      },
-      setter: {
-        pattern: /^INP\s+(ON|OFF|1|0)$/i,
-        parse: parseInputState,
-      },
-    },
-
-    // CC mode - current setting
-    current: {
-      default: 0,
-      getter: {
-        pattern: 'CURR?',
-        format: formatValue,
-      },
-      setter: {
-        pattern: /^CURR\s+([\d.]+)$/,
-        parse: parseNumber,
-      },
-      validate: validateRange(0, MAX_CURRENT),
-    },
-
-    // CV mode - voltage setting
-    voltage: {
-      default: 0,
-      getter: {
-        pattern: 'VOLT?',
-        format: formatValue,
-      },
-      setter: {
-        pattern: /^VOLT\s+([\d.]+)$/,
-        parse: parseNumber,
-      },
-      validate: validateRange(0, MAX_VOLTAGE),
-    },
-
-    // CR mode - resistance setting
-    resistance: {
-      default: DEFAULT_RESISTANCE,
-      getter: {
-        pattern: 'RES?',
-        format: formatValue,
-      },
-      setter: {
-        pattern: /^RES\s+([\d.]+)$/,
-        parse: parseNumber,
-      },
-      validate: validateRange(MIN_RESISTANCE, MAX_RESISTANCE),
-    },
-
-    // CP mode - power setting
-    power: {
-      default: 0,
-      getter: {
-        pattern: 'POW?',
-        format: formatValue,
-      },
-      setter: {
-        pattern: /^POW\s+([\d.]+)$/,
-        parse: parseNumber,
-      },
-      validate: validateRange(0, MAX_POWER),
-    },
-
-    // Slew rate control
-    slewRate: {
-      default: DEFAULT_SLEW_RATE,
-      getter: {
-        pattern: 'CURR:SLEW?',
-        format: formatValue,
-      },
-      setter: {
-        pattern: /^CURR:SLEW\s+([\d.]+)$/,
-        parse: parseNumber,
-      },
-      validate: validateRange(0.001, 10),
-    },
-  },
-};
