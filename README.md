@@ -8,6 +8,8 @@ A PyVISA-inspired library for controlling test and measurement instruments from 
 
 - **PyVISA-compatible API** — Familiar patterns for lab automation developers
 - **Multiple transports** — USB-TMC, Serial, TCP/IP (LXI)
+- **Device simulation** — Test without hardware using simulated PSU, Load, and DMM
+- **Circuit simulation** — Simulated devices interact with realistic physics
 - **TypeScript-first** — Full type safety and autocomplete
 - **Result-based errors** — No exceptions, explicit error handling
 - **SCPI utilities** — Parse responses, binary blocks, etc.
@@ -98,6 +100,39 @@ const instr = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
 - `timeout` — I/O timeout in milliseconds
 - `readTermination` — Read termination character
 - `writeTermination` — Write termination character
+
+## Simulation
+
+Test your instrument control code without physical hardware:
+
+```typescript
+import { createResourceManager, createSimulatedPsu } from 'visa-ts';
+
+// Create a simulated PSU
+const rm = createResourceManager({
+  simulatedDevices: {
+    'SIM::PSU::INSTR': createSimulatedPsu({
+      manufacturer: 'TEST',
+      model: 'PSU-SIM',
+      serial: 'SIM001',
+    }),
+  },
+});
+
+// Use it like real hardware
+const result = await rm.openResource('SIM::PSU::INSTR');
+if (result.ok) {
+  const psu = result.value;
+  await psu.write(':SOUR:VOLT 12.0');
+  await psu.write(':OUTP ON');
+  const voltage = await psu.query(':MEAS:VOLT?');
+  console.log(voltage.value); // '12.000'
+}
+```
+
+Available simulated devices: `createSimulatedPsu()`, `createSimulatedLoad()`, `createSimulatedDmm()`
+
+When multiple simulated devices are connected, circuit simulation makes them interact realistically (e.g., PSU current limiting affects Load measurements).
 
 ## Comparison to PyVISA
 

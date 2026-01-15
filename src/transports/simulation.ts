@@ -9,13 +9,10 @@
 import { Ok, Err, type Result } from '../result.js';
 import type { Transport, TransportState } from './transport.js';
 import { createCommandHandler } from '../simulation/command-handler.js';
-import type { SimulationTransportConfig } from '../simulation/types.js';
+import { solveCircuit, type CircuitDevice } from '../simulation/circuit/solver.js';
+import type { SimulatedDevice } from '../simulation/types.js';
 
-/**
- * Simulation transport interface extending base Transport
- */
 export interface SimulationTransport extends Transport {
-  /** The simulated device configuration */
   readonly deviceInfo: {
     manufacturer: string;
     model: string;
@@ -23,39 +20,59 @@ export interface SimulationTransport extends Transport {
   };
 }
 
+export interface SimulationTransportConfig {
+  device: SimulatedDevice;
+  latencyMs?: number;
+  timeout?: number;
+  readTermination?: string;
+  writeTermination?: string;
+  /** Other devices on the same bus for circuit simulation */
+  busDevices?: SimulatedDevice[];
+}
+
 const DEFAULT_TIMEOUT = 2000;
 const DEFAULT_TERMINATION = '\n';
 
-/**
- * Create a simulation transport for testing.
- *
- * @param config - Simulation transport configuration
- * @returns SimulationTransport instance
- *
- * @example
- * const transport = createSimulationTransport({
- *   device: mySimulatedDevice,
- *   latencyMs: 10,
- * });
- * await transport.open();
- * const result = await transport.query('*IDN?');
- */
 export function createSimulationTransport(config: SimulationTransportConfig): SimulationTransport {
-  // State
   let state: TransportState = 'closed';
   let timeout = config.timeout ?? DEFAULT_TIMEOUT;
   let readTermination = config.readTermination ?? DEFAULT_TERMINATION;
   let writeTermination = config.writeTermination ?? DEFAULT_TERMINATION;
 
-  // Latency configuration
   const latencyMs = config.latencyMs ?? 0;
+  const device = config.device;
+  const busDevices = config.busDevices ?? [];
+  const handler = createCommandHandler(device);
 
-  // Command handler
-  const handler = createCommandHandler(config.device);
+  // Update circuit simulation after state changes
+  function updateCircuit(): void {
+    if (!device.getBehavior) return;
 
-  // Pending response buffer (stores raw response without termination)
+    // Collect all behaviors from devices on the bus
+    const allDevices = [device, ...busDevices];
+    const behaviors = allDevices.filter((d) => d.getBehavior).map((d) => d.getBehavior!());
+
+    // Find source (voltage-source) and load (anything else)
+    let source: CircuitDevice = { enabled: false, behavior: { type: 'open' } };
+    let load: CircuitDevice = { enabled: false, behavior: { type: 'open' } };
+
+    for (const b of behaviors) {
+      if (b.behavior.type === 'voltage-source') {
+        source = { enabled: b.enabled, behavior: b.behavior };
+      } else if (b.behavior.type !== 'open') {
+        load = { enabled: b.enabled, behavior: b.behavior };
+      }
+    }
+
+    const result = solveCircuit(source, load);
+
+    // Update all devices on the bus
+    for (const d of allDevices) {
+      d.setMeasured?.(result.voltage, result.current);
+    }
+  }
+
   let pendingResponse: string | null = null;
-  // Pending read buffer (stores partial data including termination)
   let pendingBuffer: Buffer | null = null;
 
   // Helper to add latency
@@ -147,9 +164,9 @@ export function createSimulationTransport(config: SimulationTransportConfig): Si
       const check = requireOpen();
       if (!check.ok) return check;
 
-      // Process command and store response
       const command = data + writeTermination;
       pendingResponse = processCommand(command);
+      updateCircuit();
 
       return Ok(undefined);
     },

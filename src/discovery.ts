@@ -5,7 +5,11 @@
  */
 
 import { SerialPort } from 'serialport';
-import usb from 'usb';
+import * as usbModule from 'usb';
+import type { Device as UsbDevice } from 'usb';
+
+// Handle ESM/CJS interop - tsx doesn't resolve the default export correctly
+const usb = (usbModule as unknown as { default?: typeof usbModule }).default || usbModule;
 
 /**
  * Serial port info from discovery
@@ -32,7 +36,7 @@ const USB_SUBCLASS_TMC = 0x03;
 /**
  * Check if a USB device has a USB-TMC interface.
  */
-function isTmcDevice(device: usb.Device): boolean {
+function isTmcDevice(device: UsbDevice): boolean {
   const config = device.configDescriptor;
   if (!config) {
     return false;
@@ -55,7 +59,7 @@ function isTmcDevice(device: usb.Device): boolean {
 /**
  * Get the serial number string from a USB device.
  */
-function getUsbSerialNumber(device: usb.Device): Promise<string | undefined> {
+function getUsbSerialNumber(device: UsbDevice): Promise<string | undefined> {
   const iSerialNumber = device.deviceDescriptor.iSerialNumber;
   if (iSerialNumber === 0) {
     return Promise.resolve(undefined);
@@ -64,7 +68,7 @@ function getUsbSerialNumber(device: usb.Device): Promise<string | undefined> {
   return new Promise((resolve) => {
     try {
       device.open();
-      device.getStringDescriptor(iSerialNumber, (error, data) => {
+      device.getStringDescriptor(iSerialNumber, (error: Error | undefined, data?: string) => {
         try {
           device.close();
         } catch {

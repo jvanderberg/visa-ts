@@ -7,24 +7,25 @@
 import type { Transport, TransportState, TransportConfig } from './transport.js';
 import type { Result } from '../result.js';
 import { Ok, Err } from '../result.js';
-import usb from 'usb';
+import * as usbModule from 'usb';
+import {
+  DEV_DEP_MSG_OUT,
+  DEV_DEP_MSG_IN,
+  TRIGGER,
+  INITIATE_CLEAR,
+  CHECK_CLEAR_STATUS,
+  GET_CAPABILITIES,
+  READ_STATUS_BYTE,
+  STATUS_SUCCESS,
+  USB_REQUEST_TYPE_IN,
+  USB_TMC_HEADER_SIZE,
+  createBulkOutHeader,
+  parseBulkInHeader,
+  createTagGenerator,
+} from '../util/usbtmc-protocol.js';
 
-// USB-TMC Message Types
-const DEV_DEP_MSG_OUT = 1;
-const DEV_DEP_MSG_IN = 2;
-const TRIGGER = 128;
-
-// USB-TMC Control Requests
-const INITIATE_CLEAR = 5;
-const CHECK_CLEAR_STATUS = 6;
-const GET_CAPABILITIES = 7;
-const READ_STATUS_BYTE = 128;
-
-// USB-TMC Status values
-const STATUS_SUCCESS = 0x01;
-
-// USB request types
-const USB_REQUEST_TYPE_IN = 0xa1;
+// Handle ESM/CJS interop - tsx doesn't resolve the default export correctly
+const usb = (usbModule as unknown as { default?: typeof usbModule }).default || usbModule;
 
 // Type definitions for usb module (peer dependency)
 interface UsbEndpoint {
@@ -90,7 +91,6 @@ export interface UsbtmcTransport extends Transport {
 
 const DEFAULT_TIMEOUT = 2000;
 const DEFAULT_CHUNK_SIZE = 65536;
-const USB_TMC_HEADER_SIZE = 12;
 
 /**
  * Creates a USB-TMC transport for communicating with USB test equipment.
@@ -104,7 +104,6 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
   let usbInterface: UsbInterface | null = null;
   let inEndpoint: UsbEndpoint | null = null;
   let outEndpoint: UsbEndpoint | null = null;
-  let bTag = 1;
 
   let timeout = config.timeout ?? DEFAULT_TIMEOUT;
   let readTermination = config.readTermination ?? '\n';
@@ -112,51 +111,10 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
 
   const interfaceNumber = config.interfaceNumber ?? 0;
   const quirks = config.quirks ?? 'none';
+  const nextTag = createTagGenerator();
 
-  function nextTag(): number {
-    const tag = bTag;
-    bTag = (bTag % 255) + 1;
-    return tag;
-  }
-
-  function createBulkOutHeader(msgType: number, transferSize: number, isEom: boolean): Buffer {
-    const header = Buffer.alloc(USB_TMC_HEADER_SIZE);
-    const tag = nextTag();
-
-    header[0] = msgType;
-    header[1] = tag;
-    header[2] = ~tag & 0xff;
-    header[3] = 0; // Reserved
-
-    // Transfer size (32-bit little-endian)
-    header[4] = transferSize & 0xff;
-    header[5] = (transferSize >> 8) & 0xff;
-    header[6] = (transferSize >> 16) & 0xff;
-    header[7] = (transferSize >> 24) & 0xff;
-
-    // bmTransferAttributes
-    header[8] = isEom ? 0x01 : 0x00;
-
-    // Reserved
-    header[9] = 0;
-    header[10] = 0;
-    header[11] = 0;
-
-    return header;
-  }
-
-  function parseBulkInHeader(data: Buffer): {
-    msgType: number;
-    tag: number;
-    transferSize: number;
-    isEom: boolean;
-  } {
-    return {
-      msgType: data.readUInt8(0),
-      tag: data.readUInt8(1),
-      transferSize: data.readUInt32LE(4),
-      isEom: (data.readUInt8(8) & 0x01) !== 0,
-    };
+  function makeHeader(msgType: number, transferSize: number, isEom: boolean): Buffer {
+    return createBulkOutHeader(msgType, nextTag(), transferSize, isEom);
   }
 
   async function bulkOut(data: Buffer): Promise<Result<void, Error>> {
@@ -297,9 +255,9 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
 
       try {
         // Find device
-        device =
+        const foundDevice =
           (usb.findByIds(config.vendorId, config.productId) as UsbDevice | undefined) ?? null;
-        if (!device) {
+        if (!foundDevice) {
           state = 'error';
           return Err(
             new Error(
@@ -308,24 +266,42 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
           );
         }
 
+        device = foundDevice;
+
+        // Open device first (required before getStringDescriptor on macOS)
+        foundDevice.open();
+
         // Check serial number if specified
         if (config.serialNumber) {
           const serialResult = await new Promise<Result<string, Error>>((resolve) => {
-            device!.getStringDescriptor(device!.deviceDescriptor.iSerialNumber, (err, str) => {
-              if (err) {
-                resolve(Err(err));
-              } else {
-                resolve(Ok(str ?? ''));
+            foundDevice.getStringDescriptor(
+              foundDevice.deviceDescriptor.iSerialNumber,
+              (err, str) => {
+                if (err) {
+                  resolve(Err(err));
+                } else {
+                  resolve(Ok(str ?? ''));
+                }
               }
-            });
+            );
           });
 
           if (!serialResult.ok) {
+            try {
+              foundDevice.close();
+            } catch {
+              // Ignore close errors
+            }
             state = 'error';
             return serialResult;
           }
 
           if (serialResult.value !== config.serialNumber) {
+            try {
+              foundDevice.close();
+            } catch {
+              // Ignore close errors
+            }
             state = 'error';
             return Err(
               new Error(
@@ -334,9 +310,6 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
             );
           }
         }
-
-        // Open device
-        device.open();
 
         // Get interface
         usbInterface = device.interface(interfaceNumber);
@@ -436,7 +409,7 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
       }
 
       const payload = Buffer.from(data + writeTermination);
-      const header = createBulkOutHeader(DEV_DEP_MSG_OUT, payload.length, true);
+      const header = makeHeader(DEV_DEP_MSG_OUT, payload.length, true);
 
       // Pad to 4-byte alignment
       const totalLen = USB_TMC_HEADER_SIZE + payload.length;
@@ -458,7 +431,7 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
 
       while (!isComplete) {
         // Request data
-        const requestHeader = createBulkOutHeader(DEV_DEP_MSG_IN, DEFAULT_CHUNK_SIZE, false);
+        const requestHeader = makeHeader(DEV_DEP_MSG_IN, DEFAULT_CHUNK_SIZE, false);
         requestHeader[8] = 0x00; // Request attributes
         requestHeader[9] = 0x00; // TermChar (not used when bit 1 of attributes is 0)
 
@@ -467,34 +440,70 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
           return sendResult;
         }
 
-        // Read response
-        const readResult = await bulkIn(DEFAULT_CHUNK_SIZE);
-        if (!readResult.ok) {
-          return readResult;
-        }
-
-        const response = readResult.value;
-        if (response.length < USB_TMC_HEADER_SIZE) {
-          return Err(new Error('Invalid USB-TMC response: too short'));
-        }
-
-        const header = parseBulkInHeader(response);
-        if (header.msgType !== DEV_DEP_MSG_IN) {
-          return Err(new Error(`Unexpected USB-TMC message type: ${header.msgType}`));
-        }
-
-        const payload = response.subarray(
-          USB_TMC_HEADER_SIZE,
-          USB_TMC_HEADER_SIZE + header.transferSize
-        );
-
-        chunks.push(payload);
-
-        // In rigol mode, continue reading until EOM is set
-        // In normal mode, a single read is sufficient
+        // Rigol DS1000Z USBTMC Quirk Mode
+        //
+        // PROBLEM: Rigol's USBTMC header lies about transferSize. If we trust it,
+        // we stop reading too early, leaving bytes in the USB buffer. These leftover
+        // bytes corrupt the next response.
+        //
+        // SOLUTION: Ignore transferSize. For each REQUEST, read until we get a short
+        // USB packet (< 64 bytes), which indicates the device finished responding.
+        //
+        // See: signal-drift/server/devices/docs/rigol-usbtmc-quirk.md
         if (quirks === 'rigol') {
-          isComplete = header.isEom;
+          const responseChunks: Buffer[] = [];
+          let hasEom = false;
+
+          // Read USB packets until short packet (< 64 bytes) = end of response
+          for (let i = 0; i < 1000; i++) {
+            const pktResult = await bulkIn(512);
+            if (!pktResult.ok) {
+              return pktResult;
+            }
+            const pkt = pktResult.value;
+            if (pkt.length === 0) break;
+            responseChunks.push(pkt);
+
+            // Check EOM from first packet's header
+            if (i === 0 && pkt.length >= USB_TMC_HEADER_SIZE) {
+              const header = parseBulkInHeader(pkt);
+              hasEom = header.isEom;
+            }
+
+            if (pkt.length < 64) break; // Short packet = end of response
+          }
+
+          const response = Buffer.concat(responseChunks);
+          if (response.length >= USB_TMC_HEADER_SIZE) {
+            // Strip 12-byte USBTMC header, ignore its lying transferSize
+            const payload = response.subarray(USB_TMC_HEADER_SIZE);
+            chunks.push(payload);
+          }
+
+          isComplete = hasEom;
         } else {
+          // Standard mode: single read, trust the header
+          const readResult = await bulkIn(DEFAULT_CHUNK_SIZE);
+          if (!readResult.ok) {
+            return readResult;
+          }
+
+          const response = readResult.value;
+          if (response.length < USB_TMC_HEADER_SIZE) {
+            return Err(new Error('Invalid USB-TMC response: too short'));
+          }
+
+          const header = parseBulkInHeader(response);
+          if (header.msgType !== DEV_DEP_MSG_IN) {
+            return Err(new Error(`Unexpected USB-TMC message type: ${header.msgType}`));
+          }
+
+          const payload = response.subarray(
+            USB_TMC_HEADER_SIZE,
+            USB_TMC_HEADER_SIZE + header.transferSize
+          );
+
+          chunks.push(payload);
           isComplete = true;
         }
       }
@@ -539,7 +548,7 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
         return Err(new Error('Transport is not open'));
       }
 
-      const header = createBulkOutHeader(DEV_DEP_MSG_OUT, data.length, true);
+      const header = makeHeader(DEV_DEP_MSG_OUT, data.length, true);
 
       // Pad to 4-byte alignment
       const totalLen = USB_TMC_HEADER_SIZE + data.length;
@@ -564,14 +573,40 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
       const maxSize = size ?? DEFAULT_CHUNK_SIZE;
 
       // Request data
-      const requestHeader = createBulkOutHeader(DEV_DEP_MSG_IN, maxSize, false);
+      const requestHeader = makeHeader(DEV_DEP_MSG_IN, maxSize, false);
 
       const sendResult = await bulkOut(requestHeader);
       if (!sendResult.ok) {
         return sendResult;
       }
 
-      // Read response
+      // Rigol quirks mode: read USB packets until short packet (< 64 bytes)
+      // This drains the full response buffer regardless of what transferSize claims
+      if (quirks === 'rigol') {
+        const responseChunks: Buffer[] = [];
+
+        for (let i = 0; i < 1000; i++) {
+          const pktResult = await bulkIn(512);
+          if (!pktResult.ok) {
+            return pktResult;
+          }
+          const pkt = pktResult.value;
+          if (pkt.length === 0) break;
+          responseChunks.push(pkt);
+          if (pkt.length < 64) break; // Short packet = end of response
+        }
+
+        const response = Buffer.concat(responseChunks);
+        if (response.length < USB_TMC_HEADER_SIZE) {
+          return Err(new Error('Invalid USB-TMC response: too short'));
+        }
+
+        // Strip 12-byte USBTMC header, ignore its lying transferSize
+        const payload = response.subarray(USB_TMC_HEADER_SIZE);
+        return Ok(Buffer.from(payload));
+      }
+
+      // Standard mode: single read, trust the header
       const readResult = await bulkIn(maxSize + USB_TMC_HEADER_SIZE);
       if (!readResult.ok) {
         return readResult;
@@ -646,7 +681,7 @@ export function createUsbtmcTransport(config: UsbtmcTransportConfig): Transport 
         return Err(new Error('Transport is not open'));
       }
 
-      const header = createBulkOutHeader(TRIGGER, 0, true);
+      const header = makeHeader(TRIGGER, 0, true);
       return bulkOut(header);
     },
 

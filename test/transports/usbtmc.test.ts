@@ -806,15 +806,18 @@ describe('USB-TMC Transport', () => {
 
       await transport.open();
 
-      // First response: partial data, EOM = false
-      const response1 = Buffer.alloc(20);
+      // Rigol quirk: transferSize in header may lie, but USB packet is correctly sized.
+      // We ignore transferSize and take everything after the 12-byte header.
+
+      // First response: partial data, EOM = false (header + "HELLO" = 17 bytes)
+      const response1 = Buffer.alloc(12 + 5); // header + data, no padding
       response1[0] = 2; // DEV_DEP_MSG_IN
-      response1[4] = 5; // Transfer size
+      response1[4] = 5; // Transfer size (may lie, but packet size is truth)
       response1[8] = 0x00; // EOM = false (more data coming)
       Buffer.from('HELLO').copy(response1, 12);
 
-      // Second response: remaining data with termination, EOM = true
-      const response2 = Buffer.alloc(20);
+      // Second response: remaining data with termination, EOM = true (header + " WORLD\n" = 19 bytes)
+      const response2 = Buffer.alloc(12 + 7); // header + data, no padding
       response2[0] = 2; // DEV_DEP_MSG_IN
       response2[4] = 7; // Transfer size
       response2[8] = 0x01; // EOM = true

@@ -1,189 +1,126 @@
 /**
- * Power Test Example
+ * Power Test Example - Voltage Sag Demonstration
  *
- * Demonstrates a realistic test scenario using both a PSU and Electronic Load.
- * Tests a device under various load conditions and verifies settings.
- * Discovers devices by filtering resources.
- *
- * Note: This simulation does not model actual circuit physics - the PSU and Load
- * operate independently. See Phase 10 in PLAN.md for future circuit simulation.
+ * Demonstrates realistic physics when a PSU current-limits into a resistive load.
+ * Includes a DMM to independently verify circuit measurements.
+ * Uses the resource manager public API.
  */
 
-import { createResourceManager, simulatedPsu, simulatedLoad } from '../src/index.js';
-import type { MessageBasedResource } from '../src/index.js';
-
-interface TestPoint {
-  voltage: number;
-  currentLimit: number;
-  loadCurrent: number;
-}
-
-const TEST_POINTS: TestPoint[] = [
-  { voltage: 5.0, currentLimit: 3.0, loadCurrent: 0.5 },
-  { voltage: 5.0, currentLimit: 3.0, loadCurrent: 1.0 },
-  { voltage: 5.0, currentLimit: 3.0, loadCurrent: 2.0 },
-  { voltage: 12.0, currentLimit: 2.0, loadCurrent: 0.5 },
-  { voltage: 12.0, currentLimit: 2.0, loadCurrent: 1.0 },
-  { voltage: 12.0, currentLimit: 2.0, loadCurrent: 1.5 },
-  { voltage: 24.0, currentLimit: 1.0, loadCurrent: 0.25 },
-  { voltage: 24.0, currentLimit: 1.0, loadCurrent: 0.5 },
-  { voltage: 24.0, currentLimit: 1.0, loadCurrent: 0.75 },
-];
+import {
+  createResourceManager,
+  createSimulatedPsu,
+  createSimulatedLoad,
+  createSimulatedDmm,
+} from '../src/index.js';
 
 async function main() {
-  console.log('╔════════════════════════════════════════════════════════════╗');
-  console.log('║              Power Delivery Test Suite                     ║');
-  console.log('╚════════════════════════════════════════════════════════════╝\n');
+  console.log('==================================================================');
+  console.log('       Voltage Sag Under Current Limiting                        ');
+  console.log('==================================================================\n');
 
+  // Create resource manager and register simulated devices on the same bus
   const rm = createResourceManager();
+  const psu = createSimulatedPsu();
+  const load = createSimulatedLoad();
+  const dmm = createSimulatedDmm();
 
-  // Register simulated devices
-  rm.registerSimulatedDevice('PSU', simulatedPsu);
-  rm.registerSimulatedDevice('LOAD', simulatedLoad);
+  rm.registerSimulatedDevice('PSU', psu, { bus: 'bench' });
+  rm.registerSimulatedDevice('LOAD', load, { bus: 'bench' });
+  rm.registerSimulatedDevice('DMM', dmm, { bus: 'bench' });
 
-  // List all available resources
-  console.log('All available resources:');
-  const allResources = await rm.listResources();
-  for (const res of allResources) {
-    console.log(`  ${res}`);
-  }
+  // Open resources
+  const psuResult = await rm.openResource('SIM::PSU::INSTR');
+  const loadResult = await rm.openResource('SIM::LOAD::INSTR');
+  const dmmResult = await rm.openResource('SIM::DMM::INSTR');
 
-  // Find PSU and Load by filtering
-  // For real hardware, use patterns like 'TCPIP*::INSTR' or 'USB*::INSTR'
-  const psuResources = await rm.listResources('SIM::PSU::*');
-  const loadResources = await rm.listResources('SIM::LOAD::*');
-
-  console.log('\nFiltered instruments:');
-  console.log(`  PSU:  ${psuResources[0] ?? 'not found'}`);
-  console.log(`  Load: ${loadResources[0] ?? 'not found'}`);
-
-  if (psuResources.length === 0 || loadResources.length === 0) {
-    console.error('\nRequired instruments not found');
+  if (!psuResult.ok || !loadResult.ok || !dmmResult.ok) {
+    console.error('Failed to open devices');
     return;
   }
 
-  // Open instruments
-  const psuResult = await rm.openResource(psuResources[0]);
-  if (!psuResult.ok) {
-    console.error('Failed to open PSU:', psuResult.error.message);
-    return;
-  }
+  const psuInstr = psuResult.value;
+  const loadInstr = loadResult.value;
+  const dmmInstr = dmmResult.value;
 
-  const loadResult = await rm.openResource(loadResources[0]);
-  if (!loadResult.ok) {
-    console.error('Failed to open Load:', loadResult.error.message);
-    await psuResult.value.close();
-    return;
-  }
+  // Configure PSU
+  const SOURCE_VOLTAGE = 12;
+  const SOURCE_CURRENT_LIMIT = 2;
 
-  const psu = psuResult.value;
-  const load = loadResult.value;
+  await psuInstr.write(`VOLT ${SOURCE_VOLTAGE}`);
+  await psuInstr.write(`CURR ${SOURCE_CURRENT_LIMIT}`);
+  await psuInstr.write('OUTP ON');
 
-  // Get instrument info
-  const psuIdn = await psu.query('*IDN?');
-  const loadIdn = await load.query('*IDN?');
+  console.log(`Source: ${SOURCE_VOLTAGE}V, ${SOURCE_CURRENT_LIMIT}A limit\n`);
 
-  console.log('\nConnected instruments:');
-  console.log(`  PSU:  ${psuIdn.ok ? psuIdn.value : 'Unknown'}`);
-  console.log(`  Load: ${loadIdn.ok ? loadIdn.value : 'Unknown'}`);
+  // Configure Load in CR mode
+  await loadInstr.write('MODE CR');
+  await loadInstr.write('INP ON');
 
-  // Configure load for CC mode
-  await load.write('MODE CC');
+  // Configure DMM for voltage measurement
+  await dmmInstr.write('FUNC VOLT:DC');
 
-  // Run tests
-  console.log('\n┌──────────┬─────────────┬─────────────┬──────────┬────────┐');
-  console.log('│ Voltage  │ PSU Current │ Load Current│  Power   │ Status │');
-  console.log('│   (V)    │  Limit (A)  │    (A)      │   (W)    │        │');
-  console.log('├──────────┼─────────────┼─────────────┼──────────┼────────┤');
+  // Test with resistance load behavior
+  console.log('Resistive Load (CR mode - I = V/R):');
+  console.log(
+    '--------------------------------------------------------------------------------------------'
+  );
+  console.log(
+    '|  R (Ω)  | I demand | I actual |  V out  | DMM Volt  | Power (W) |       Status          |'
+  );
+  console.log(
+    '|---------|----------|----------|---------|-----------|-----------|---------------------- |'
+  );
 
-  let passed = 0;
-  let failed = 0;
+  const resistances = [24, 12, 6, 4, 3, 2, 1];
 
-  for (const point of TEST_POINTS) {
-    const result = await runTestPoint(psu, load, point);
+  for (const r of resistances) {
+    await loadInstr.write(`RES ${r}`);
 
-    const status = result.passed ? '  PASS ' : ' FAIL  ';
-    const power = (point.voltage * point.loadCurrent).toFixed(2);
+    // Query measured values from PSU
+    const voltResult = await psuInstr.query('MEAS:VOLT?');
+    const currResult = await psuInstr.query('MEAS:CURR?');
+
+    // Query voltage from DMM (independent verification)
+    const dmmVoltResult = await dmmInstr.query('MEAS:VOLT:DC?');
+
+    const voltage = parseFloat(voltResult.ok ? voltResult.value : '0');
+    const current = parseFloat(currResult.ok ? currResult.value : '0');
+    const dmmVoltage = parseFloat(dmmVoltResult.ok ? dmmVoltResult.value : '0');
+
+    const idealCurrent = SOURCE_VOLTAGE / r;
+    const isLimited = idealCurrent > SOURCE_CURRENT_LIMIT;
+    const power = voltage * current;
 
     console.log(
-      `│ ${point.voltage.toFixed(1).padStart(6)}   │` +
-        `   ${point.currentLimit.toFixed(1).padStart(5)}     │` +
-        `    ${point.loadCurrent.toFixed(2).padStart(5)}    │` +
-        ` ${power.padStart(6)}   │` +
-        `${status}│`
+      `| ${r.toFixed(1).padStart(7)} | ${idealCurrent.toFixed(2).padStart(8)} | ` +
+        `${current.toFixed(2).padStart(8)} | ${voltage.toFixed(2).padStart(7)} | ` +
+        `${dmmVoltage.toFixed(3).padStart(9)} | ${power.toFixed(2).padStart(9)} | ` +
+        `${(isLimited ? 'Current Limited' : 'Normal (CV)').padStart(21)} |`
     );
-
-    if (result.passed) {
-      passed++;
-    } else {
-      failed++;
-    }
   }
 
-  console.log('└──────────┴─────────────┴─────────────┴──────────┴────────┘');
+  console.log(
+    '--------------------------------------------------------------------------------------------'
+  );
 
-  // Summary
-  console.log('\n════════════════════════════════════════════════════════════');
-  console.log(`  Test Results: ${passed} passed, ${failed} failed`);
-  console.log(`  Pass Rate:    ${((passed / TEST_POINTS.length) * 100).toFixed(1)}%`);
-  console.log('════════════════════════════════════════════════════════════');
+  // Demonstrate DMM resistance measurement
+  console.log('\nDMM Resistance Measurement (R = V/I):');
+  await dmmInstr.write('FUNC RES');
+  await loadInstr.write('RES 6'); // 6Ω load
 
-  // Cleanup
-  await psu.write('OUTP OFF');
-  await psu.write('*RST');
-  await load.write('INP OFF');
-  await load.write('*RST');
+  const resResult = await dmmInstr.query('READ?');
+  const measuredRes = parseFloat(resResult.ok ? resResult.value : '0');
+  console.log(`  Load set to 6Ω, DMM measures: ${measuredRes.toFixed(2)}Ω`);
 
-  await psu.close();
-  await load.close();
+  console.log('\nPhysics Summary:');
+  console.log('----------------');
+  console.log("• Resistive load: V sags per Ohm's law (V = I_limit × R)");
+  console.log('• When R=4Ω: I would be 3A, limited to 2A, so V = 2A × 4Ω = 8V');
+  console.log('• DMM independently confirms PSU voltage readings');
 
-  console.log('\nTest complete. Instruments reset and disconnected.');
-}
+  console.log('\nTest complete.');
 
-interface TestResult {
-  passed: boolean;
-  measuredVoltage?: string;
-  measuredCurrent?: string;
-}
-
-async function runTestPoint(
-  psu: MessageBasedResource,
-  load: MessageBasedResource,
-  point: TestPoint
-): Promise<TestResult> {
-  // Configure PSU
-  await psu.write(`VOLT ${point.voltage}`);
-  await psu.write(`CURR ${point.currentLimit}`);
-  await psu.write('OUTP ON');
-
-  // Configure Load
-  await load.write(`CURR ${point.loadCurrent}`);
-  await load.write('INP ON');
-
-  // Small delay to simulate settling time
-  await delay(10);
-
-  // Read back values
-  const psuVolt = await psu.query('VOLT?');
-  const loadCurr = await load.query('CURR?');
-
-  // Verify settings match
-  const voltageOk = psuVolt.ok && parseFloat(psuVolt.value ?? '0') === point.voltage;
-  const currentOk = loadCurr.ok && parseFloat(loadCurr.value ?? '0') === point.loadCurrent;
-
-  // Turn off for next test
-  await load.write('INP OFF');
-  await psu.write('OUTP OFF');
-
-  return {
-    passed: voltageOk && currentOk,
-    measuredVoltage: psuVolt.ok ? psuVolt.value : undefined,
-    measuredCurrent: loadCurr.ok ? loadCurr.value : undefined,
-  };
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  await rm.close();
 }
 
 main().catch(console.error);

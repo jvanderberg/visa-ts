@@ -6,13 +6,13 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createSimulationTransport } from '../../../src/transports/simulation.js';
-import { simulatedPsu } from '../../../src/simulation/devices/psu.js';
+import { createSimulatedPsu } from '../../../src/simulation/devices/psu.js';
 
 describe('Simulated PSU Device', () => {
   let transport: ReturnType<typeof createSimulationTransport>;
 
   beforeEach(async () => {
-    transport = createSimulationTransport({ device: simulatedPsu });
+    transport = createSimulationTransport({ device: createSimulatedPsu() });
     await transport.open();
   });
 

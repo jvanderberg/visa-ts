@@ -6,5 +6,6 @@
  * @packageDocumentation
  */
 
-export { simulatedPsu } from './psu.js';
-export { simulatedLoad } from './load.js';
+export { createSimulatedPsu } from './psu.js';
+export { createSimulatedLoad } from './load.js';
+export { createSimulatedDmm } from './dmm.js';
