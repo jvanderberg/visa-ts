@@ -278,7 +278,8 @@ export function createChannelAccessor<TChannel>(
 
   // Generate channel command methods
   if (channelSpec.commands) {
-    for (const [cmdName, cmdDef] of Object.entries(channelSpec.commands)) {
+    for (const [cmdName, value] of Object.entries(channelSpec.commands)) {
+      const cmdDef = value as CommandDef;
       channelInstance[cmdName] = createChannelCommand(
         resource,
         cmdDef,

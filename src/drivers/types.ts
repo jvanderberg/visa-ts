@@ -8,7 +8,7 @@ import type { Result } from '../result.js';
 import type { MessageBasedResource } from '../resources/message-based-resource.js';
 
 // ─────────────────────────────────────────────────────────────────
-// Type Helpers for Extracting Properties from Interfaces
+// Type Helpers for Extracting Properties and Commands from Interfaces
 // ─────────────────────────────────────────────────────────────────
 
 /**
@@ -39,6 +39,31 @@ type ExtractProperties<T> = {
  */
 type TypedPropertyMap<T> = {
   [K in keyof ExtractProperties<T>]: PropertyDef<ExtractProperties<T>[K]>;
+};
+
+/**
+ * Check if a method is a command (not a getter/setter, returns Promise<Result<void, Error>>, no params).
+ */
+type IsCommand<K, M> = K extends `get${string}` | `set${string}`
+  ? never
+  : M extends () => Promise<Result<void, Error>>
+    ? K
+    : never;
+
+/**
+ * Extract command names from an interface.
+ * Commands are methods that return Promise<Result<void, Error>> with no parameters,
+ * excluding getters and setters.
+ */
+type ExtractCommandNames<T> = {
+  [K in keyof T as IsCommand<K & string, T[K]>]: true;
+};
+
+/**
+ * Typed command map that requires all commands from interface T.
+ */
+type TypedCommandMap<T> = {
+  [K in keyof ExtractCommandNames<T>]: CommandDef;
 };
 
 // ─────────────────────────────────────────────────────────────────
@@ -175,22 +200,14 @@ export function isCommandSupported(cmd: CommandDef): cmd is SupportedCommandDef 
   return !('notSupported' in cmd);
 }
 
-/**
- * Map of command names to their definitions.
- */
-export type CommandMap = Record<string, CommandDef>;
-
 // ─────────────────────────────────────────────────────────────────
 // Channel Specification
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Channel specification for multi-channel instruments.
- * TypeScript enforces all properties from TChannel interface are defined.
- *
- * @typeParam TChannel - The channel interface type
+ * Base channel specification fields.
  */
-export interface ChannelSpec<TChannel> {
+interface ChannelSpecBase<TChannel> {
   /** Number of channels this instrument has */
   count: number;
 
@@ -199,10 +216,22 @@ export interface ChannelSpec<TChannel> {
 
   /** Properties available on each channel - must match TChannel interface */
   properties: TypedPropertyMap<TChannel>;
-
-  /** Commands available on each channel */
-  commands?: CommandMap;
 }
+
+/**
+ * Conditional commands for channel - required if interface has commands.
+ */
+type ChannelCommands<TChannel> = [keyof ExtractCommandNames<TChannel>] extends [never]
+  ? { commands?: never }
+  : { commands: TypedCommandMap<TChannel> };
+
+/**
+ * Channel specification for multi-channel instruments.
+ * TypeScript enforces all properties and commands from TChannel interface are defined.
+ *
+ * @typeParam TChannel - The channel interface type
+ */
+export type ChannelSpec<TChannel> = ChannelSpecBase<TChannel> & ChannelCommands<TChannel>;
 
 // ─────────────────────────────────────────────────────────────────
 // Driver Configuration
@@ -277,39 +306,9 @@ export type MethodMap<T> = {
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Full driver specification with compile-time property enforcement.
- * TypeScript enforces all properties from T (and TChannel) are defined.
- *
- * @typeParam T - The instrument interface type
- * @typeParam TChannel - The channel interface type (optional)
- *
- * @example
- * ```typescript
- * interface MyScope {
- *   getTimebase(): Promise<Result<number, Error>>;
- *   setTimebase(v: number): Promise<Result<void, Error>>;
- * }
- *
- * interface MyScopeChannel {
- *   getScale(): Promise<Result<number, Error>>;
- *   setScale(v: number): Promise<Result<void, Error>>;
- * }
- *
- * // TypeScript enforces 'timebase' property is defined
- * const spec: DriverSpec<MyScope, MyScopeChannel> = {
- *   properties: {
- *     timebase: { get: ':TIM:SCAL?', set: ':TIM:SCAL {value}' },
- *   },
- *   channels: {
- *     count: 4,
- *     properties: {
- *       scale: { get: ':CHAN{ch}:SCAL?', set: ':CHAN{ch}:SCAL {value}' },
- *     },
- *   },
- * };
- * ```
+ * Base driver specification fields.
  */
-export interface DriverSpec<T, TChannel = never> {
+interface DriverSpecBase<T, TChannel> {
   /** Equipment category (e.g., 'oscilloscope', 'power-supply') */
   type?: string;
 
@@ -321,9 +320,6 @@ export interface DriverSpec<T, TChannel = never> {
 
   /** Global properties - must define all properties from T */
   properties: TypedPropertyMap<T>;
-
-  /** Global commands (not per-channel) */
-  commands?: CommandMap;
 
   /** Channel configuration - must define all properties from TChannel */
   channels?: [TChannel] extends [never] ? never : ChannelSpec<TChannel>;
@@ -340,6 +336,52 @@ export interface DriverSpec<T, TChannel = never> {
   /** Declared capabilities */
   capabilities?: string[];
 }
+
+/**
+ * Conditional commands for driver - required if interface has commands.
+ */
+type DriverCommands<T> = [keyof ExtractCommandNames<T>] extends [never]
+  ? { commands?: never }
+  : { commands: TypedCommandMap<T> };
+
+/**
+ * Full driver specification with compile-time property and command enforcement.
+ * TypeScript enforces all properties and commands from T (and TChannel) are defined.
+ *
+ * @typeParam T - The instrument interface type
+ * @typeParam TChannel - The channel interface type (optional)
+ *
+ * @example
+ * ```typescript
+ * interface MyScope {
+ *   getTimebase(): Promise<Result<number, Error>>;
+ *   setTimebase(v: number): Promise<Result<void, Error>>;
+ *   autoScale(): Promise<Result<void, Error>>;
+ * }
+ *
+ * interface MyScopeChannel {
+ *   getScale(): Promise<Result<number, Error>>;
+ *   setScale(v: number): Promise<Result<void, Error>>;
+ * }
+ *
+ * // TypeScript enforces 'timebase' property and 'autoScale' command are defined
+ * const spec: DriverSpec<MyScope, MyScopeChannel> = {
+ *   properties: {
+ *     timebase: { get: ':TIM:SCAL?', set: ':TIM:SCAL {value}' },
+ *   },
+ *   commands: {
+ *     autoScale: { command: ':AUT' },
+ *   },
+ *   channels: {
+ *     count: 4,
+ *     properties: {
+ *       scale: { get: ':CHAN{ch}:SCAL?', set: ':CHAN{ch}:SCAL {value}' },
+ *     },
+ *   },
+ * };
+ * ```
+ */
+export type DriverSpec<T, TChannel = never> = DriverSpecBase<T, TChannel> & DriverCommands<T>;
 
 /**
  * A connected driver instance that can be used to control an instrument.

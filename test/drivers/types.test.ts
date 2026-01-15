@@ -603,5 +603,93 @@ describe('Driver Types', () => {
       expect(channelSpec.count).toBe(4);
       expect(Object.keys(channelSpec.properties)).toHaveLength(3);
     });
+
+    it('requires all channel interface commands', () => {
+      interface ChannelInterface {
+        getScale(): Promise<Result<number, Error>>;
+        enable(): Promise<Result<void, Error>>;
+        disable(): Promise<Result<void, Error>>;
+      }
+
+      const channelSpec: ChannelSpec<ChannelInterface> = {
+        count: 4,
+        properties: {
+          scale: { get: ':CHAN{ch}:SCAL?' },
+        },
+        commands: {
+          enable: { command: ':CHAN{ch}:DISP ON' },
+          disable: { command: ':CHAN{ch}:DISP OFF' },
+        },
+      };
+
+      expect(channelSpec.commands.enable.command).toBe(':CHAN{ch}:DISP ON');
+      expect(channelSpec.commands.disable.command).toBe(':CHAN{ch}:DISP OFF');
+    });
+
+    it('allows unsupported commands', () => {
+      interface ChannelInterface {
+        getScale(): Promise<Result<number, Error>>;
+        autoScale(): Promise<Result<void, Error>>;
+      }
+
+      const channelSpec: ChannelSpec<ChannelInterface> = {
+        count: 2,
+        properties: {
+          scale: { get: ':CHAN{ch}:SCAL?' },
+        },
+        commands: {
+          autoScale: {
+            notSupported: true,
+            description: 'Per-channel auto-scale not supported',
+          },
+        },
+      };
+
+      expect(isCommandSupported(channelSpec.commands.autoScale)).toBe(false);
+    });
+  });
+
+  describe('command type extraction', () => {
+    it('extracts commands from interface (not getters/setters)', () => {
+      interface TestInterface {
+        getVoltage(): Promise<Result<number, Error>>;
+        setVoltage(v: number): Promise<Result<void, Error>>;
+        reset(): Promise<Result<void, Error>>;
+        clear(): Promise<Result<void, Error>>;
+      }
+
+      // DriverSpec should require 'reset' and 'clear' commands
+      // but NOT 'voltage' (that's a property via get/set)
+      const spec: DriverSpec<TestInterface> = {
+        properties: {
+          voltage: { get: ':VOLT?' },
+        },
+        commands: {
+          reset: { command: '*RST' },
+          clear: { command: '*CLS' },
+        },
+      };
+
+      expect(spec.commands.reset.command).toBe('*RST');
+      expect(spec.commands.clear.command).toBe('*CLS');
+    });
+
+    it('allows no commands when interface has none', () => {
+      interface PropertiesOnly {
+        getVoltage(): Promise<Result<number, Error>>;
+        getCurrent(): Promise<Result<number, Error>>;
+      }
+
+      // No commands in interface, so commands cannot be specified
+      const spec: DriverSpec<PropertiesOnly> = {
+        properties: {
+          voltage: { get: ':VOLT?' },
+          current: { get: ':CURR?' },
+        },
+      };
+
+      expect(spec.properties.voltage.get).toBe(':VOLT?');
+      expect(spec.commands).toBeUndefined();
+    });
   });
 });

@@ -18,7 +18,6 @@ export type {
   SupportedCommandDef,
   UnsupportedCommandDef,
   CommandDef,
-  CommandMap,
   // Channel specifications
   ChannelSpec,
   // Driver configuration

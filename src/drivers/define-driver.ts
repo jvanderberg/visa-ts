@@ -286,7 +286,8 @@ export function defineDriver<T, TChannel = never>(
 
       // Generate command methods
       if (spec.commands) {
-        for (const [cmdName, cmdDef] of Object.entries(spec.commands)) {
+        for (const [cmdName, value] of Object.entries(spec.commands)) {
+          const cmdDef = value as CommandDef;
           instance[cmdName] = createCommand(resource, cmdDef, spec.hooks);
         }
       }

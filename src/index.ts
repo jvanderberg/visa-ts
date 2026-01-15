@@ -108,7 +108,6 @@ export type {
   // Core driver types
   PropertyDef,
   CommandDef,
-  CommandMap,
   ChannelSpec,
   QuirkConfig,
   DriverContext,
