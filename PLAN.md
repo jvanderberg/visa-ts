@@ -615,4 +615,4 @@ Before first publish:
 - [x] Phase 8: Simulation Backend (typed device definitions, pattern matching, stateful properties)
 - [x] Phase 9: Example Simulated Devices (PSU, Electronic Load)
 - [ ] Phase 10: Circuit Simulation (pub/sub bus with device physics)
-- [ ] Phase 11: npm Publishing (metadata, changelog, CI workflow, verification)
+- [x] Phase 11: npm Publishing (metadata, changelog, CI workflow, verification)

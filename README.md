@@ -1,5 +1,10 @@
 # visa-ts
 
+[![npm version](https://img.shields.io/npm/v/visa-ts)](https://www.npmjs.com/package/visa-ts)
+[![Build Status](https://github.com/jvanderberg/visa-ts/actions/workflows/ci.yml/badge.svg)](https://github.com/jvanderberg/visa-ts/actions)
+[![Coverage](https://img.shields.io/codecov/c/github/jvanderberg/visa-ts)](https://codecov.io/gh/jvanderberg/visa-ts)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 TypeScript VISA (Virtual Instrument Software Architecture) library for instrument communication.
 
 A PyVISA-inspired library for controlling test and measurement instruments from Node.js/TypeScript.
@@ -108,24 +113,17 @@ Test your instrument control code without physical hardware:
 ```typescript
 import { createResourceManager, createSimulatedPsu } from 'visa-ts';
 
-// Create a simulated PSU
-const rm = createResourceManager({
-  simulatedDevices: {
-    'SIM::PSU::INSTR': createSimulatedPsu({
-      manufacturer: 'TEST',
-      model: 'PSU-SIM',
-      serial: 'SIM001',
-    }),
-  },
-});
+// Create resource manager and register a simulated PSU
+const rm = createResourceManager();
+rm.registerSimulatedDevice('PSU', createSimulatedPsu());
 
 // Use it like real hardware
 const result = await rm.openResource('SIM::PSU::INSTR');
 if (result.ok) {
   const psu = result.value;
-  await psu.write(':SOUR:VOLT 12.0');
-  await psu.write(':OUTP ON');
-  const voltage = await psu.query(':MEAS:VOLT?');
+  await psu.write('VOLT 12.0');
+  await psu.write('OUTP ON');
+  const voltage = await psu.query('MEAS:VOLT?');
   console.log(voltage.value); // '12.000'
 }
 ```
