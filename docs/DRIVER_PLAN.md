@@ -1489,6 +1489,278 @@ await plasma.chamber(1).setTargetTemperature(5000);
 
 ---
 
+## Driver Probe Tool
+
+A tool to connect to unknown devices, detect their type, probe capabilities, and either match to existing drivers or generate new driver specifications.
+
+### Safety Warnings
+
+Before probing, warn the user:
+- Disconnect any equipment from device outputs/inputs
+- Probe may change device settings (will attempt `*RST` before/after)
+- Failed commands result in SCPI errors, not damage
+
+### Detection Flow
+
+```
+1. Connect & query *IDN?
+   → Parse manufacturer, model, serial, firmware
+
+2. Type detection (combine sources):
+   a) User assertion (optional): "This is an oscilloscope"
+   b) Model pattern heuristics: "DS" prefix → oscilloscope
+   c) Command probing: :TIM:SCAL? works → oscilloscope
+
+3. Validate & warn on conflicts:
+   → "You said PSU but model DS1054Z suggests oscilloscope"
+
+4. Deep probe for equipment-specific features
+   → Channel count, capabilities, command variants
+
+5. Output:
+   → Match to existing driver, or
+   → Generate new driver specification
+```
+
+### Model Pattern Heuristics
+
+```typescript
+const modelPatterns: Record<string, EquipmentType[]> = {
+  // Rigol
+  'DS': ['oscilloscope'],      // DS1054Z, DS2072A
+  'MSO': ['oscilloscope'],     // MSO5074
+  'DP': ['power-supply'],      // DP832, DP711
+  'DL': ['electronic-load'],   // DL3021
+  'DM': ['multimeter'],        // DM3068
+  'DG': ['signal-generator'],  // DG1022Z
+  'DSA': ['spectrum-analyzer'], // DSA815
+
+  // Siglent
+  'SDS': ['oscilloscope'],     // SDS1104X-E
+  'SPD': ['power-supply'],     // SPD3303X
+  'SDL': ['electronic-load'],  // SDL1020X
+  'SDM': ['multimeter'],       // SDM3045X
+  'SDG': ['signal-generator'], // SDG1032X
+  'SSA': ['spectrum-analyzer'], // SSA3021X
+
+  // Keysight/Agilent
+  'DSO': ['oscilloscope'],
+  'DSOX': ['oscilloscope'],
+  'E36': ['power-supply'],     // E36312A
+  '344': ['multimeter'],       // 34465A
+  '335': ['signal-generator'], // 33500B
+
+  // Tektronix
+  'TDS': ['oscilloscope'],
+  'MDO': ['oscilloscope'],
+  'AFG': ['signal-generator'],
+};
+```
+
+### Command-Based Type Detection
+
+Quick probes (queries only, no side effects):
+
+```typescript
+const typeProbes: Record<EquipmentType, TypeProbeSpec> = {
+  'oscilloscope': {
+    required: [':TIM:SCAL?', ':CHAN1:SCAL?'],
+    alternatives: [':TIMEBASE:SCALE?', ':HOR:SCAL?'],
+    antiPatterns: [':SOUR:VOLT?'],  // PSUs have this, scopes don't
+  },
+  'power-supply': {
+    required: [':SOUR:VOLT?', ':MEAS:VOLT?'],
+    alternatives: [':VOLT?', ':CURR?'],
+  },
+  'multimeter': {
+    required: [':SENS:FUNC?'],
+    alternatives: [':FUNC?', ':CONF?'],
+  },
+  'signal-generator': {
+    required: [':SOUR:FREQ?', ':SOUR:FUNC?'],
+    alternatives: [':FREQ?', ':FUNC?'],
+  },
+  'electronic-load': {
+    required: [':INP?', ':FUNC?'],
+    alternatives: [':SOUR:INP?', ':MODE?'],
+  },
+  'spectrum-analyzer': {
+    required: [':FREQ:CENT?', ':FREQ:SPAN?'],
+  },
+  'smu': {
+    required: [':SOUR:FUNC?', ':SENS:FUNC?'],  // Can both source AND sense
+  },
+  'lcr-meter': {
+    required: [':FUNC:IMP?'],
+    alternatives: [':FUNC1?'],
+  },
+};
+```
+
+### Deep Probing Strategy
+
+For each equipment type, probe systematically:
+
+**1. Channel Detection**
+```typescript
+// Try channels sequentially until failure
+for (let n = 1; n <= maxChannels; n++) {
+  const result = await ctx.query(`:CHAN${n}:DISP?`);
+  if (!result.ok) break;
+  channelCount = n;
+}
+```
+
+**2. Command Variant Detection**
+
+Many commands have manufacturer-specific variants. Try alternatives:
+```typescript
+const commandVariants = {
+  timebaseScale: [':TIM:SCAL?', ':TIMEBASE:SCALE?', ':HOR:SCAL?', ':TIM:DIV?'],
+  triggerLevel: [':TRIG:LEV?', ':TRIG:EDGE:LEV?', ':TRIGGER:LEVEL?'],
+  outputState: [':OUTP?', ':OUTP:STAT?', ':OUTPUT?'],
+};
+
+// Find which variant works
+for (const variant of commandVariants.timebaseScale) {
+  const result = await ctx.query(variant);
+  if (result.ok) {
+    workingCommand = variant;
+    break;
+  }
+}
+```
+
+**3. Capability Detection**
+
+Test optional features:
+```typescript
+const capabilityProbes = {
+  // Oscilloscope
+  'digital-channels': ':DIG0:DISP?',
+  'math': ':MATH:DISP?',
+  'fft': ':FFT:DISP?',
+  'protocol-decode': ':DEC1:MODE?',
+
+  // Power Supply
+  'ovp': ':VOLT:PROT:STAT?',
+  'ocp': ':CURR:PROT:STAT?',
+  'tracking': ':OUTP:TRAC?',
+  'remote-sense': ':VOLT:SENS?',
+
+  // Signal Generator
+  'am-modulation': ':AM:STAT?',
+  'fm-modulation': ':FM:STAT?',
+  'sweep': ':SWE:STAT?',
+  'burst': ':BURS:STAT?',
+
+  // Electronic Load
+  'dynamic-mode': ':CURR:DYN:STAT?',
+  'battery-test': ':BATT:STAT?',
+};
+```
+
+### Probe Output
+
+```typescript
+interface ProbeResult {
+  device: {
+    manufacturer: string;
+    model: string;
+    serial: string;
+    firmware: string;
+  };
+
+  type: {
+    detected: EquipmentType;
+    confidence: number;          // 0-100
+    sources: string[];           // What contributed to detection
+  };
+
+  channels: {
+    count: number;
+    addressing: string;          // e.g., ':CHAN{n}:' or ':SOUR{n}:'
+  };
+
+  commands: {
+    [property: string]: {
+      working: string;           // Command that succeeded
+      tried: string[];           // All variants attempted
+      sampleResponse: string;    // For validation
+    };
+  };
+
+  capabilities: {
+    [name: string]: boolean;
+  };
+
+  matchedDriver?: string;        // Existing driver if found
+  generatedSpec?: DriverSpec;    // New driver spec if generated
+
+  warnings: string[];
+  errors: string[];
+}
+```
+
+### Example Session
+
+```
+$ visa-ts probe USB0::0x1AB1::0x04CE::DS1ZA123::INSTR
+
+╔═══════════════════════════════════════════════════════════════╗
+║  DEVICE PROBE - Safety Notice                                 ║
+╠═══════════════════════════════════════════════════════════════╣
+║  ⚠️  Disconnect any equipment from device outputs/inputs      ║
+║  ⚠️  Probe may change settings (will attempt *RST)            ║
+║  ⚠️  Failed commands result in errors, not damage             ║
+║                                                               ║
+║  Continue? [y/N] y                                            ║
+╚═══════════════════════════════════════════════════════════════╝
+
+Querying *IDN?... RIGOL TECHNOLOGIES,DS1054Z,DS1ZA123456789,00.04.04
+Model pattern 'DS' suggests: oscilloscope
+
+Probing type...
+  :TIM:SCAL? ✓  :CHAN1:SCAL? ✓
+  Confirmed: oscilloscope (confidence: 98%)
+
+Probing channels...
+  CH1 ✓  CH2 ✓  CH3 ✓  CH4 ✓  CH5 ✗
+  Analog channels: 4
+
+  D0 ✗
+  Digital channels: 0
+
+Probing timebase commands...
+  :TIM:SCAL? ✓ → "1.000000e-03"
+  :TIM:OFFS? ✓ → "0.000000e+00"
+  :TIM:MODE? ✓ → "MAIN"
+
+Probing trigger commands...
+  :TRIG:EDGE:LEV? ✓
+  :TRIG:EDGE:SOUR? ✓
+  :TRIG:SWE? ✓
+
+Probing capabilities...
+  Math channels ✓  FFT ✓  Protocol decode ✓ (I2C,SPI,UART)
+  Digital ✗  Segmented memory ✗  Waveform generator ✗
+
+════════════════════════════════════════════════════════════════
+
+RESULT: Matches existing driver 'rigolDS1000Z' (96% confidence)
+
+  Detected    | Driver expects
+  ------------|---------------
+  4 analog ch | 4 analog ch  ✓
+  0 digital   | 0 digital    ✓
+  FFT         | FFT          ✓
+  Decode      | Decode       ✓
+
+Use existing driver? [Y/n]
+```
+
+---
+
 ## Implementation Phases
 
 ### Phase 1: Core Infrastructure
@@ -1522,6 +1794,15 @@ await plasma.chamber(1).setTargetTemperature(5000);
 - [ ] Siglent oscilloscopes
 - [ ] Keysight oscilloscopes
 - [ ] More PSUs, DMMs, signal generators
+
+### Phase 6: Driver Probe Tool
+- [ ] Model pattern heuristics database
+- [ ] Command-based type detection
+- [ ] Deep probing logic per equipment type
+- [ ] Command variant detection
+- [ ] Driver matching algorithm
+- [ ] Driver spec generation from probe results
+- [ ] CLI interface (`visa-ts probe <resource>`)
 
 ---
 
