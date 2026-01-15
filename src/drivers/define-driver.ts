@@ -6,13 +6,15 @@
 
 import { Ok, Err, type Result } from '../result.js';
 import type { MessageBasedResource } from '../resources/message-based-resource.js';
-import type {
-  DriverSpec,
-  DriverContext,
-  PropertyDef,
-  CommandDef,
-  QuirkConfig,
-  DriverHooks,
+import {
+  isSupported,
+  isCommandSupported,
+  type DriverSpec,
+  type DriverContext,
+  type PropertyDef,
+  type CommandDef,
+  type QuirkConfig,
+  type DriverHooks,
 } from './types.js';
 import { delay, toGetterName, toSetterName, createChannelAccessor } from './channel.js';
 
@@ -48,6 +50,12 @@ function createGetter<T>(
   quirks: QuirkConfig | undefined,
   hooks: DriverHooks | undefined
 ): () => Promise<Result<T, Error>> {
+  // Handle unsupported properties
+  if (!isSupported(prop)) {
+    const msg = prop.description ?? 'Not supported by this device';
+    return async () => Err(new Error(msg));
+  }
+
   return async () => {
     let cmd = prop.get;
 
@@ -93,6 +101,12 @@ function createSetter<T>(
   quirks: QuirkConfig | undefined,
   hooks: DriverHooks | undefined
 ): (value: T) => Promise<Result<void, Error>> {
+  // Handle unsupported properties
+  if (!isSupported(prop)) {
+    const msg = prop.description ?? 'Not supported by this device';
+    return async () => Err(new Error(msg));
+  }
+
   // Guard: property must have a set command
   if (!prop.set) {
     return async () => Err(new Error('Property is read-only'));
@@ -147,6 +161,12 @@ function createCommand(
   cmdDef: CommandDef,
   hooks: DriverHooks | undefined
 ): () => Promise<Result<void, Error>> {
+  // Handle unsupported commands
+  if (!isCommandSupported(cmdDef)) {
+    const msg = cmdDef.description ?? 'Not supported by this device';
+    return async () => Err(new Error(msg));
+  }
+
   return async () => {
     let cmd = cmdDef.command;
 
@@ -253,7 +273,7 @@ export function defineDriver<T>(spec: DriverSpec<T>): DefinedDriver<T> {
         instance[getterName] = createGetter(resource, propDef, spec.quirks, spec.hooks);
 
         // Generate setter if set command is defined and not readonly
-        if (propDef.set && !propDef.readonly) {
+        if (isSupported(propDef) && propDef.set && !propDef.readonly) {
           const setterName = toSetterName(propName);
           instance[setterName] = createSetter(resource, propDef, spec.quirks, spec.hooks);
         }

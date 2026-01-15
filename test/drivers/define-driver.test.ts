@@ -784,6 +784,65 @@ describe('defineDriver', () => {
     });
   });
 
+  describe('unsupported properties', () => {
+    it('returns Err for unsupported property getter', async () => {
+      interface TestInstrument {
+        getBandwidthLimit(): Promise<Result<string, Error>>;
+      }
+
+      const spec: DriverSpec<TestInstrument> = {
+        properties: {
+          bandwidthLimit: {
+            notSupported: true,
+            description: 'Bandwidth limiting not available on this model',
+          },
+        },
+      };
+
+      const resource = createMockResource();
+
+      const driver = defineDriver(spec);
+      const result = await driver.connect(resource);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const bwResult = await result.value.getBandwidthLimit();
+        expect(bwResult.ok).toBe(false);
+        if (!bwResult.ok) {
+          expect(bwResult.error.message).toBe('Bandwidth limiting not available on this model');
+        }
+      }
+    });
+
+    it('returns default error message when description not provided', async () => {
+      interface TestInstrument {
+        getFeature(): Promise<Result<string, Error>>;
+      }
+
+      const spec: DriverSpec<TestInstrument> = {
+        properties: {
+          feature: {
+            notSupported: true,
+          },
+        },
+      };
+
+      const resource = createMockResource();
+
+      const driver = defineDriver(spec);
+      const result = await driver.connect(resource);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const featureResult = await result.value.getFeature();
+        expect(featureResult.ok).toBe(false);
+        if (!featureResult.ok) {
+          expect(featureResult.error.message).toBe('Not supported by this device');
+        }
+      }
+    });
+  });
+
   describe('custom methods', () => {
     it('includes custom method implementations', async () => {
       interface TestInstrument {

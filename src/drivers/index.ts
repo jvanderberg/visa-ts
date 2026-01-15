@@ -10,18 +10,32 @@
 
 // Core driver types
 export type {
+  // Property definitions
+  SupportedPropertyDef,
+  UnsupportedPropertyDef,
   PropertyDef,
   PropertyMap,
+  StrictPropertyMap,
+  // Command definitions
+  SupportedCommandDef,
+  UnsupportedCommandDef,
   CommandDef,
   CommandMap,
+  // Channel specifications
   ChannelSpec,
+  StrictChannelSpec,
+  // Driver configuration
   QuirkConfig,
   DriverContext,
   DriverHooks,
   MethodMap,
   DriverSpec,
+  StrictDriverSpec,
   Driver,
 } from './types.js';
+
+// Type guards
+export { isSupported, isCommandSupported } from './types.js';
 
 // Driver factory
 export { defineDriver } from './define-driver.js';

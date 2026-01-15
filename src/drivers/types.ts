@@ -7,26 +7,49 @@
 import type { Result } from '../result.js';
 import type { MessageBasedResource } from '../resources/message-based-resource.js';
 
+// ─────────────────────────────────────────────────────────────────
+// Type Helpers for Extracting Properties from Interfaces
+// ─────────────────────────────────────────────────────────────────
+
 /**
- * Definition for a readable/writable property on an instrument.
- *
- * Properties map to SCPI query/command pairs. The `{value}` placeholder
- * in the set command is replaced with the formatted value. The `{ch}` placeholder
- * is replaced with the channel number for channel-specific properties.
- *
- * @typeParam T - The type of the property value
- *
- * @example
- * ```typescript
- * const voltageProp: PropertyDef<number> = {
- *   get: ':VOLT?',
- *   set: ':VOLT {value}',
- *   parse: parseScpiNumber,
- *   unit: 'V',
- * };
- * ```
+ * Extract property name from getter method name.
+ * e.g., 'getVoltage' -> 'voltage'
  */
-export interface PropertyDef<T> {
+type ExtractPropertyName<K> = K extends `get${infer Name}` ? Uncapitalize<Name> : never;
+
+/**
+ * Extract the return type from a getter method.
+ * e.g., getVoltage(): Promise<Result<number, Error>> -> number
+ */
+type ExtractPropertyType<T, K extends keyof T> = T[K] extends () => Promise<Result<infer R, Error>>
+  ? R
+  : never;
+
+/**
+ * Extract all properties from an interface based on getter methods.
+ * Maps getX() methods to property name 'x' with its return type.
+ */
+type ExtractProperties<T> = {
+  [K in keyof T as ExtractPropertyName<K & string>]: ExtractPropertyType<T, K>;
+};
+
+/**
+ * Check if interface has a setter for a property.
+ * e.g., HasSetter<MyInterface, 'voltage'> checks for setVoltage method.
+ * @internal Reserved for future use
+ */
+export type HasSetter<T, PropName extends string> = `set${Capitalize<PropName>}` extends keyof T
+  ? true
+  : false;
+
+// ─────────────────────────────────────────────────────────────────
+// Property Definitions
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * A supported property with SCPI commands.
+ */
+export interface SupportedPropertyDef<T> {
   /** SCPI query command (e.g., ':TIMebase:SCALe?') */
   get: string;
 
@@ -53,25 +76,70 @@ export interface PropertyDef<T> {
 }
 
 /**
- * Map of property names to their definitions.
+ * Marker for an unsupported property.
+ * The getter/setter will return Err('Not supported by this device').
+ */
+export interface UnsupportedPropertyDef {
+  /** Mark this property as not supported */
+  notSupported: true;
+
+  /** Optional description of why it's not supported */
+  description?: string;
+}
+
+/**
+ * Definition for a readable/writable property on an instrument.
+ * Can be either a supported property with SCPI commands, or marked as unsupported.
+ *
+ * @typeParam T - The type of the property value
+ *
+ * @example Supported property:
+ * ```typescript
+ * const voltageProp: PropertyDef<number> = {
+ *   get: ':VOLT?',
+ *   set: ':VOLT {value}',
+ *   parse: parseFloat,
+ * };
+ * ```
+ *
+ * @example Unsupported property:
+ * ```typescript
+ * const bandwidthLimit: PropertyDef<string> = {
+ *   notSupported: true,
+ *   description: 'This model does not support bandwidth limiting',
+ * };
+ * ```
+ */
+export type PropertyDef<T> = SupportedPropertyDef<T> | UnsupportedPropertyDef;
+
+/**
+ * Check if a property definition is supported (has SCPI commands).
+ */
+export function isSupported<T>(prop: PropertyDef<T>): prop is SupportedPropertyDef<T> {
+  return !('notSupported' in prop);
+}
+
+/**
+ * Map of property names to their definitions (loosely typed for internal use).
  */
 export type PropertyMap = Record<string, PropertyDef<unknown>>;
 
 /**
- * Definition for a fire-and-forget command.
- *
- * Commands are operations that don't return a value, like *RST or RUN.
- *
- * @example
- * ```typescript
- * const resetCmd: CommandDef = {
- *   command: '*RST',
- *   description: 'Reset to factory defaults',
- *   delay: 500,
- * };
- * ```
+ * Strictly typed property map that requires all properties from interface T.
+ * Each property extracted from getter methods must be defined.
  */
-export interface CommandDef {
+export type StrictPropertyMap<T> = {
+  [K in keyof ExtractProperties<T>]: PropertyDef<ExtractProperties<T>[K]>;
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Command Definitions
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * A supported command with SCPI string.
+ */
+export interface SupportedCommandDef {
   /** SCPI command to send (e.g., '*RST', ':RUN') */
   command: string;
 
@@ -83,28 +151,55 @@ export interface CommandDef {
 }
 
 /**
+ * Marker for an unsupported command.
+ */
+export interface UnsupportedCommandDef {
+  /** Mark this command as not supported */
+  notSupported: true;
+
+  /** Optional description of why it's not supported */
+  description?: string;
+}
+
+/**
+ * Definition for a fire-and-forget command.
+ *
+ * @example Supported command:
+ * ```typescript
+ * const resetCmd: CommandDef = {
+ *   command: '*RST',
+ *   description: 'Reset to factory defaults',
+ *   delay: 500,
+ * };
+ * ```
+ *
+ * @example Unsupported command:
+ * ```typescript
+ * const autoScale: CommandDef = {
+ *   notSupported: true,
+ * };
+ * ```
+ */
+export type CommandDef = SupportedCommandDef | UnsupportedCommandDef;
+
+/**
+ * Check if a command definition is supported.
+ */
+export function isCommandSupported(cmd: CommandDef): cmd is SupportedCommandDef {
+  return !('notSupported' in cmd);
+}
+
+/**
  * Map of command names to their definitions.
  */
 export type CommandMap = Record<string, CommandDef>;
 
+// ─────────────────────────────────────────────────────────────────
+// Channel Specification
+// ─────────────────────────────────────────────────────────────────
+
 /**
- * Channel specification for multi-channel instruments.
- *
- * Channels use the `{ch}` placeholder in property/command strings.
- *
- * @example
- * ```typescript
- * const channelSpec: ChannelSpec = {
- *   count: 3,
- *   indexStart: 1,  // SCPI typically uses 1-based indexing
- *   properties: {
- *     voltage: {
- *       get: ':SOUR{ch}:VOLT?',
- *       set: ':SOUR{ch}:VOLT {value}',
- *     },
- *   },
- * };
- * ```
+ * Channel specification for multi-channel instruments (loosely typed).
  */
 export interface ChannelSpec {
   /** Number of channels this instrument has */
@@ -119,6 +214,28 @@ export interface ChannelSpec {
   /** Commands available on each channel */
   commands?: CommandMap;
 }
+
+/**
+ * Strictly typed channel specification.
+ * Requires all properties from channel interface TChannel.
+ */
+export interface StrictChannelSpec<TChannel> {
+  /** Number of channels this instrument has */
+  count: number;
+
+  /** Starting index for channel numbering (default: 1) */
+  indexStart?: number;
+
+  /** Properties available on each channel - must match TChannel interface */
+  properties: StrictPropertyMap<TChannel>;
+
+  /** Commands available on each channel */
+  commands?: CommandMap;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Driver Configuration
+// ─────────────────────────────────────────────────────────────────
 
 /**
  * Configuration for handling manufacturer-specific quirks.
@@ -184,33 +301,15 @@ export type MethodMap<T> = {
     : never;
 };
 
+// ─────────────────────────────────────────────────────────────────
+// Driver Specification
+// ─────────────────────────────────────────────────────────────────
+
 /**
- * Full driver specification.
+ * Full driver specification (loosely typed).
+ * Use StrictDriverSpec for compile-time property enforcement.
  *
  * @typeParam T - The interface type this driver produces
- *
- * @example
- * ```typescript
- * interface MyOscilloscope extends Oscilloscope {
- *   getCustomSetting(): Promise<Result<string, Error>>;
- * }
- *
- * const spec: DriverSpec<MyOscilloscope> = {
- *   type: 'oscilloscope',
- *   manufacturer: 'Rigol',
- *   models: ['DS1054Z'],
- *   properties: {
- *     timebase: {
- *       get: ':TIM:SCAL?',
- *       set: ':TIM:SCAL {value}',
- *     },
- *   },
- *   commands: {
- *     run: { command: ':RUN' },
- *     stop: { command: ':STOP' },
- *   },
- * };
- * ```
  */
 export interface DriverSpec<T> {
   /** Equipment category (e.g., 'oscilloscope', 'power-supply') */
@@ -230,6 +329,71 @@ export interface DriverSpec<T> {
 
   /** Channel configuration for multi-channel instruments */
   channels?: ChannelSpec;
+
+  /** Lifecycle hooks */
+  hooks?: DriverHooks;
+
+  /** Custom method implementations */
+  methods?: MethodMap<T>;
+
+  /** Hardware quirks configuration */
+  quirks?: QuirkConfig;
+
+  /** Declared capabilities */
+  capabilities?: string[];
+}
+
+/**
+ * Strictly typed driver specification.
+ * Enforces at compile-time that all properties from T are defined.
+ *
+ * @typeParam T - The instrument interface type
+ * @typeParam TChannel - The channel interface type (optional)
+ *
+ * @example
+ * ```typescript
+ * interface MyScope {
+ *   getTimebase(): Promise<Result<number, Error>>;
+ *   setTimebase(v: number): Promise<Result<void, Error>>;
+ * }
+ *
+ * interface MyScopeChannel {
+ *   getScale(): Promise<Result<number, Error>>;
+ *   setScale(v: number): Promise<Result<void, Error>>;
+ * }
+ *
+ * // TypeScript enforces 'timebase' property is defined
+ * const spec: StrictDriverSpec<MyScope, MyScopeChannel> = {
+ *   properties: {
+ *     timebase: { get: ':TIM:SCAL?', set: ':TIM:SCAL {value}' },
+ *   },
+ *   channels: {
+ *     count: 4,
+ *     properties: {
+ *       scale: { get: ':CHAN{ch}:SCAL?', set: ':CHAN{ch}:SCAL {value}' },
+ *     },
+ *   },
+ * };
+ * ```
+ */
+export interface StrictDriverSpec<T, TChannel = never> {
+  /** Equipment category (e.g., 'oscilloscope', 'power-supply') */
+  type?: string;
+
+  /** Manufacturer name */
+  manufacturer?: string;
+
+  /** Supported model numbers */
+  models?: string[];
+
+  /** Global properties - must define all properties from T */
+  properties: StrictPropertyMap<T>;
+
+  /** Global commands (not per-channel) */
+  commands?: CommandMap;
+
+  /** Channel configuration - must define all properties from TChannel */
+  channels?: [TChannel] extends [never] ? never : StrictChannelSpec<TChannel>;
 
   /** Lifecycle hooks */
   hooks?: DriverHooks;

@@ -6,7 +6,15 @@
 
 import { Ok, Err, type Result } from '../result.js';
 import type { MessageBasedResource } from '../resources/message-based-resource.js';
-import type { QuirkConfig, DriverHooks, PropertyDef, CommandDef, ChannelSpec } from './types.js';
+import {
+  isSupported,
+  isCommandSupported,
+  type QuirkConfig,
+  type DriverHooks,
+  type PropertyDef,
+  type CommandDef,
+  type ChannelSpec,
+} from './types.js';
 
 /**
  * Helper to create a delay promise.
@@ -56,6 +64,12 @@ export function createChannelGetter<T>(
   hooks: DriverHooks | undefined,
   channelCount: number
 ): () => Promise<Result<T, Error>> {
+  // Handle unsupported properties
+  if (!isSupported(prop)) {
+    const msg = prop.description ?? 'Not supported by this device';
+    return async () => Err(new Error(msg));
+  }
+
   return async () => {
     // Bounds check
     const boundsResult = validateChannelNumber(channelNum, channelCount);
@@ -109,6 +123,12 @@ export function createChannelSetter<T>(
   hooks: DriverHooks | undefined,
   channelCount: number
 ): (value: T) => Promise<Result<void, Error>> {
+  // Handle unsupported properties
+  if (!isSupported(prop)) {
+    const msg = prop.description ?? 'Not supported by this device';
+    return async () => Err(new Error(msg));
+  }
+
   // Guard: property must have a set command
   if (!prop.set) {
     return async () => Err(new Error('Property is read-only'));
@@ -170,6 +190,12 @@ export function createChannelCommand(
   hooks: DriverHooks | undefined,
   channelCount: number
 ): () => Promise<Result<void, Error>> {
+  // Handle unsupported commands
+  if (!isCommandSupported(cmdDef)) {
+    const msg = cmdDef.description ?? 'Not supported by this device';
+    return async () => Err(new Error(msg));
+  }
+
   return async () => {
     // Bounds check
     const boundsResult = validateChannelNumber(channelNum, channelCount);
@@ -235,7 +261,7 @@ export function createChannelAccessor(
     );
 
     // Generate setter if set command is defined and not readonly
-    if (propDef.set && !propDef.readonly) {
+    if (isSupported(propDef) && propDef.set && !propDef.readonly) {
       const setterName = toSetterName(propName);
       channelInstance[setterName] = createChannelSetter(
         resource,
