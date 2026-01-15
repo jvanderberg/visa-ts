@@ -8,7 +8,48 @@
 
 import { defineDriver } from '../../define-driver.js';
 import { parseScpiNumber, parseScpiBool, formatScpiBool } from '../../parsers.js';
-import type { DriverSpec, PropertyDef } from '../../types.js';
+import type { DriverSpec } from '../../types.js';
+import type { Result } from '../../../result.js';
+
+// ─────────────────────────────────────────────────────────────────
+// DP832-specific interfaces
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * DP832 channel interface - defines what this driver implements.
+ */
+export interface DP832Channel {
+  getVoltage(): Promise<Result<number, Error>>;
+  setVoltage(v: number): Promise<Result<void, Error>>;
+  getCurrent(): Promise<Result<number, Error>>;
+  setCurrent(v: number): Promise<Result<void, Error>>;
+  getOutputEnabled(): Promise<Result<boolean, Error>>;
+  setOutputEnabled(v: boolean): Promise<Result<void, Error>>;
+  getMeasuredVoltage(): Promise<Result<number, Error>>;
+  getMeasuredCurrent(): Promise<Result<number, Error>>;
+  getMeasuredPower(): Promise<Result<number, Error>>;
+  getMode(): Promise<Result<string, Error>>;
+  getOvpEnabled(): Promise<Result<boolean, Error>>;
+  setOvpEnabled(v: boolean): Promise<Result<void, Error>>;
+  getOvpLevel(): Promise<Result<number, Error>>;
+  setOvpLevel(v: number): Promise<Result<void, Error>>;
+  getOcpEnabled(): Promise<Result<boolean, Error>>;
+  setOcpEnabled(v: boolean): Promise<Result<void, Error>>;
+  getOcpLevel(): Promise<Result<number, Error>>;
+  setOcpLevel(v: number): Promise<Result<void, Error>>;
+}
+
+/**
+ * DP832 power supply interface - defines what this driver implements.
+ */
+export interface DP832PSU {
+  getAllOutputEnabled(): Promise<Result<boolean, Error>>;
+  setAllOutputEnabled(v: boolean): Promise<Result<void, Error>>;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Helper functions
+// ─────────────────────────────────────────────────────────────────
 
 /**
  * Parse regulation mode response.
@@ -21,10 +62,14 @@ function parseRegulationMode(s: string): string {
   return val;
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Driver specification
+// ─────────────────────────────────────────────────────────────────
+
 /**
  * Rigol DP800 series driver specification.
  */
-const dp832Spec: DriverSpec = {
+const dp832Spec: DriverSpec<DP832PSU, DP832Channel> = {
   type: 'power-supply',
   manufacturer: 'Rigol',
   models: ['DP832', 'DP832A', 'DP831', 'DP831A', 'DP821', 'DP821A', 'DP811', 'DP811A'],
@@ -35,10 +80,8 @@ const dp832Spec: DriverSpec = {
       set: ':OUTPut:ALL {value}',
       parse: parseScpiBool,
       format: formatScpiBool,
-    } as PropertyDef<boolean>,
+    },
   },
-
-  commands: {},
 
   channels: {
     count: 3,
@@ -49,76 +92,76 @@ const dp832Spec: DriverSpec = {
         set: ':SOURce{ch}:VOLTage {value}',
         parse: parseScpiNumber,
         unit: 'V',
-      } as PropertyDef<number>,
+      },
 
       current: {
         get: ':SOURce{ch}:CURRent?',
         set: ':SOURce{ch}:CURRent {value}',
         parse: parseScpiNumber,
         unit: 'A',
-      } as PropertyDef<number>,
+      },
 
       outputEnabled: {
         get: ':OUTPut:STATe? CH{ch}',
         set: ':OUTPut:STATe CH{ch},{value}',
         parse: parseScpiBool,
         format: formatScpiBool,
-      } as PropertyDef<boolean>,
+      },
 
       measuredVoltage: {
         get: ':MEASure:VOLTage? CH{ch}',
         parse: parseScpiNumber,
         readonly: true,
         unit: 'V',
-      } as PropertyDef<number>,
+      },
 
       measuredCurrent: {
         get: ':MEASure:CURRent? CH{ch}',
         parse: parseScpiNumber,
         readonly: true,
         unit: 'A',
-      } as PropertyDef<number>,
+      },
 
       measuredPower: {
         get: ':MEASure:POWer? CH{ch}',
         parse: parseScpiNumber,
         readonly: true,
         unit: 'W',
-      } as PropertyDef<number>,
+      },
 
       mode: {
         get: ':OUTPut:MODE? CH{ch}',
         parse: parseRegulationMode,
         readonly: true,
-      } as PropertyDef<string>,
+      },
 
       ovpEnabled: {
         get: ':OUTPut:OVP? CH{ch}',
         set: ':OUTPut:OVP CH{ch},{value}',
         parse: parseScpiBool,
         format: formatScpiBool,
-      } as PropertyDef<boolean>,
+      },
 
       ovpLevel: {
         get: ':OUTPut:OVP:VALue? CH{ch}',
         set: ':OUTPut:OVP:VALue CH{ch},{value}',
         parse: parseScpiNumber,
         unit: 'V',
-      } as PropertyDef<number>,
+      },
 
       ocpEnabled: {
         get: ':OUTPut:OCP? CH{ch}',
         set: ':OUTPut:OCP CH{ch},{value}',
         parse: parseScpiBool,
         format: formatScpiBool,
-      } as PropertyDef<boolean>,
+      },
 
       ocpLevel: {
         get: ':OUTPut:OCP:VALue? CH{ch}',
         set: ':OUTPut:OCP:VALue CH{ch},{value}',
         parse: parseScpiNumber,
         unit: 'A',
-      } as PropertyDef<number>,
+      },
     },
   },
 

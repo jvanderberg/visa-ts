@@ -9,7 +9,48 @@
 import { defineDriver } from '../../define-driver.js';
 import { parseScpiNumber, parseScpiBool, formatScpiBool } from '../../parsers.js';
 import { Ok } from '../../../result.js';
-import type { DriverSpec, PropertyDef } from '../../types.js';
+import type { DriverSpec, DriverContext } from '../../types.js';
+import type { Result } from '../../../result.js';
+
+// ─────────────────────────────────────────────────────────────────
+// 34465A-specific interfaces
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Keysight 34465A DMM interface - defines what this driver implements.
+ */
+export interface Keysight34465ADMM {
+  // Properties
+  getFunction(): Promise<Result<string, Error>>;
+  setFunction(v: string): Promise<Result<void, Error>>;
+  getRange(): Promise<Result<number, Error>>;
+  setRange(v: number): Promise<Result<void, Error>>;
+  getAutoRange(): Promise<Result<boolean, Error>>;
+  setAutoRange(v: boolean): Promise<Result<void, Error>>;
+  getNplc(): Promise<Result<number, Error>>;
+  setNplc(v: number): Promise<Result<void, Error>>;
+  getTriggerSource(): Promise<Result<string, Error>>;
+  setTriggerSource(v: string): Promise<Result<void, Error>>;
+  getTriggerDelay(): Promise<Result<number, Error>>;
+  setTriggerDelay(v: number): Promise<Result<void, Error>>;
+  getTriggerCount(): Promise<Result<number, Error>>;
+  setTriggerCount(v: number): Promise<Result<void, Error>>;
+  getSampleCount(): Promise<Result<number, Error>>;
+  setSampleCount(v: number): Promise<Result<void, Error>>;
+
+  // Methods
+  measure(): Promise<Result<number, Error>>;
+  read(): Promise<Result<number, Error>>;
+  fetch(): Promise<Result<number, Error>>;
+
+  // Commands
+  initiate(): Promise<Result<void, Error>>;
+  abort(): Promise<Result<void, Error>>;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Helper functions
+// ─────────────────────────────────────────────────────────────────
 
 /**
  * Map of DMM function names to SCPI function strings.
@@ -66,10 +107,14 @@ function parseTriggerSource(s: string): string {
   return val;
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Driver specification
+// ─────────────────────────────────────────────────────────────────
+
 /**
  * Keysight 34465A driver specification.
  */
-const keysight34465ASpec: DriverSpec = {
+const keysight34465ASpec: DriverSpec<Keysight34465ADMM> = {
   type: 'multimeter',
   manufacturer: 'Keysight',
   models: ['34460A', '34461A', '34465A', '34470A'],
@@ -81,71 +126,71 @@ const keysight34465ASpec: DriverSpec = {
       set: ':SENSe:FUNCtion {value}',
       parse: parseDmmFunction,
       format: formatDmmFunction,
-    } as PropertyDef<string>,
+    },
 
     // Range (for DC voltage as default)
     range: {
       get: ':SENSe:VOLTage:DC:RANGe?',
       set: ':SENSe:VOLTage:DC:RANGe {value}',
       parse: parseScpiNumber,
-    } as PropertyDef<number>,
+    },
 
     autoRange: {
       get: ':SENSe:VOLTage:DC:RANGe:AUTO?',
       set: ':SENSe:VOLTage:DC:RANGe:AUTO {value}',
       parse: parseScpiBool,
       format: formatScpiBool,
-    } as PropertyDef<boolean>,
+    },
 
     // Resolution (NPLC)
     nplc: {
       get: ':SENSe:VOLTage:DC:NPLC?',
       set: ':SENSe:VOLTage:DC:NPLC {value}',
       parse: parseScpiNumber,
-    } as PropertyDef<number>,
+    },
 
     // Trigger
     triggerSource: {
       get: ':TRIGger:SOURce?',
       set: ':TRIGger:SOURce {value}',
       parse: parseTriggerSource,
-    } as PropertyDef<string>,
+    },
 
     triggerDelay: {
       get: ':TRIGger:DELay?',
       set: ':TRIGger:DELay {value}',
       parse: parseScpiNumber,
-    } as PropertyDef<number>,
+    },
 
     triggerCount: {
       get: ':TRIGger:COUNt?',
       set: ':TRIGger:COUNt {value}',
       parse: parseScpiNumber,
-    } as PropertyDef<number>,
+    },
 
     // Sample
     sampleCount: {
       get: ':SAMPle:COUNt?',
       set: ':SAMPle:COUNt {value}',
       parse: parseScpiNumber,
-    } as PropertyDef<number>,
+    },
   },
 
   methods: {
     // Measurement methods - these trigger actual measurements
-    async measure(ctx) {
+    async measure(ctx: DriverContext): Promise<Result<number, Error>> {
       const result = await ctx.query(':MEASure:VOLTage:DC?');
       if (!result.ok) return result;
       return Ok(parseScpiNumber(result.value));
     },
 
-    async read(ctx) {
+    async read(ctx: DriverContext): Promise<Result<number, Error>> {
       const result = await ctx.query(':READ?');
       if (!result.ok) return result;
       return Ok(parseScpiNumber(result.value));
     },
 
-    async fetch(ctx) {
+    async fetch(ctx: DriverContext): Promise<Result<number, Error>> {
       const result = await ctx.query(':FETCh?');
       if (!result.ok) return result;
       return Ok(parseScpiNumber(result.value));
@@ -180,7 +225,7 @@ const keysight34465ASpec: DriverSpec = {
  *   await dmm.value.setNplc(10);
  *
  *   // Take a measurement
- *   const reading = await dmm.value.getMeasureVdc();
+ *   const reading = await dmm.value.measure();
  *   console.log(`Voltage: ${reading.value} V`);
  * }
  * ```
