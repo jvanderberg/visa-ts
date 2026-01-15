@@ -1764,19 +1764,19 @@ Use existing driver? [Y/n]
 ## Implementation Phases
 
 ### Phase 1: Core Infrastructure
-- [ ] `DriverSpec` and related types
-- [ ] `defineDriver<T>()` factory function
-- [ ] `DriverContext` for hooks and methods
-- [ ] Channel accessor implementation with bounds checking
-- [ ] Property get/set code generation
-- [ ] Command code generation
-- [ ] Capability system
+- [x] `DriverSpec` and related types
+- [x] `defineDriver<T>()` factory function
+- [x] `DriverContext` for hooks and methods
+- [x] Channel accessor implementation with bounds checking
+- [x] Property get/set code generation
+- [x] Command code generation
+- [x] Capability system
 
 ### Phase 2: Equipment Base Types
-- [ ] `BaseInstrument`
-- [ ] `Oscilloscope` with analog/digital channels
-- [ ] `PowerSupply` with channel support
-- [ ] `Multimeter` with dual display support
+- [x] `BaseInstrument`
+- [x] `Oscilloscope` with analog/digital channels
+- [x] `PowerSupply` with channel support
+- [x] `Multimeter` with dual display support
 
 ### Phase 3: Reference Implementations
 - [ ] Rigol DS1054Z oscilloscope
