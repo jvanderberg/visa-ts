@@ -49,7 +49,6 @@ export interface InstrumentError {
  * - Reset and clear operations
  * - Self-test
  * - Error query
- * - Capability checking
  * - Raw resource access (escape hatch)
  *
  * @example
@@ -95,28 +94,6 @@ export interface BaseInstrument {
    * ```
    */
   readonly resource: MessageBasedResource;
-
-  // ─────────────────────────────────────────────────────────────────
-  // Capabilities
-  // ─────────────────────────────────────────────────────────────────
-
-  /** List of capabilities this instrument supports */
-  readonly capabilities: readonly string[];
-
-  /**
-   * Check if this instrument has a specific capability.
-   *
-   * @param capability - The capability to check for
-   * @returns true if the capability is supported
-   *
-   * @example
-   * ```typescript
-   * if (scope.hasCapability('protocol-decode')) {
-   *   await scope.configureDecoder('i2c', { sda: 1, scl: 2 });
-   * }
-   * ```
-   */
-  hasCapability(capability: string): boolean;
 
   // ─────────────────────────────────────────────────────────────────
   // Common Operations

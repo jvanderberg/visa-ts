@@ -21,14 +21,13 @@ type BaseInstrumentPropertyNames =
   | 'serialNumber'
   | 'firmwareVersion'
   | 'resourceString'
-  | 'capabilities'
   | 'error';
 
 /**
  * Base instrument command names to exclude from extraction.
  * These are auto-provided by defineDriver.
  */
-type BaseInstrumentCommandNames = 'reset' | 'clear' | 'selfTest' | 'close' | 'hasCapability';
+type BaseInstrumentCommandNames = 'reset' | 'clear' | 'selfTest' | 'close';
 
 /**
  * Base channel property name to exclude - channelNumber is auto-provided.
@@ -293,9 +292,9 @@ export type ChannelSpec<TChannel> = ChannelSpecBase<TChannel> & ChannelCommands<
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Configuration for handling manufacturer-specific quirks.
+ * Driver settings for instrument-specific behavior.
  */
-export interface QuirkConfig {
+export interface DriverSettings {
   /** Delay in milliseconds after each command (for slow instruments) */
   postCommandDelay?: number;
 
@@ -385,11 +384,8 @@ interface DriverSpecBase<T, TChannel> {
   /** Custom method implementations */
   methods?: MethodMap<T>;
 
-  /** Hardware quirks configuration */
-  quirks?: QuirkConfig;
-
-  /** Declared capabilities */
-  capabilities?: string[];
+  /** Driver settings */
+  settings?: DriverSettings;
 }
 
 /**

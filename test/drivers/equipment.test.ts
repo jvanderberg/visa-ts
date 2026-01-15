@@ -20,19 +20,15 @@ describe('Equipment Types', () => {
         serialNumber: 'DS1ZA123456789',
         firmwareVersion: '00.04.04',
         resource: {} as BaseInstrument['resource'],
-        capabilities: ['fft', 'math-channels'],
         reset: vi.fn().mockResolvedValue(Ok(undefined)),
         clear: vi.fn().mockResolvedValue(Ok(undefined)),
         selfTest: vi.fn().mockResolvedValue(Ok(true)),
         getError: vi.fn().mockResolvedValue(Ok(null)),
         close: vi.fn().mockResolvedValue(Ok(undefined)),
-        hasCapability: vi.fn((cap) => mockInstrument.capabilities.includes(cap)),
       };
 
       expect(mockInstrument.manufacturer).toBe('RIGOL');
       expect(mockInstrument.model).toBe('DS1054Z');
-      expect(mockInstrument.hasCapability('fft')).toBe(true);
-      expect(mockInstrument.hasCapability('unknown')).toBe(false);
     });
   });
 
@@ -48,14 +44,14 @@ describe('Equipment Types', () => {
         setOffset: vi.fn().mockResolvedValue(Ok(undefined)),
         getCoupling: vi.fn().mockResolvedValue(Ok('DC')),
         setCoupling: vi.fn().mockResolvedValue(Ok(undefined)),
-        getBandwidthLimit: vi.fn().mockResolvedValue(Ok('OFF')),
-        setBandwidthLimit: vi.fn().mockResolvedValue(Ok(undefined)),
-        getProbeAttenuation: vi.fn().mockResolvedValue(Ok(10)),
-        setProbeAttenuation: vi.fn().mockResolvedValue(Ok(undefined)),
-        getInverted: vi.fn().mockResolvedValue(Ok(false)),
-        setInverted: vi.fn().mockResolvedValue(Ok(undefined)),
-        getLabel: vi.fn().mockResolvedValue(Ok('CH1')),
-        setLabel: vi.fn().mockResolvedValue(Ok(undefined)),
+        // Measurements
+        getMeasuredFrequency: vi.fn().mockResolvedValue(Ok(1000)),
+        getMeasuredPeriod: vi.fn().mockResolvedValue(Ok(0.001)),
+        getMeasuredVpp: vi.fn().mockResolvedValue(Ok(3.3)),
+        getMeasuredVmax: vi.fn().mockResolvedValue(Ok(1.65)),
+        getMeasuredVmin: vi.fn().mockResolvedValue(Ok(-1.65)),
+        getMeasuredVavg: vi.fn().mockResolvedValue(Ok(0)),
+        getMeasuredVrms: vi.fn().mockResolvedValue(Ok(1.17)),
       };
 
       const mockScope: Oscilloscope = {
@@ -65,7 +61,6 @@ describe('Equipment Types', () => {
         serialNumber: 'DS1ZA123456789',
         firmwareVersion: '00.04.04',
         resource: {} as Oscilloscope['resource'],
-        capabilities: ['fft'],
         channelCount: 4,
         digitalChannelCount: 0,
         reset: vi.fn().mockResolvedValue(Ok(undefined)),
@@ -73,7 +68,6 @@ describe('Equipment Types', () => {
         selfTest: vi.fn().mockResolvedValue(Ok(true)),
         getError: vi.fn().mockResolvedValue(Ok(null)),
         close: vi.fn().mockResolvedValue(Ok(undefined)),
-        hasCapability: vi.fn().mockReturnValue(true),
         channel: vi.fn().mockReturnValue(mockChannel),
         getTimebase: vi.fn().mockResolvedValue(Ok(1e-3)),
         setTimebase: vi.fn().mockResolvedValue(Ok(undefined)),
@@ -119,7 +113,8 @@ describe('Equipment Types', () => {
 
       expect(mockScope.channelCount).toBe(4);
       expect(mockScope.digitalChannelCount).toBe(0);
-      expect(mockScope.channel(1)).toBe(mockChannel);
+      const ch = mockScope.channel(1);
+      expect(ch).toBe(mockChannel);
     });
   });
 
@@ -146,14 +141,12 @@ describe('Equipment Types', () => {
         serialNumber: 'DP8A123456789',
         firmwareVersion: '00.01.16',
         resource: {} as PowerSupply['resource'],
-        capabilities: ['ovp', 'ocp'],
         channelCount: 3,
         reset: vi.fn().mockResolvedValue(Ok(undefined)),
         clear: vi.fn().mockResolvedValue(Ok(undefined)),
         selfTest: vi.fn().mockResolvedValue(Ok(true)),
         getError: vi.fn().mockResolvedValue(Ok(null)),
         close: vi.fn().mockResolvedValue(Ok(undefined)),
-        hasCapability: vi.fn().mockReturnValue(true),
         channel: vi.fn().mockReturnValue(mockChannel),
         getAllOutputEnabled: vi.fn().mockResolvedValue(Ok(false)),
         setAllOutputEnabled: vi.fn().mockResolvedValue(Ok(undefined)),
@@ -169,7 +162,8 @@ describe('Equipment Types', () => {
       };
 
       expect(mockPsu.channelCount).toBe(3);
-      expect(mockPsu.channel(1)).toBe(mockChannel);
+      const ch = mockPsu.channel(1);
+      expect(ch).toBe(mockChannel);
     });
   });
 
@@ -197,14 +191,12 @@ describe('Equipment Types', () => {
         serialNumber: 'MY12345678',
         firmwareVersion: 'A.02.14-02.40-02.14-00.49-02-01',
         resource: {} as Multimeter['resource'],
-        capabilities: ['dual-display', 'data-logging'],
         displayCount: 1,
         reset: vi.fn().mockResolvedValue(Ok(undefined)),
         clear: vi.fn().mockResolvedValue(Ok(undefined)),
         selfTest: vi.fn().mockResolvedValue(Ok(true)),
         getError: vi.fn().mockResolvedValue(Ok(null)),
         close: vi.fn().mockResolvedValue(Ok(undefined)),
-        hasCapability: vi.fn().mockReturnValue(true),
         display: vi.fn().mockReturnValue(mockDisplay),
         getFunction: vi.fn().mockResolvedValue(Ok('VDC')),
         setFunction: vi.fn().mockResolvedValue(Ok(undefined)),

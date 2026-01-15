@@ -21,7 +21,7 @@ export type {
   // Channel specifications
   ChannelSpec,
   // Driver configuration
-  QuirkConfig,
+  DriverSettings,
   DriverContext,
   DriverHooks,
   MethodMap,
@@ -54,7 +54,6 @@ export type {
   BandwidthLimit,
   MeasurementType,
   Protocol,
-  OscilloscopeCapability,
   WaveformData,
   // Power Supply
   PowerSupply,
@@ -63,7 +62,6 @@ export type {
   TrackingMode,
   CombineMode,
   VoltageRange,
-  PowerSupplyCapability,
   // Multimeter
   Multimeter,
   DmmFunction,

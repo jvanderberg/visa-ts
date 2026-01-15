@@ -47,11 +47,6 @@ describe('Keysight 34465A Driver', () => {
       expect(keysight34465A.spec.manufacturer).toBe('Keysight');
       expect(keysight34465A.spec.models).toContain('34465A');
     });
-
-    it('declares capabilities', () => {
-      expect(keysight34465A.spec.capabilities).toContain('data-logging');
-      expect(keysight34465A.spec.capabilities).toContain('histogram');
-    });
   });
 
   describe('connect', () => {
@@ -78,84 +73,200 @@ describe('Keysight 34465A Driver', () => {
     });
   });
 
-  describe('function selection', () => {
+  describe('measurements', () => {
     beforeEach(() => {
       vi.mocked(mockResource.query).mockImplementation(async (cmd) => {
         if (cmd === '*IDN?') return Ok('Keysight,34465A,MY12345678,A.02.14');
-        if (cmd === ':SENSe:FUNCtion?') return Ok('"VOLTage:DC"');
+        if (cmd === ':MEASure:VOLTage:DC?') return Ok('+5.01234567E+00');
+        if (cmd === ':MEASure:VOLTage:AC?') return Ok('+3.54321000E+00');
+        if (cmd === ':MEASure:CURRent:DC?') return Ok('+1.23456789E-03');
+        if (cmd === ':MEASure:CURRent:AC?') return Ok('+2.50000000E-03');
+        if (cmd === ':MEASure:RESistance?') return Ok('+1.00000000E+03');
+        if (cmd === ':MEASure:FRESistance?') return Ok('+9.99500000E+02');
+        if (cmd === ':MEASure:FREQuency?') return Ok('+1.00000000E+03');
+        if (cmd === ':MEASure:CAPacitance?') return Ok('+1.00000000E-06');
+        if (cmd === ':MEASure:CONTinuity?') return Ok('+5.00000000E+00');
+        if (cmd === ':MEASure:DIODe?') return Ok('+6.50000000E-01');
+        if (cmd === ':READ?') return Ok('+5.01234567E+00');
+        if (cmd === ':FETCh?') return Ok('+5.01234567E+00');
         return Err(new Error(`Unknown command: ${cmd}`));
       });
     });
 
-    it('gets measurement function', async () => {
+    it('measures DC voltage', async () => {
       const result = await keysight34465A.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const func = await result.value.getFunction();
-        expect(func.ok).toBe(true);
-        if (func.ok) {
-          expect(func.value).toBe('VDC');
+        const voltage = await result.value.getMeasuredVoltageDC();
+        expect(voltage.ok).toBe(true);
+        if (voltage.ok) {
+          expect(voltage.value).toBeCloseTo(5.01234567, 6);
+        }
+        expect(mockResource.query).toHaveBeenCalledWith(':MEASure:VOLTage:DC?');
+      }
+    });
+
+    it('measures AC voltage', async () => {
+      const result = await keysight34465A.connect(mockResource);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const voltage = await result.value.getMeasuredVoltageAC();
+        expect(voltage.ok).toBe(true);
+        if (voltage.ok) {
+          expect(voltage.value).toBeCloseTo(3.54321, 5);
+        }
+        expect(mockResource.query).toHaveBeenCalledWith(':MEASure:VOLTage:AC?');
+      }
+    });
+
+    it('measures DC current', async () => {
+      const result = await keysight34465A.connect(mockResource);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const current = await result.value.getMeasuredCurrentDC();
+        expect(current.ok).toBe(true);
+        if (current.ok) {
+          expect(current.value).toBeCloseTo(0.00123456789, 9);
+        }
+        expect(mockResource.query).toHaveBeenCalledWith(':MEASure:CURRent:DC?');
+      }
+    });
+
+    it('measures AC current', async () => {
+      const result = await keysight34465A.connect(mockResource);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const current = await result.value.getMeasuredCurrentAC();
+        expect(current.ok).toBe(true);
+        if (current.ok) {
+          expect(current.value).toBeCloseTo(0.0025, 4);
+        }
+        expect(mockResource.query).toHaveBeenCalledWith(':MEASure:CURRent:AC?');
+      }
+    });
+
+    it('measures 2-wire resistance', async () => {
+      const result = await keysight34465A.connect(mockResource);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const resistance = await result.value.getMeasuredResistance();
+        expect(resistance.ok).toBe(true);
+        if (resistance.ok) {
+          expect(resistance.value).toBe(1000);
+        }
+        expect(mockResource.query).toHaveBeenCalledWith(':MEASure:RESistance?');
+      }
+    });
+
+    it('measures 4-wire resistance', async () => {
+      const result = await keysight34465A.connect(mockResource);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const resistance = await result.value.getMeasuredResistance4W();
+        expect(resistance.ok).toBe(true);
+        if (resistance.ok) {
+          expect(resistance.value).toBeCloseTo(999.5, 1);
+        }
+        expect(mockResource.query).toHaveBeenCalledWith(':MEASure:FRESistance?');
+      }
+    });
+
+    it('measures frequency', async () => {
+      const result = await keysight34465A.connect(mockResource);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const freq = await result.value.getMeasuredFrequency();
+        expect(freq.ok).toBe(true);
+        if (freq.ok) {
+          expect(freq.value).toBe(1000);
+        }
+        expect(mockResource.query).toHaveBeenCalledWith(':MEASure:FREQuency?');
+      }
+    });
+
+    it('measures capacitance', async () => {
+      const result = await keysight34465A.connect(mockResource);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const cap = await result.value.getMeasuredCapacitance();
+        expect(cap.ok).toBe(true);
+        if (cap.ok) {
+          expect(cap.value).toBe(1e-6);
+        }
+        expect(mockResource.query).toHaveBeenCalledWith(':MEASure:CAPacitance?');
+      }
+    });
+
+    it('tests continuity', async () => {
+      const result = await keysight34465A.connect(mockResource);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const cont = await result.value.getMeasuredContinuity();
+        expect(cont.ok).toBe(true);
+        if (cont.ok) {
+          expect(cont.value).toBe(5);
+        }
+        expect(mockResource.query).toHaveBeenCalledWith(':MEASure:CONTinuity?');
+      }
+    });
+
+    it('tests diode', async () => {
+      const result = await keysight34465A.connect(mockResource);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const diode = await result.value.getMeasuredDiode();
+        expect(diode.ok).toBe(true);
+        if (diode.ok) {
+          expect(diode.value).toBeCloseTo(0.65, 2);
+        }
+        expect(mockResource.query).toHaveBeenCalledWith(':MEASure:DIODe?');
+      }
+    });
+
+    it('reads current value', async () => {
+      const result = await keysight34465A.connect(mockResource);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const reading = await result.value.read();
+        expect(reading.ok).toBe(true);
+        if (reading.ok) {
+          expect(reading.value).toBeCloseTo(5.01234567, 6);
         }
       }
     });
 
-    it('sets measurement function to VDC', async () => {
+    it('fetches last measurement', async () => {
       const result = await keysight34465A.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        await result.value.setFunction('VDC');
-        expect(mockResource.write).toHaveBeenCalledWith(':SENSe:FUNCtion "VOLTage:DC"');
-      }
-    });
-
-    it('sets measurement function to VAC', async () => {
-      const result = await keysight34465A.connect(mockResource);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        await result.value.setFunction('VAC');
-        expect(mockResource.write).toHaveBeenCalledWith(':SENSe:FUNCtion "VOLTage:AC"');
-      }
-    });
-
-    it('sets measurement function to resistance', async () => {
-      const result = await keysight34465A.connect(mockResource);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        await result.value.setFunction('RESISTANCE_2W');
-        expect(mockResource.write).toHaveBeenCalledWith(':SENSe:FUNCtion "RESistance"');
+        const fetch = await result.value.fetch();
+        expect(fetch.ok).toBe(true);
+        if (fetch.ok) {
+          expect(fetch.value).toBeCloseTo(5.01234567, 6);
+        }
       }
     });
   });
 
-  describe('range and resolution', () => {
+  describe('auto range and NPLC', () => {
     beforeEach(() => {
       vi.mocked(mockResource.query).mockImplementation(async (cmd) => {
         if (cmd === '*IDN?') return Ok('Keysight,34465A,MY12345678,A.02.14');
-        if (cmd === ':SENSe:VOLTage:DC:RANGe?') return Ok('10');
         if (cmd === ':SENSe:VOLTage:DC:RANGe:AUTO?') return Ok('1');
         if (cmd === ':SENSe:VOLTage:DC:NPLC?') return Ok('10');
         return Err(new Error(`Unknown command: ${cmd}`));
       });
     });
 
-    it('gets voltage range', async () => {
+    it('gets auto range', async () => {
       const result = await keysight34465A.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const range = await result.value.getRange();
-        expect(range.ok).toBe(true);
-        if (range.ok) {
-          expect(range.value).toBe(10);
+        const autoRange = await result.value.getAutoRange();
+        expect(autoRange.ok).toBe(true);
+        if (autoRange.ok) {
+          expect(autoRange.value).toBe(true);
         }
-      }
-    });
-
-    it('sets voltage range', async () => {
-      const result = await keysight34465A.connect(mockResource);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        await result.value.setRange(100);
-        expect(mockResource.write).toHaveBeenCalledWith(':SENSe:VOLTage:DC:RANGe 100');
       }
     });
 
@@ -186,54 +297,6 @@ describe('Keysight 34465A Driver', () => {
       if (result.ok) {
         await result.value.setNplc(1);
         expect(mockResource.write).toHaveBeenCalledWith(':SENSe:VOLTage:DC:NPLC 1');
-      }
-    });
-  });
-
-  describe('measurement', () => {
-    beforeEach(() => {
-      vi.mocked(mockResource.query).mockImplementation(async (cmd) => {
-        if (cmd === '*IDN?') return Ok('Keysight,34465A,MY12345678,A.02.14');
-        if (cmd === ':MEASure:VOLTage:DC?') return Ok('+5.01234567E+00');
-        if (cmd === ':READ?') return Ok('+5.01234567E+00');
-        if (cmd === ':FETCh?') return Ok('+5.01234567E+00');
-        return Err(new Error(`Unknown command: ${cmd}`));
-      });
-    });
-
-    it('takes a measurement', async () => {
-      const result = await keysight34465A.connect(mockResource);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        const measurement = await result.value.measure();
-        expect(measurement.ok).toBe(true);
-        if (measurement.ok) {
-          expect(measurement.value).toBeCloseTo(5.01234567, 6);
-        }
-      }
-    });
-
-    it('reads current value', async () => {
-      const result = await keysight34465A.connect(mockResource);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        const reading = await result.value.read();
-        expect(reading.ok).toBe(true);
-        if (reading.ok) {
-          expect(reading.value).toBeCloseTo(5.01234567, 6);
-        }
-      }
-    });
-
-    it('fetches last measurement', async () => {
-      const result = await keysight34465A.connect(mockResource);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        const fetch = await result.value.fetch();
-        expect(fetch.ok).toBe(true);
-        if (fetch.ok) {
-          expect(fetch.value).toBeCloseTo(5.01234567, 6);
-        }
       }
     });
   });
@@ -284,36 +347,6 @@ describe('Keysight 34465A Driver', () => {
       if (result.ok) {
         await result.value.abort();
         expect(mockResource.write).toHaveBeenCalledWith(':ABORt');
-      }
-    });
-  });
-
-  describe('capabilities', () => {
-    beforeEach(() => {
-      vi.mocked(mockResource.query).mockResolvedValue(Ok('Keysight,34465A,MY12345678,A.02.14'));
-    });
-
-    it('reports data-logging capability', async () => {
-      const result = await keysight34465A.connect(mockResource);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.hasCapability('data-logging')).toBe(true);
-      }
-    });
-
-    it('reports histogram capability', async () => {
-      const result = await keysight34465A.connect(mockResource);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.hasCapability('histogram')).toBe(true);
-      }
-    });
-
-    it('does not report dual-display capability', async () => {
-      const result = await keysight34465A.connect(mockResource);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.hasCapability('dual-display')).toBe(false);
       }
     });
   });

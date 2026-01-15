@@ -92,17 +92,6 @@ export type MeasurementType =
 /** Protocol decode types */
 export type Protocol = 'I2C' | 'SPI' | 'UART' | 'CAN' | 'LIN' | 'I2S' | 'FLEXRAY' | '1WIRE';
 
-/** Oscilloscope-specific capabilities */
-export type OscilloscopeCapability =
-  | 'digital-channels'
-  | 'math-channels'
-  | 'fft'
-  | 'protocol-decode'
-  | 'mask-test'
-  | 'segmented-memory'
-  | 'waveform-generator'
-  | 'bode-plot';
-
 // ─────────────────────────────────────────────────────────────────
 // Waveform Data
 // ─────────────────────────────────────────────────────────────────
@@ -149,6 +138,7 @@ export interface WaveformData {
  * - Vertical scale
  * - Vertical offset
  * - Input coupling
+ * - Basic measurements
  *
  * Device-specific drivers extend this to add probe settings, bandwidth limit, etc.
  */
@@ -179,6 +169,31 @@ export interface OscilloscopeChannel {
 
   /** Set input coupling mode */
   setCoupling(coupling: Coupling): Promise<Result<void, Error>>;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Measurements (common to all oscilloscopes)
+  // ─────────────────────────────────────────────────────────────────
+
+  /** Measure signal frequency in Hz */
+  getMeasuredFrequency(): Promise<Result<number, Error>>;
+
+  /** Measure signal period in seconds */
+  getMeasuredPeriod(): Promise<Result<number, Error>>;
+
+  /** Measure peak-to-peak voltage in V */
+  getMeasuredVpp(): Promise<Result<number, Error>>;
+
+  /** Measure maximum voltage in V */
+  getMeasuredVmax(): Promise<Result<number, Error>>;
+
+  /** Measure minimum voltage in V */
+  getMeasuredVmin(): Promise<Result<number, Error>>;
+
+  /** Measure average voltage in V */
+  getMeasuredVavg(): Promise<Result<number, Error>>;
+
+  /** Measure RMS voltage in V */
+  getMeasuredVrms(): Promise<Result<number, Error>>;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -209,7 +224,7 @@ export interface Oscilloscope extends BaseInstrument {
   /** Number of analog channels */
   readonly channelCount: number;
 
-  /** Access a specific analog channel (1-indexed) */
+  /** Access a specific analog channel (1-indexed). Throws if channel out of range. */
   channel(n: number): OscilloscopeChannel;
 
   /** Get horizontal scale in s/div */

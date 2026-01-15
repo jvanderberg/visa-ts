@@ -42,19 +42,6 @@ export type CombineMode = 'INDEPENDENT' | 'SERIES' | 'PARALLEL';
  */
 export type VoltageRange = 'HIGH' | 'LOW' | 'AUTO';
 
-/**
- * Power supply-specific capabilities.
- */
-export type PowerSupplyCapability =
-  | 'tracking'
-  | 'series-parallel'
-  | 'sequencing'
-  | 'ovp'
-  | 'ocp'
-  | 'opp'
-  | 'otp'
-  | 'remote-sense';
-
 // ─────────────────────────────────────────────────────────────────
 // Power Supply Channel (Base - Minimal)
 // ─────────────────────────────────────────────────────────────────
@@ -118,6 +105,6 @@ export interface PowerSupply extends BaseInstrument {
   /** Number of output channels */
   readonly channelCount: number;
 
-  /** Access a specific channel (1-indexed) */
+  /** Access a specific channel (1-indexed). Throws if channel out of range. */
   channel(n: number): PowerSupplyChannel;
 }

@@ -13,7 +13,7 @@ import {
   type DriverContext,
   type PropertyDef,
   type CommandDef,
-  type QuirkConfig,
+  type DriverSettings,
   type DriverHooks,
   type ChannelSpec,
 } from './types.js';
@@ -48,7 +48,7 @@ function createDriverContext(resource: MessageBasedResource): DriverContext {
 function createGetter<T>(
   resource: MessageBasedResource,
   prop: PropertyDef<T>,
-  quirks: QuirkConfig | undefined,
+  settings: DriverSettings | undefined,
   hooks: DriverHooks | undefined
 ): () => Promise<Result<T, Error>> {
   // Handle unsupported properties
@@ -69,8 +69,8 @@ function createGetter<T>(
     if (!result.ok) return result;
 
     // Apply post-query delay if configured
-    if (quirks?.postQueryDelay) {
-      await delay(quirks.postQueryDelay);
+    if (settings?.postQueryDelay) {
+      await delay(settings.postQueryDelay);
     }
 
     let response = result.value;
@@ -99,7 +99,7 @@ function createGetter<T>(
 function createSetter<T>(
   resource: MessageBasedResource,
   prop: PropertyDef<T>,
-  quirks: QuirkConfig | undefined,
+  settings: DriverSettings | undefined,
   hooks: DriverHooks | undefined
 ): (value: T) => Promise<Result<void, Error>> {
   // Handle unsupported properties
@@ -146,8 +146,8 @@ function createSetter<T>(
     if (!result.ok) return result;
 
     // Apply post-command delay if configured
-    if (quirks?.postCommandDelay) {
-      await delay(quirks.postCommandDelay);
+    if (settings?.postCommandDelay) {
+      await delay(settings.postCommandDelay);
     }
 
     return Ok(undefined);
@@ -234,7 +234,7 @@ export function defineDriver<T, TChannel = never>(
         if (!result.ok) return result;
       }
 
-      if (spec.quirks?.clearOnConnect) {
+      if (spec.settings?.clearOnConnect) {
         const result = await resource.write('*CLS');
         if (!result.ok) return result;
       }
@@ -249,8 +249,6 @@ export function defineDriver<T, TChannel = never>(
       }
 
       // Build the instrument instance
-      const capabilities = spec.capabilities ?? [];
-
       const instance: Record<string, unknown> = {
         // Expose raw resource for escape hatch
         resource,
@@ -275,12 +273,12 @@ export function defineDriver<T, TChannel = never>(
         const propDef = value as PropertyDef<unknown>;
         // Generate getter
         const getterName = toGetterName(propName);
-        instance[getterName] = createGetter(resource, propDef, spec.quirks, spec.hooks);
+        instance[getterName] = createGetter(resource, propDef, spec.settings, spec.hooks);
 
         // Generate setter if set command is defined and not readonly
         if (isSupported(propDef) && propDef.set && !propDef.readonly) {
           const setterName = toSetterName(propName);
-          instance[setterName] = createSetter(resource, propDef, spec.quirks, spec.hooks);
+          instance[setterName] = createSetter(resource, propDef, spec.settings, spec.hooks);
         }
       }
 

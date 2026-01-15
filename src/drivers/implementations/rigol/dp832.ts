@@ -49,8 +49,8 @@ export interface DP832Channel extends PowerSupplyChannel {
  * DP832 power supply interface - extends base with global output control.
  */
 export interface DP832PSU extends PowerSupply {
-  /** Access a specific channel with DP832-specific features */
-  channel(n: number): DP832Channel;
+  /** Access a specific channel with DP832-specific features. */
+  channel(n: 1 | 2 | 3): DP832Channel;
 
   /** Get global output enabled state (all channels) */
   getAllOutputEnabled(): Promise<Result<boolean, Error>>;
@@ -177,9 +177,7 @@ const dp832Spec: DriverSpec<DP832PSU, DP832Channel> = {
     },
   },
 
-  capabilities: ['ovp', 'ocp'],
-
-  quirks: {
+  settings: {
     postCommandDelay: 50,
     resetDelay: 1000,
   },

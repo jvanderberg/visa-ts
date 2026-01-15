@@ -83,37 +83,49 @@ export interface DmmStatistics {
 /**
  * Base multimeter (DMM) instrument interface.
  *
- * Defines the minimum functionality all DMMs have:
- * - Function selection
- * - Range selection
- * - Take a measurement
- *
- * Device-specific drivers extend this to add triggering,
- * statistics, null offset, etc.
+ * Defines common measurements that most DMMs support.
+ * Device-specific drivers extend this to add capabilities like
+ * 4-wire resistance, capacitance, temperature, triggering, statistics, etc.
  *
  * @example
  * ```typescript
- * // Configure measurement
- * await dmm.setFunction('VDC');
- * await dmm.setRange('AUTO');
+ * // DC measurements
+ * const vdc = await dmm.getMeasuredVoltageDC();
+ * const adc = await dmm.getMeasuredCurrentDC();
  *
- * // Take a measurement
- * const voltage = await dmm.measure();
+ * // AC measurements
+ * const vac = await dmm.getMeasuredVoltageAC();
+ * const aac = await dmm.getMeasuredCurrentAC();
+ *
+ * // Other
+ * const ohms = await dmm.getMeasuredResistance();
+ * const hz = await dmm.getMeasuredFrequency();
  * ```
  */
 export interface Multimeter extends BaseInstrument {
-  /** Get measurement function */
-  getFunction(): Promise<Result<DmmFunction, Error>>;
+  // Voltage
+  /** Measure DC voltage in V */
+  getMeasuredVoltageDC(): Promise<Result<number, Error>>;
+  /** Measure AC voltage in V */
+  getMeasuredVoltageAC(): Promise<Result<number, Error>>;
 
-  /** Set measurement function */
-  setFunction(func: DmmFunction): Promise<Result<void, Error>>;
+  // Current
+  /** Measure DC current in A */
+  getMeasuredCurrentDC(): Promise<Result<number, Error>>;
+  /** Measure AC current in A */
+  getMeasuredCurrentAC(): Promise<Result<number, Error>>;
 
-  /** Get measurement range */
-  getRange(): Promise<Result<number | 'AUTO', Error>>;
+  // Resistance
+  /** Measure resistance (2-wire) in Ω */
+  getMeasuredResistance(): Promise<Result<number, Error>>;
 
-  /** Set measurement range */
-  setRange(range: number | 'AUTO'): Promise<Result<void, Error>>;
+  // Frequency
+  /** Measure frequency in Hz */
+  getMeasuredFrequency(): Promise<Result<number, Error>>;
 
-  /** Trigger a measurement and return result */
-  measure(): Promise<Result<number, Error>>;
+  // Test modes
+  /** Test continuity - returns resistance if continuous, high value if open */
+  getMeasuredContinuity(): Promise<Result<number, Error>>;
+  /** Test diode - returns forward voltage drop in V */
+  getMeasuredDiode(): Promise<Result<number, Error>>;
 }

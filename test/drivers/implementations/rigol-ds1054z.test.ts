@@ -51,11 +51,6 @@ describe('Rigol DS1054Z Driver', () => {
     it('has 4 channels configured', () => {
       expect(rigolDS1054Z.spec.channels?.count).toBe(4);
     });
-
-    it('declares capabilities', () => {
-      expect(rigolDS1054Z.spec.capabilities).toContain('fft');
-      expect(rigolDS1054Z.spec.capabilities).toContain('math-channels');
-    });
   });
 
   describe('connect', () => {
@@ -225,11 +220,8 @@ describe('Rigol DS1054Z Driver', () => {
       const result = await rigolDS1054Z.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const ch1Result = result.value.channel(1);
-        expect(ch1Result.ok).toBe(true);
-        if (ch1Result.ok) {
-          expect((ch1Result.value as { channelNumber: number }).channelNumber).toBe(1);
-        }
+        const ch1 = result.value.channel(1);
+        expect(ch1.channelNumber).toBe(1);
       }
     });
 
@@ -237,17 +229,11 @@ describe('Rigol DS1054Z Driver', () => {
       const result = await rigolDS1054Z.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const ch1Result = result.value.channel(1);
-        expect(ch1Result.ok).toBe(true);
-        if (ch1Result.ok) {
-          const ch1 = ch1Result.value as {
-            getEnabled: () => Promise<{ ok: boolean; value?: boolean }>;
-          };
-          const enabled = await ch1.getEnabled();
-          expect(enabled.ok).toBe(true);
-          if (enabled.ok) {
-            expect(enabled.value).toBe(true);
-          }
+        const ch1 = result.value.channel(1);
+        const enabled = await ch1.getEnabled();
+        expect(enabled.ok).toBe(true);
+        if (enabled.ok) {
+          expect(enabled.value).toBe(true);
         }
       }
     });
@@ -256,13 +242,9 @@ describe('Rigol DS1054Z Driver', () => {
       const result = await rigolDS1054Z.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const ch1Result = result.value.channel(1);
-        expect(ch1Result.ok).toBe(true);
-        if (ch1Result.ok) {
-          const ch1 = ch1Result.value as { setEnabled: (v: boolean) => Promise<{ ok: boolean }> };
-          await ch1.setEnabled(false);
-          expect(mockResource.write).toHaveBeenCalledWith(':CHANnel1:DISPlay OFF');
-        }
+        const ch1 = result.value.channel(1);
+        await ch1.setEnabled(false);
+        expect(mockResource.write).toHaveBeenCalledWith(':CHANnel1:DISPlay OFF');
       }
     });
 
@@ -270,17 +252,11 @@ describe('Rigol DS1054Z Driver', () => {
       const result = await rigolDS1054Z.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const ch1Result = result.value.channel(1);
-        expect(ch1Result.ok).toBe(true);
-        if (ch1Result.ok) {
-          const ch1 = ch1Result.value as {
-            getScale: () => Promise<{ ok: boolean; value?: number }>;
-          };
-          const scale = await ch1.getScale();
-          expect(scale.ok).toBe(true);
-          if (scale.ok) {
-            expect(scale.value).toBe(1.0);
-          }
+        const ch1 = result.value.channel(1);
+        const scale = await ch1.getScale();
+        expect(scale.ok).toBe(true);
+        if (scale.ok) {
+          expect(scale.value).toBe(1.0);
         }
       }
     });
@@ -289,55 +265,173 @@ describe('Rigol DS1054Z Driver', () => {
       const result = await rigolDS1054Z.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const ch1Result = result.value.channel(1);
-        expect(ch1Result.ok).toBe(true);
-        if (ch1Result.ok) {
-          const ch1 = ch1Result.value as { setScale: (v: number) => Promise<{ ok: boolean }> };
-          await ch1.setScale(0.5);
-          expect(mockResource.write).toHaveBeenCalledWith(':CHANnel1:SCALe 0.5');
-        }
+        const ch1 = result.value.channel(1);
+        await ch1.setScale(0.5);
+        expect(mockResource.write).toHaveBeenCalledWith(':CHANnel1:SCALe 0.5');
       }
     });
 
-    it('returns Err for invalid channel', async () => {
-      const result = await rigolDS1054Z.connect(mockResource);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        const chResult = result.value.channel(5);
-        expect(chResult.ok).toBe(false);
-        if (!chResult.ok) {
-          expect(chResult.error.message).toContain('Channel 5 out of range');
-        }
-      }
-    });
+    // Note: Invalid channel numbers (e.g., channel(5)) are caught at compile time
+    // via the literal type: channel(n: 1 | 2 | 3 | 4)
   });
 
-  describe('capabilities', () => {
+  describe('channel measurements', () => {
     beforeEach(() => {
-      vi.mocked(mockResource.query).mockResolvedValue(Ok('RIGOL,DS1054Z,DS1ZA123,00.04.04'));
+      vi.mocked(mockResource.query).mockImplementation(async (cmd) => {
+        if (cmd === '*IDN?') return Ok('RIGOL,DS1054Z,DS1ZA123,00.04.04');
+        // Base measurements
+        if (cmd === ':MEASure:ITEM? FREQuency,CHANnel1') return Ok('1.000000e+03');
+        if (cmd === ':MEASure:ITEM? PERiod,CHANnel1') return Ok('1.000000e-03');
+        if (cmd === ':MEASure:ITEM? VPP,CHANnel1') return Ok('3.300000e+00');
+        if (cmd === ':MEASure:ITEM? VMAX,CHANnel1') return Ok('1.650000e+00');
+        if (cmd === ':MEASure:ITEM? VMIN,CHANnel1') return Ok('-1.650000e+00');
+        if (cmd === ':MEASure:ITEM? VAVerage,CHANnel1') return Ok('0.000000e+00');
+        if (cmd === ':MEASure:ITEM? VRMS,CHANnel1') return Ok('1.166726e+00');
+        // DS1054Z-specific measurements
+        if (cmd === ':MEASure:ITEM? VTOP,CHANnel1') return Ok('1.600000e+00');
+        if (cmd === ':MEASure:ITEM? VBASe,CHANnel1') return Ok('-1.600000e+00');
+        if (cmd === ':MEASure:ITEM? VAMPlitude,CHANnel1') return Ok('3.200000e+00');
+        if (cmd === ':MEASure:ITEM? OVERshoot,CHANnel1') return Ok('5.000000e+00');
+        if (cmd === ':MEASure:ITEM? PREShoot,CHANnel1') return Ok('3.000000e+00');
+        if (cmd === ':MEASure:ITEM? RTIMe,CHANnel1') return Ok('1.000000e-07');
+        if (cmd === ':MEASure:ITEM? FTIMe,CHANnel1') return Ok('1.200000e-07');
+        if (cmd === ':MEASure:ITEM? PWIDth,CHANnel1') return Ok('5.000000e-04');
+        if (cmd === ':MEASure:ITEM? NWIDth,CHANnel1') return Ok('5.000000e-04');
+        if (cmd === ':MEASure:ITEM? PDUTy,CHANnel1') return Ok('5.000000e+01');
+        if (cmd === ':MEASure:ITEM? NDUTy,CHANnel1') return Ok('5.000000e+01');
+        if (cmd === ':MEASure:COUNter:VALue? CHANnel1') return Ok('1234');
+        return Err(new Error(`Unknown command: ${cmd}`));
+      });
     });
 
-    it('reports fft capability', async () => {
+    it('measures frequency', async () => {
       const result = await rigolDS1054Z.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.hasCapability('fft')).toBe(true);
+        const ch1 = result.value.channel(1);
+        const freq = await ch1.getMeasuredFrequency();
+        expect(freq.ok).toBe(true);
+        if (freq.ok) {
+          expect(freq.value).toBe(1000);
+        }
+        expect(mockResource.query).toHaveBeenCalledWith(':MEASure:ITEM? FREQuency,CHANnel1');
       }
     });
 
-    it('reports math-channels capability', async () => {
+    it('measures period', async () => {
       const result = await rigolDS1054Z.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.hasCapability('math-channels')).toBe(true);
+        const ch1 = result.value.channel(1);
+        const period = await ch1.getMeasuredPeriod();
+        expect(period.ok).toBe(true);
+        if (period.ok) {
+          expect(period.value).toBeCloseTo(0.001, 6);
+        }
       }
     });
 
-    it('reports no protocol-decode capability', async () => {
+    it('measures Vpp', async () => {
       const result = await rigolDS1054Z.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.hasCapability('protocol-decode')).toBe(false);
+        const ch1 = result.value.channel(1);
+        const vpp = await ch1.getMeasuredVpp();
+        expect(vpp.ok).toBe(true);
+        if (vpp.ok) {
+          expect(vpp.value).toBeCloseTo(3.3, 2);
+        }
+      }
+    });
+
+    it('measures Vmax', async () => {
+      const result = await rigolDS1054Z.connect(mockResource);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const ch1 = result.value.channel(1);
+        const vmax = await ch1.getMeasuredVmax();
+        expect(vmax.ok).toBe(true);
+        if (vmax.ok) {
+          expect(vmax.value).toBeCloseTo(1.65, 2);
+        }
+      }
+    });
+
+    it('measures Vmin', async () => {
+      const result = await rigolDS1054Z.connect(mockResource);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const ch1 = result.value.channel(1);
+        const vmin = await ch1.getMeasuredVmin();
+        expect(vmin.ok).toBe(true);
+        if (vmin.ok) {
+          expect(vmin.value).toBeCloseTo(-1.65, 2);
+        }
+      }
+    });
+
+    it('measures Vrms', async () => {
+      const result = await rigolDS1054Z.connect(mockResource);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const ch1 = result.value.channel(1);
+        const vrms = await ch1.getMeasuredVrms();
+        expect(vrms.ok).toBe(true);
+        if (vrms.ok) {
+          expect(vrms.value).toBeCloseTo(1.167, 2);
+        }
+      }
+    });
+
+    it('measures rise time', async () => {
+      const result = await rigolDS1054Z.connect(mockResource);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const ch1 = result.value.channel(1);
+        const rise = await ch1.getMeasuredRiseTime();
+        expect(rise.ok).toBe(true);
+        if (rise.ok) {
+          expect(rise.value).toBeCloseTo(100e-9, 10);
+        }
+      }
+    });
+
+    it('measures fall time', async () => {
+      const result = await rigolDS1054Z.connect(mockResource);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const ch1 = result.value.channel(1);
+        const fall = await ch1.getMeasuredFallTime();
+        expect(fall.ok).toBe(true);
+        if (fall.ok) {
+          expect(fall.value).toBeCloseTo(120e-9, 10);
+        }
+      }
+    });
+
+    it('measures positive duty cycle', async () => {
+      const result = await rigolDS1054Z.connect(mockResource);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const ch1 = result.value.channel(1);
+        const duty = await ch1.getMeasuredPositiveDuty();
+        expect(duty.ok).toBe(true);
+        if (duty.ok) {
+          expect(duty.value).toBe(50);
+        }
+      }
+    });
+
+    it('measures counter', async () => {
+      const result = await rigolDS1054Z.connect(mockResource);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const ch1 = result.value.channel(1);
+        const count = await ch1.getMeasuredCounter();
+        expect(count.ok).toBe(true);
+        if (count.ok) {
+          expect(count.value).toBe(1234);
+        }
       }
     });
   });

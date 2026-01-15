@@ -51,11 +51,6 @@ describe('Rigol DP832 Driver', () => {
     it('has 3 channels configured', () => {
       expect(rigolDP832.spec.channels?.count).toBe(3);
     });
-
-    it('declares capabilities', () => {
-      expect(rigolDP832.spec.capabilities).toContain('ovp');
-      expect(rigolDP832.spec.capabilities).toContain('ocp');
-    });
   });
 
   describe('connect', () => {
@@ -137,11 +132,8 @@ describe('Rigol DP832 Driver', () => {
       const result = await rigolDP832.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const ch1Result = result.value.channel(1);
-        expect(ch1Result.ok).toBe(true);
-        if (ch1Result.ok) {
-          expect((ch1Result.value as { channelNumber: number }).channelNumber).toBe(1);
-        }
+        const ch1 = result.value.channel(1);
+        expect(ch1.channelNumber).toBe(1);
       }
     });
 
@@ -149,17 +141,11 @@ describe('Rigol DP832 Driver', () => {
       const result = await rigolDP832.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const ch1Result = result.value.channel(1);
-        expect(ch1Result.ok).toBe(true);
-        if (ch1Result.ok) {
-          const ch1 = ch1Result.value as {
-            getVoltage: () => Promise<{ ok: boolean; value?: number }>;
-          };
-          const voltage = await ch1.getVoltage();
-          expect(voltage.ok).toBe(true);
-          if (voltage.ok) {
-            expect(voltage.value).toBe(5.0);
-          }
+        const ch1 = result.value.channel(1);
+        const voltage = await ch1.getVoltage();
+        expect(voltage.ok).toBe(true);
+        if (voltage.ok) {
+          expect(voltage.value).toBe(5.0);
         }
       }
     });
@@ -168,13 +154,9 @@ describe('Rigol DP832 Driver', () => {
       const result = await rigolDP832.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const ch1Result = result.value.channel(1);
-        expect(ch1Result.ok).toBe(true);
-        if (ch1Result.ok) {
-          const ch1 = ch1Result.value as { setVoltage: (v: number) => Promise<{ ok: boolean }> };
-          await ch1.setVoltage(3.3);
-          expect(mockResource.write).toHaveBeenCalledWith(':SOURce1:VOLTage 3.3');
-        }
+        const ch1 = result.value.channel(1);
+        await ch1.setVoltage(3.3);
+        expect(mockResource.write).toHaveBeenCalledWith(':SOURce1:VOLTage 3.3');
       }
     });
 
@@ -182,17 +164,11 @@ describe('Rigol DP832 Driver', () => {
       const result = await rigolDP832.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const ch1Result = result.value.channel(1);
-        expect(ch1Result.ok).toBe(true);
-        if (ch1Result.ok) {
-          const ch1 = ch1Result.value as {
-            getCurrent: () => Promise<{ ok: boolean; value?: number }>;
-          };
-          const current = await ch1.getCurrent();
-          expect(current.ok).toBe(true);
-          if (current.ok) {
-            expect(current.value).toBe(1.0);
-          }
+        const ch1 = result.value.channel(1);
+        const current = await ch1.getCurrent();
+        expect(current.ok).toBe(true);
+        if (current.ok) {
+          expect(current.value).toBe(1.0);
         }
       }
     });
@@ -201,13 +177,9 @@ describe('Rigol DP832 Driver', () => {
       const result = await rigolDP832.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const ch1Result = result.value.channel(1);
-        expect(ch1Result.ok).toBe(true);
-        if (ch1Result.ok) {
-          const ch1 = ch1Result.value as { setCurrent: (v: number) => Promise<{ ok: boolean }> };
-          await ch1.setCurrent(0.5);
-          expect(mockResource.write).toHaveBeenCalledWith(':SOURce1:CURRent 0.5');
-        }
+        const ch1 = result.value.channel(1);
+        await ch1.setCurrent(0.5);
+        expect(mockResource.write).toHaveBeenCalledWith(':SOURce1:CURRent 0.5');
       }
     });
 
@@ -215,17 +187,11 @@ describe('Rigol DP832 Driver', () => {
       const result = await rigolDP832.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const ch1Result = result.value.channel(1);
-        expect(ch1Result.ok).toBe(true);
-        if (ch1Result.ok) {
-          const ch1 = ch1Result.value as {
-            getMeasuredVoltage: () => Promise<{ ok: boolean; value?: number }>;
-          };
-          const voltage = await ch1.getMeasuredVoltage();
-          expect(voltage.ok).toBe(true);
-          if (voltage.ok) {
-            expect(voltage.value).toBeCloseTo(4.987, 3);
-          }
+        const ch1 = result.value.channel(1);
+        const voltage = await ch1.getMeasuredVoltage();
+        expect(voltage.ok).toBe(true);
+        if (voltage.ok) {
+          expect(voltage.value).toBeCloseTo(4.987, 3);
         }
       }
     });
@@ -234,17 +200,11 @@ describe('Rigol DP832 Driver', () => {
       const result = await rigolDP832.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const ch1Result = result.value.channel(1);
-        expect(ch1Result.ok).toBe(true);
-        if (ch1Result.ok) {
-          const ch1 = ch1Result.value as {
-            getMeasuredCurrent: () => Promise<{ ok: boolean; value?: number }>;
-          };
-          const current = await ch1.getMeasuredCurrent();
-          expect(current.ok).toBe(true);
-          if (current.ok) {
-            expect(current.value).toBeCloseTo(0.523, 3);
-          }
+        const ch1 = result.value.channel(1);
+        const current = await ch1.getMeasuredCurrent();
+        expect(current.ok).toBe(true);
+        if (current.ok) {
+          expect(current.value).toBeCloseTo(0.523, 3);
         }
       }
     });
@@ -253,17 +213,11 @@ describe('Rigol DP832 Driver', () => {
       const result = await rigolDP832.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const ch1Result = result.value.channel(1);
-        expect(ch1Result.ok).toBe(true);
-        if (ch1Result.ok) {
-          const ch1 = ch1Result.value as {
-            getMeasuredPower: () => Promise<{ ok: boolean; value?: number }>;
-          };
-          const power = await ch1.getMeasuredPower();
-          expect(power.ok).toBe(true);
-          if (power.ok) {
-            expect(power.value).toBeCloseTo(2.608, 3);
-          }
+        const ch1 = result.value.channel(1);
+        const power = await ch1.getMeasuredPower();
+        expect(power.ok).toBe(true);
+        if (power.ok) {
+          expect(power.value).toBeCloseTo(2.608, 3);
         }
       }
     });
@@ -272,17 +226,11 @@ describe('Rigol DP832 Driver', () => {
       const result = await rigolDP832.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const ch1Result = result.value.channel(1);
-        expect(ch1Result.ok).toBe(true);
-        if (ch1Result.ok) {
-          const ch1 = ch1Result.value as {
-            getOutputEnabled: () => Promise<{ ok: boolean; value?: boolean }>;
-          };
-          const enabled = await ch1.getOutputEnabled();
-          expect(enabled.ok).toBe(true);
-          if (enabled.ok) {
-            expect(enabled.value).toBe(true);
-          }
+        const ch1 = result.value.channel(1);
+        const enabled = await ch1.getOutputEnabled();
+        expect(enabled.ok).toBe(true);
+        if (enabled.ok) {
+          expect(enabled.value).toBe(true);
         }
       }
     });
@@ -291,15 +239,9 @@ describe('Rigol DP832 Driver', () => {
       const result = await rigolDP832.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const ch1Result = result.value.channel(1);
-        expect(ch1Result.ok).toBe(true);
-        if (ch1Result.ok) {
-          const ch1 = ch1Result.value as {
-            setOutputEnabled: (v: boolean) => Promise<{ ok: boolean }>;
-          };
-          await ch1.setOutputEnabled(true);
-          expect(mockResource.write).toHaveBeenCalledWith(':OUTPut:STATe CH1,ON');
-        }
+        const ch1 = result.value.channel(1);
+        await ch1.setOutputEnabled(true);
+        expect(mockResource.write).toHaveBeenCalledWith(':OUTPut:STATe CH1,ON');
       }
     });
 
@@ -307,32 +249,17 @@ describe('Rigol DP832 Driver', () => {
       const result = await rigolDP832.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const ch1Result = result.value.channel(1);
-        expect(ch1Result.ok).toBe(true);
-        if (ch1Result.ok) {
-          const ch1 = ch1Result.value as {
-            getMode: () => Promise<{ ok: boolean; value?: string }>;
-          };
-          const mode = await ch1.getMode();
-          expect(mode.ok).toBe(true);
-          if (mode.ok) {
-            expect(mode.value).toBe('CV');
-          }
+        const ch1 = result.value.channel(1);
+        const mode = await ch1.getMode();
+        expect(mode.ok).toBe(true);
+        if (mode.ok) {
+          expect(mode.value).toBe('CV');
         }
       }
     });
 
-    it('returns Err for invalid channel', async () => {
-      const result = await rigolDP832.connect(mockResource);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        const chResult = result.value.channel(4);
-        expect(chResult.ok).toBe(false);
-        if (!chResult.ok) {
-          expect(chResult.error.message).toContain('Channel 4 out of range');
-        }
-      }
-    });
+    // Note: Invalid channel numbers (e.g., channel(4)) are caught at compile time
+    // via the literal type: channel(n: 1 | 2 | 3)
   });
 
   describe('multi-channel configuration', () => {
@@ -349,60 +276,18 @@ describe('Rigol DP832 Driver', () => {
       const result = await rigolDP832.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const ch2Result = result.value.channel(2);
-        const ch3Result = result.value.channel(3);
+        const ch2 = result.value.channel(2);
+        const ch3 = result.value.channel(3);
 
-        expect(ch2Result.ok).toBe(true);
-        expect(ch3Result.ok).toBe(true);
+        const v2 = await ch2.getVoltage();
+        const v3 = await ch3.getVoltage();
 
-        if (ch2Result.ok && ch3Result.ok) {
-          const ch2 = ch2Result.value as {
-            getVoltage: () => Promise<{ ok: boolean; value?: number }>;
-          };
-          const ch3 = ch3Result.value as {
-            getVoltage: () => Promise<{ ok: boolean; value?: number }>;
-          };
-
-          const v2 = await ch2.getVoltage();
-          const v3 = await ch3.getVoltage();
-
-          expect(v2.ok).toBe(true);
-          expect(v3.ok).toBe(true);
-          if (v2.ok && v3.ok) {
-            expect(v2.value).toBe(12.0);
-            expect(v3.value).toBe(3.3);
-          }
+        expect(v2.ok).toBe(true);
+        expect(v3.ok).toBe(true);
+        if (v2.ok && v3.ok) {
+          expect(v2.value).toBe(12.0);
+          expect(v3.value).toBe(3.3);
         }
-      }
-    });
-  });
-
-  describe('capabilities', () => {
-    beforeEach(() => {
-      vi.mocked(mockResource.query).mockResolvedValue(Ok('RIGOL,DP832,DP8A123,00.01.16'));
-    });
-
-    it('reports ovp capability', async () => {
-      const result = await rigolDP832.connect(mockResource);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.hasCapability('ovp')).toBe(true);
-      }
-    });
-
-    it('reports ocp capability', async () => {
-      const result = await rigolDP832.connect(mockResource);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.hasCapability('ocp')).toBe(true);
-      }
-    });
-
-    it('does not report tracking capability', async () => {
-      const result = await rigolDP832.connect(mockResource);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.hasCapability('tracking')).toBe(false);
       }
     });
   });

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createDriverContext } from '../../src/drivers/context.js';
 import type { MessageBasedResource } from '../../src/resources/message-based-resource.js';
-import type { QuirkConfig } from '../../src/drivers/types.js';
+import type { DriverSettings } from '../../src/drivers/types.js';
 import { Ok, Err } from '../../src/result.js';
 
 describe('DriverContext', () => {
@@ -40,21 +40,21 @@ describe('DriverContext', () => {
   });
 
   describe('createDriverContext', () => {
-    it('creates context with default quirks', () => {
+    it('creates context with default settings', () => {
       const ctx = createDriverContext(mockResource);
 
       expect(ctx.resource).toBe(mockResource);
-      expect(ctx.quirks).toEqual({});
+      expect(ctx.settings).toEqual({});
     });
 
-    it('creates context with custom quirks', () => {
-      const quirks: QuirkConfig = {
+    it('creates context with custom settings', () => {
+      const settings: DriverSettings = {
         postCommandDelay: 50,
         postQueryDelay: 100,
       };
-      const ctx = createDriverContext(mockResource, quirks);
+      const ctx = createDriverContext(mockResource, settings);
 
-      expect(ctx.quirks).toEqual(quirks);
+      expect(ctx.settings).toEqual(settings);
     });
   });
 
@@ -71,8 +71,8 @@ describe('DriverContext', () => {
 
     it('applies postCommandDelay after write', async () => {
       vi.mocked(mockResource.write).mockResolvedValue(Ok(undefined));
-      const quirks: QuirkConfig = { postCommandDelay: 50 };
-      const ctx = createDriverContext(mockResource, quirks);
+      const settings: DriverSettings = { postCommandDelay: 50 };
+      const ctx = createDriverContext(mockResource, settings);
 
       const start = Date.now();
       await ctx.write(':VOLT 5.0');
@@ -111,8 +111,8 @@ describe('DriverContext', () => {
 
     it('applies postQueryDelay as query delay option', async () => {
       vi.mocked(mockResource.query).mockResolvedValue(Ok('5.000'));
-      const quirks: QuirkConfig = { postQueryDelay: 100 };
-      const ctx = createDriverContext(mockResource, quirks);
+      const settings: DriverSettings = { postQueryDelay: 100 };
+      const ctx = createDriverContext(mockResource, settings);
 
       await ctx.query(':VOLT?');
 

@@ -27,7 +27,7 @@ import type {
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * DS1054Z channel interface - extends base with probe/bandwidth/invert/label.
+ * DS1054Z channel interface - extends base with probe/bandwidth/invert/label and measurements.
  */
 export interface DS1054ZChannel extends OscilloscopeChannel {
   // Bandwidth limit
@@ -45,14 +45,54 @@ export interface DS1054ZChannel extends OscilloscopeChannel {
   // Label
   getLabel(): Promise<Result<string, Error>>;
   setLabel(v: string): Promise<Result<void, Error>>;
+
+  // ─────────────────────────────────────────────────────────────────
+  // DS1054Z-specific measurements
+  // ─────────────────────────────────────────────────────────────────
+
+  /** Measure top voltage (flat top of waveform) in V */
+  getMeasuredVtop(): Promise<Result<number, Error>>;
+
+  /** Measure base voltage (flat bottom of waveform) in V */
+  getMeasuredVbase(): Promise<Result<number, Error>>;
+
+  /** Measure amplitude (Vtop - Vbase) in V */
+  getMeasuredVamp(): Promise<Result<number, Error>>;
+
+  /** Measure overshoot as percentage */
+  getMeasuredOvershoot(): Promise<Result<number, Error>>;
+
+  /** Measure preshoot as percentage */
+  getMeasuredPreshoot(): Promise<Result<number, Error>>;
+
+  /** Measure rise time (10%-90%) in seconds */
+  getMeasuredRiseTime(): Promise<Result<number, Error>>;
+
+  /** Measure fall time (90%-10%) in seconds */
+  getMeasuredFallTime(): Promise<Result<number, Error>>;
+
+  /** Measure positive pulse width in seconds */
+  getMeasuredPositiveWidth(): Promise<Result<number, Error>>;
+
+  /** Measure negative pulse width in seconds */
+  getMeasuredNegativeWidth(): Promise<Result<number, Error>>;
+
+  /** Measure positive duty cycle as percentage */
+  getMeasuredPositiveDuty(): Promise<Result<number, Error>>;
+
+  /** Measure negative duty cycle as percentage */
+  getMeasuredNegativeDuty(): Promise<Result<number, Error>>;
+
+  /** Get counter value (edge count) */
+  getMeasuredCounter(): Promise<Result<number, Error>>;
 }
 
 /**
  * DS1054Z oscilloscope interface - extends base with trigger/acquisition features.
  */
 export interface DS1054ZScope extends Oscilloscope {
-  /** Access a specific channel with DS1054Z-specific features */
-  channel(n: number): DS1054ZChannel;
+  /** Access a specific channel with DS1054Z-specific features. */
+  channel(n: 1 | 2 | 3 | 4): DS1054ZChannel;
 
   // Extended timebase
   getTimebaseOffset(): Promise<Result<number, Error>>;
@@ -359,12 +399,150 @@ const ds1054zSpec: DriverSpec<DS1054ZScope, DS1054ZChannel> = {
         set: ':CHANnel{ch}:LABel {value}',
         parse: (s: string) => s.trim().replace(/^"|"$/g, ''),
       },
+
+      // ─────────────────────────────────────────────────────────────────
+      // Measurements (base interface)
+      // ─────────────────────────────────────────────────────────────────
+
+      measuredFrequency: {
+        get: ':MEASure:ITEM? FREQuency,CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 'Hz',
+      },
+
+      measuredPeriod: {
+        get: ':MEASure:ITEM? PERiod,CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 's',
+      },
+
+      measuredVpp: {
+        get: ':MEASure:ITEM? VPP,CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 'V',
+      },
+
+      measuredVmax: {
+        get: ':MEASure:ITEM? VMAX,CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 'V',
+      },
+
+      measuredVmin: {
+        get: ':MEASure:ITEM? VMIN,CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 'V',
+      },
+
+      measuredVavg: {
+        get: ':MEASure:ITEM? VAVerage,CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 'V',
+      },
+
+      measuredVrms: {
+        get: ':MEASure:ITEM? VRMS,CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 'V',
+      },
+
+      // ─────────────────────────────────────────────────────────────────
+      // DS1054Z-specific measurements
+      // ─────────────────────────────────────────────────────────────────
+
+      measuredVtop: {
+        get: ':MEASure:ITEM? VTOP,CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 'V',
+      },
+
+      measuredVbase: {
+        get: ':MEASure:ITEM? VBASe,CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 'V',
+      },
+
+      measuredVamp: {
+        get: ':MEASure:ITEM? VAMPlitude,CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 'V',
+      },
+
+      measuredOvershoot: {
+        get: ':MEASure:ITEM? OVERshoot,CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: '%',
+      },
+
+      measuredPreshoot: {
+        get: ':MEASure:ITEM? PREShoot,CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: '%',
+      },
+
+      measuredRiseTime: {
+        get: ':MEASure:ITEM? RTIMe,CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 's',
+      },
+
+      measuredFallTime: {
+        get: ':MEASure:ITEM? FTIMe,CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 's',
+      },
+
+      measuredPositiveWidth: {
+        get: ':MEASure:ITEM? PWIDth,CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 's',
+      },
+
+      measuredNegativeWidth: {
+        get: ':MEASure:ITEM? NWIDth,CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 's',
+      },
+
+      measuredPositiveDuty: {
+        get: ':MEASure:ITEM? PDUTy,CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: '%',
+      },
+
+      measuredNegativeDuty: {
+        get: ':MEASure:ITEM? NDUTy,CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: '%',
+      },
+
+      measuredCounter: {
+        get: ':MEASure:COUNter:VALue? CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+      },
     },
   },
 
-  capabilities: ['fft', 'math-channels'],
-
-  quirks: {
+  settings: {
     postCommandDelay: 20,
     resetDelay: 2000,
   },

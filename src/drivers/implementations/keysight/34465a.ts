@@ -12,7 +12,6 @@ import { Ok } from '../../../result.js';
 import type { DriverSpec, DriverContext } from '../../types.js';
 import type { Result } from '../../../result.js';
 import type { Multimeter, DmmTriggerSource } from '../../equipment/multimeter.js';
-import type { DmmFunction } from '../../equipment/multimeter.js';
 
 // ─────────────────────────────────────────────────────────────────
 // 34465A-specific interfaces (extend base)
@@ -22,6 +21,18 @@ import type { DmmFunction } from '../../equipment/multimeter.js';
  * Keysight 34465A DMM interface - extends base with advanced features.
  */
 export interface Keysight34465ADMM extends Multimeter {
+  // Additional measurements (beyond base)
+  /** Measure 4-wire resistance in Ω */
+  getMeasuredResistance4W(): Promise<Result<number, Error>>;
+  /** Measure capacitance in F */
+  getMeasuredCapacitance(): Promise<Result<number, Error>>;
+  /** Measure period in s */
+  getMeasuredPeriod(): Promise<Result<number, Error>>;
+  /** Measure temperature via RTD in °C */
+  getMeasuredTemperatureRTD(): Promise<Result<number, Error>>;
+  /** Measure temperature via thermocouple in °C */
+  getMeasuredTemperatureTC(): Promise<Result<number, Error>>;
+
   // Auto range
   getAutoRange(): Promise<Result<boolean, Error>>;
   setAutoRange(v: boolean): Promise<Result<void, Error>>;
@@ -42,7 +53,7 @@ export interface Keysight34465ADMM extends Multimeter {
   getSampleCount(): Promise<Result<number, Error>>;
   setSampleCount(v: number): Promise<Result<void, Error>>;
 
-  // Additional measurement methods
+  // Additional measurement methods (preconfigured measurement + trigger + fetch)
   read(): Promise<Result<number, Error>>;
   fetch(): Promise<Result<number, Error>>;
 
@@ -54,55 +65,6 @@ export interface Keysight34465ADMM extends Multimeter {
 // ─────────────────────────────────────────────────────────────────
 // Helper functions
 // ─────────────────────────────────────────────────────────────────
-
-/**
- * Map of DMM function names to SCPI function strings.
- */
-const FUNCTION_MAP: Record<string, string> = {
-  VDC: 'VOLTage:DC',
-  VAC: 'VOLTage:AC',
-  VDC_AC: 'VOLTage:DC:ACDC',
-  ADC: 'CURRent:DC',
-  AAC: 'CURRent:AC',
-  ADC_AC: 'CURRent:DC:ACDC',
-  RESISTANCE_2W: 'RESistance',
-  RESISTANCE_4W: 'FRESistance',
-  FREQUENCY: 'FREQuency',
-  PERIOD: 'PERiod',
-  CAPACITANCE: 'CAPacitance',
-  TEMPERATURE_RTD: 'TEMPerature:RTD',
-  TEMPERATURE_TC: 'TEMPerature:TC',
-  CONTINUITY: 'CONTinuity',
-  DIODE: 'DIODe',
-};
-
-/**
- * Map of SCPI function strings to DMM function names.
- */
-const FUNCTION_REVERSE_MAP: Record<string, string> = Object.fromEntries(
-  Object.entries(FUNCTION_MAP).map(([k, v]) => [v.toUpperCase(), k])
-);
-
-/**
- * Parse DMM function response.
- */
-function parseDmmFunction(s: string): DmmFunction {
-  // Remove quotes and normalize
-  const val = s.trim().replace(/^"|"$/g, '').toUpperCase();
-  const mapped = FUNCTION_REVERSE_MAP[val];
-  if (mapped && mapped in FUNCTION_MAP) {
-    return mapped as DmmFunction;
-  }
-  return 'VDC'; // Default
-}
-
-/**
- * Format DMM function for command.
- */
-function formatDmmFunction(func: DmmFunction): string {
-  const scpiFunc = FUNCTION_MAP[func];
-  return scpiFunc ? `"${scpiFunc}"` : func;
-}
 
 /**
  * Parse trigger source response.
@@ -129,21 +91,115 @@ const keysight34465ASpec: DriverSpec<Keysight34465ADMM> = {
   models: ['34460A', '34461A', '34465A', '34470A'],
 
   properties: {
-    // Function selection
-    function: {
-      get: ':SENSe:FUNCtion?',
-      set: ':SENSe:FUNCtion {value}',
-      parse: parseDmmFunction,
-      format: formatDmmFunction,
-    },
+    // ─────────────────────────────────────────────────────────────────
+    // Base interface measurements (readonly)
+    // ─────────────────────────────────────────────────────────────────
 
-    // Range (for DC voltage as default)
-    range: {
-      get: ':SENSe:VOLTage:DC:RANGe?',
-      set: ':SENSe:VOLTage:DC:RANGe {value}',
+    // Voltage
+    measuredVoltageDC: {
+      get: ':MEASure:VOLTage:DC?',
       parse: parseScpiNumber,
+      readonly: true,
+      unit: 'V',
+    },
+    measuredVoltageAC: {
+      get: ':MEASure:VOLTage:AC?',
+      parse: parseScpiNumber,
+      readonly: true,
+      unit: 'V',
     },
 
+    // Current
+    measuredCurrentDC: {
+      get: ':MEASure:CURRent:DC?',
+      parse: parseScpiNumber,
+      readonly: true,
+      unit: 'A',
+    },
+    measuredCurrentAC: {
+      get: ':MEASure:CURRent:AC?',
+      parse: parseScpiNumber,
+      readonly: true,
+      unit: 'A',
+    },
+
+    // Resistance (2-wire)
+    measuredResistance: {
+      get: ':MEASure:RESistance?',
+      parse: parseScpiNumber,
+      readonly: true,
+      unit: 'Ω',
+    },
+
+    // Frequency
+    measuredFrequency: {
+      get: ':MEASure:FREQuency?',
+      parse: parseScpiNumber,
+      readonly: true,
+      unit: 'Hz',
+    },
+
+    // Test modes
+    measuredContinuity: {
+      get: ':MEASure:CONTinuity?',
+      parse: parseScpiNumber,
+      readonly: true,
+      unit: 'Ω',
+    },
+    measuredDiode: {
+      get: ':MEASure:DIODe?',
+      parse: parseScpiNumber,
+      readonly: true,
+      unit: 'V',
+    },
+
+    // ─────────────────────────────────────────────────────────────────
+    // Device-specific measurements (readonly)
+    // ─────────────────────────────────────────────────────────────────
+
+    // 4-wire resistance
+    measuredResistance4W: {
+      get: ':MEASure:FRESistance?',
+      parse: parseScpiNumber,
+      readonly: true,
+      unit: 'Ω',
+    },
+
+    // Capacitance
+    measuredCapacitance: {
+      get: ':MEASure:CAPacitance?',
+      parse: parseScpiNumber,
+      readonly: true,
+      unit: 'F',
+    },
+
+    // Period
+    measuredPeriod: {
+      get: ':MEASure:PERiod?',
+      parse: parseScpiNumber,
+      readonly: true,
+      unit: 's',
+    },
+
+    // Temperature
+    measuredTemperatureRTD: {
+      get: ':MEASure:TEMPerature:RTD?',
+      parse: parseScpiNumber,
+      readonly: true,
+      unit: '°C',
+    },
+    measuredTemperatureTC: {
+      get: ':MEASure:TEMPerature:TCouple?',
+      parse: parseScpiNumber,
+      readonly: true,
+      unit: '°C',
+    },
+
+    // ─────────────────────────────────────────────────────────────────
+    // Configuration properties
+    // ─────────────────────────────────────────────────────────────────
+
+    // Auto range
     autoRange: {
       get: ':SENSe:VOLTage:DC:RANGe:AUTO?',
       set: ':SENSe:VOLTage:DC:RANGe:AUTO {value}',
@@ -186,13 +242,7 @@ const keysight34465ASpec: DriverSpec<Keysight34465ADMM> = {
   },
 
   methods: {
-    // Measurement methods - these trigger actual measurements
-    async measure(ctx: DriverContext): Promise<Result<number, Error>> {
-      const result = await ctx.query(':MEASure:VOLTage:DC?');
-      if (!result.ok) return result;
-      return Ok(parseScpiNumber(result.value));
-    },
-
+    // Additional measurement methods (read last configured, fetch last reading)
     async read(ctx: DriverContext): Promise<Result<number, Error>> {
       const result = await ctx.query(':READ?');
       if (!result.ok) return result;
@@ -211,9 +261,7 @@ const keysight34465ASpec: DriverSpec<Keysight34465ADMM> = {
     abort: { command: ':ABORt', description: 'Abort measurement' },
   },
 
-  capabilities: ['data-logging', 'histogram', 'math', 'trend-chart'],
-
-  quirks: {
+  settings: {
     postQueryDelay: 10,
     resetDelay: 1000,
   },
@@ -228,14 +276,21 @@ const keysight34465ASpec: DriverSpec<Keysight34465ADMM> = {
  *
  * const dmm = await keysight34465A.connect(resource);
  * if (dmm.ok) {
- *   // Configure for DC voltage measurement
- *   await dmm.value.setFunction('VDC');
- *   await dmm.value.setAutoRange(true);
- *   await dmm.value.setNplc(10);
+ *   // Base measurements (all DMMs)
+ *   const vdc = await dmm.value.getMeasuredVoltageDC();
+ *   const vac = await dmm.value.getMeasuredVoltageAC();
+ *   const adc = await dmm.value.getMeasuredCurrentDC();
+ *   const ohms = await dmm.value.getMeasuredResistance();
+ *   const hz = await dmm.value.getMeasuredFrequency();
  *
- *   // Take a measurement
- *   const reading = await dmm.value.measure();
- *   console.log(`Voltage: ${reading.value} V`);
+ *   // 34465A-specific measurements
+ *   const ohms4w = await dmm.value.getMeasuredResistance4W();
+ *   const cap = await dmm.value.getMeasuredCapacitance();
+ *   const temp = await dmm.value.getMeasuredTemperatureRTD();
+ *
+ *   // Configure settings
+ *   await dmm.value.setAutoRange(true);
+ *   await dmm.value.setNplc(10);  // Higher = slower but more accurate
  * }
  * ```
  */

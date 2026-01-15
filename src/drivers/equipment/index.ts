@@ -21,7 +21,6 @@ export type {
   BandwidthLimit,
   MeasurementType,
   Protocol,
-  OscilloscopeCapability,
   WaveformData,
 } from './oscilloscope.js';
 
@@ -33,7 +32,6 @@ export type {
   TrackingMode,
   CombineMode,
   VoltageRange,
-  PowerSupplyCapability,
 } from './power-supply.js';
 
 // Multimeter

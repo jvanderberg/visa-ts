@@ -15,6 +15,7 @@ This document defines the public API for visa-ts. It serves as the specification
 9. [Advanced Patterns](#advanced-patterns)
 10. [Session Management](#session-management-optional)
 11. [Circuit Simulation](#circuit-simulation)
+12. [Driver Abstraction Layer](#driver-abstraction-layer)
 
 ---
 
@@ -1521,4 +1522,667 @@ export { parseResourceString, buildResourceString, matchResourcePattern } from '
 // Serial probe utility (for standalone auto-baud detection)
 export { probeSerialPort } from './util/serial-probe';
 export type { SerialProbeOptions, SerialProbeResult } from './util/serial-probe';
+
+// Driver abstraction layer
+export { defineDriver } from './drivers/define-driver';
+export type { DefinedDriver } from './drivers/define-driver';
+export type {
+  DriverSpec,
+  DriverSettings,
+  DriverHooks,
+  DriverContext,
+  PropertyDef,
+  CommandDef,
+  ChannelSpec,
+} from './drivers/types';
+
+// Base equipment interfaces
+export type { PowerSupply, PowerSupplyChannel } from './drivers/equipment/power-supply';
+export type { Oscilloscope, OscilloscopeChannel } from './drivers/equipment/oscilloscope';
+export type { DigitalMultimeter, DMMFunction } from './drivers/equipment/dmm';
+export type { BaseInstrument } from './drivers/equipment/base';
+
+// Built-in drivers
+export { rigolDS1054Z } from './drivers/implementations/rigol/ds1054z';
+export { rigolDP832 } from './drivers/implementations/rigol/dp832';
+export { keysight34465A } from './drivers/implementations/keysight/34465a';
 ```
+
+---
+
+## Driver Abstraction Layer
+
+The driver abstraction layer provides a declarative way to define typed instrument drivers. Instead of writing repetitive SCPI command strings, you define a **specification** that describes properties, commands, and channels. The `defineDriver()` factory generates a fully-typed driver with automatic getter/setter methods.
+
+### Why Use Drivers?
+
+Raw SCPI communication works, but has issues:
+
+```typescript
+// Raw SCPI - error-prone, no type safety
+await instr.write(':SOUR:VOLT 12.5');
+const result = await instr.query(':SOUR:VOLT?');
+const voltage = parseFloat(result.value); // Manual parsing every time
+```
+
+With drivers:
+
+```typescript
+// Typed driver - safe, discoverable, consistent
+await psu.channel(1).setVoltage(12.5);
+const voltage = await psu.channel(1).getVoltage();
+// voltage is Result<number, Error> - already parsed
+```
+
+Benefits:
+- **Type safety** — TypeScript catches errors at compile time
+- **Discoverable** — IDE autocomplete shows available methods
+- **Consistent** — All drivers follow the same patterns
+- **Result-based** — All I/O returns `Result<T, Error>`, never throws
+
+### Core Concept: DriverSpec
+
+A driver is defined by a `DriverSpec` object that declares:
+
+```typescript
+interface DriverSpec<T, TChannel = never> {
+  // Metadata (optional)
+  type?: string;              // 'oscilloscope', 'power-supply', 'dmm'
+  manufacturer?: string;      // 'Rigol', 'Keysight'
+  models?: string[];          // ['DS1054Z', 'DS1104Z-Plus']
+
+  // Properties become getXxx() and setXxx() methods
+  properties: Record<string, PropertyDef<unknown>>;
+
+  // Commands become methods that send SCPI commands
+  commands?: Record<string, CommandDef>;
+
+  // Channels for multi-channel instruments
+  channels?: ChannelSpec<TChannel>;
+
+  // Lifecycle hooks
+  hooks?: DriverHooks;
+
+  // Device-specific timing settings
+  settings?: DriverSettings;
+
+  // Custom method implementations
+  methods?: Record<string, (ctx: DriverContext, ...args: unknown[]) => unknown>;
+}
+```
+
+### Defining Properties
+
+Properties automatically generate getter and setter methods. The property name is converted to `getPropertyName()` and `setPropertyName()`.
+
+```typescript
+const spec: DriverSpec = {
+  properties: {
+    // "voltage" becomes getVoltage() and setVoltage()
+    voltage: {
+      get: ':SOUR:VOLT?',           // Query command
+      set: ':SOUR:VOLT {value}',    // Set command ({value} is replaced)
+      parse: parseScpiNumber,        // Convert response string to number
+      format: (v) => v.toFixed(3),  // Format value for command
+      unit: 'V',                     // Documentation only
+    },
+
+    // Read-only property (no setter generated)
+    measuredVoltage: {
+      get: ':MEAS:VOLT?',
+      parse: parseScpiNumber,
+      readonly: true,
+    },
+
+    // Property with validation
+    current: {
+      get: ':SOUR:CURR?',
+      set: ':SOUR:CURR {value}',
+      parse: parseScpiNumber,
+      validate: (v) => v >= 0 && v <= 10 ? true : 'Current must be 0-10A',
+    },
+  },
+};
+```
+
+**PropertyDef fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `get` | `string` | SCPI query command |
+| `set` | `string` | SCPI set command with `{value}` placeholder |
+| `parse` | `(s: string) => T` | Convert response string to typed value |
+| `format` | `(v: T) => string` | Format value for command string |
+| `validate` | `(v: T) => true \| string` | Return `true` or error message |
+| `readonly` | `boolean` | If true, no setter is generated |
+| `unit` | `string` | Documentation only (V, A, Hz, etc.) |
+
+### Defining Commands
+
+Commands are methods that send SCPI commands without expecting a parsed response.
+
+```typescript
+const spec: DriverSpec = {
+  commands: {
+    // "run" becomes run() method
+    run: { command: ':RUN' },
+
+    // Command with delay after execution
+    autoScale: {
+      command: ':AUToscale',
+      delay: 3000,  // Wait 3s for auto-scale to complete
+    },
+
+    // Command with description
+    forceTrigger: {
+      command: ':TFORce',
+      description: 'Force a trigger event',
+    },
+  },
+};
+```
+
+### Defining Channels
+
+Multi-channel instruments use the `channels` spec. Channel properties use `{ch}` as a placeholder for the channel number.
+
+```typescript
+const spec: DriverSpec = {
+  channels: {
+    count: 4,        // Number of channels
+    indexStart: 1,   // SCPI index for channel 1 (default: 1)
+
+    properties: {
+      // "scale" becomes channel(n).getScale() and channel(n).setScale()
+      scale: {
+        get: ':CHAN{ch}:SCAL?',      // {ch} replaced with channel index
+        set: ':CHAN{ch}:SCAL {value}',
+        parse: parseScpiNumber,
+      },
+
+      enabled: {
+        get: ':CHAN{ch}:DISP?',
+        set: ':CHAN{ch}:DISP {value}',
+        parse: parseScpiBool,
+        format: formatScpiBool,
+      },
+    },
+
+    commands: {
+      // Channel-specific commands
+      calibrate: { command: ':CHAN{ch}:CAL' },
+    },
+  },
+};
+```
+
+### Channel Type Safety with Literal Types
+
+Channel numbers are validated at **compile time** using TypeScript literal types. This prevents runtime errors from invalid channel access.
+
+```typescript
+// In the device-specific interface:
+export interface DS1054ZScope extends Oscilloscope {
+  // Only channels 1-4 are valid - enforced by TypeScript
+  channel(n: 1 | 2 | 3 | 4): DS1054ZChannel;
+}
+
+export interface DP832PSU extends PowerSupply {
+  // Only channels 1-3 are valid
+  channel(n: 1 | 2 | 3): DP832Channel;
+}
+```
+
+Usage:
+
+```typescript
+const scope = scopeResult.value;
+
+// Valid - compiles
+const ch1 = scope.channel(1);
+const ch4 = scope.channel(4);
+
+// COMPILE ERROR - TypeScript catches this
+const ch5 = scope.channel(5);  // Error: Argument of type '5' is not assignable to parameter of type '1 | 2 | 3 | 4'
+```
+
+**Important:** The base `Oscilloscope` interface uses `channel(n: number)` for flexibility, but device-specific interfaces (like `DS1054ZScope`) narrow this to literal types. Always use the device-specific interface for type safety.
+
+### Driver Settings
+
+Settings control device-specific timing and behavior:
+
+```typescript
+const spec: DriverSpec = {
+  settings: {
+    // Delay after write commands (some devices need settling time)
+    postCommandDelay: 50,  // ms
+
+    // Delay after query commands
+    postQueryDelay: 20,    // ms
+
+    // Reset device on connect
+    resetOnConnect: false,
+
+    // Clear status on connect
+    clearOnConnect: true,
+
+    // Delay after *RST command
+    resetDelay: 2000,      // ms
+  },
+};
+```
+
+### Driver Hooks
+
+Hooks allow custom logic at connection/disconnection:
+
+```typescript
+const spec: DriverSpec = {
+  hooks: {
+    // Called after *IDN? query succeeds
+    onConnect: async (ctx) => {
+      // Initialize device state
+      await ctx.write(':SYST:REM');  // Set to remote mode
+      return Ok(undefined);
+    },
+
+    // Called before resource.close()
+    onDisconnect: async (ctx) => {
+      await ctx.write(':SYST:LOC');  // Return to local mode
+      return Ok(undefined);
+    },
+
+    // Transform commands before sending (for quirky devices)
+    transformCommand: (cmd, value) => {
+      return cmd.toUpperCase();
+    },
+
+    // Transform responses after receiving
+    transformResponse: (cmd, response) => {
+      return response.trim();
+    },
+  },
+};
+```
+
+### Using defineDriver()
+
+The `defineDriver()` function creates a driver from a specification:
+
+```typescript
+import { defineDriver } from 'visa-ts';
+
+// Define the interface for type safety
+interface MyPowerSupply {
+  // Identity (provided automatically)
+  readonly manufacturer: string;
+  readonly model: string;
+  readonly serialNumber: string;
+  readonly firmwareVersion: string;
+
+  // From properties
+  getVoltage(): Promise<Result<number, Error>>;
+  setVoltage(v: number): Promise<Result<void, Error>>;
+  getCurrent(): Promise<Result<number, Error>>;
+  setCurrent(v: number): Promise<Result<void, Error>>;
+  getOutputEnabled(): Promise<Result<boolean, Error>>;
+  setOutputEnabled(v: boolean): Promise<Result<void, Error>>;
+
+  // Standard commands (provided automatically)
+  reset(): Promise<Result<void, Error>>;
+  clear(): Promise<Result<void, Error>>;
+  close(): Promise<Result<void, Error>>;
+}
+
+const myPsuSpec: DriverSpec<MyPowerSupply> = {
+  type: 'power-supply',
+  manufacturer: 'Acme',
+  models: ['PSU-100'],
+
+  properties: {
+    voltage: {
+      get: ':VOLT?',
+      set: ':VOLT {value}',
+      parse: parseScpiNumber,
+    },
+    current: {
+      get: ':CURR?',
+      set: ':CURR {value}',
+      parse: parseScpiNumber,
+    },
+    outputEnabled: {
+      get: ':OUTP?',
+      set: ':OUTP {value}',
+      parse: parseScpiBool,
+      format: formatScpiBool,
+    },
+  },
+};
+
+// Create the driver
+export const myPsuDriver = defineDriver(myPsuSpec);
+```
+
+### Connecting to an Instrument
+
+```typescript
+import { createResourceManager } from 'visa-ts';
+import { myPsuDriver } from './my-psu-driver';
+
+async function main() {
+  const rm = createResourceManager();
+
+  // Open the raw resource
+  const resourceResult = await rm.openResource('USB0::0x1234::0x5678::SN123::INSTR');
+  if (!resourceResult.ok) {
+    console.error('Failed to open:', resourceResult.error);
+    return;
+  }
+
+  // Connect using the driver (queries *IDN?, runs hooks)
+  const psuResult = await myPsuDriver.connect(resourceResult.value);
+  if (!psuResult.ok) {
+    console.error('Failed to connect driver:', psuResult.error);
+    return;
+  }
+
+  const psu = psuResult.value;
+
+  // Now use typed methods
+  console.log(`Connected to: ${psu.manufacturer} ${psu.model}`);
+
+  await psu.setVoltage(12.0);
+  await psu.setCurrent(1.5);
+  await psu.setOutputEnabled(true);
+
+  const voltage = await psu.getVoltage();
+  if (voltage.ok) {
+    console.log(`Voltage setpoint: ${voltage.value} V`);
+  }
+
+  await psu.close();
+  await rm.close();
+}
+```
+
+### Base Equipment Interfaces
+
+The library provides base interfaces for common instrument types. Device-specific drivers extend these.
+
+#### BaseInstrument
+
+All instruments provide:
+
+```typescript
+interface BaseInstrument {
+  readonly manufacturer: string;
+  readonly model: string;
+  readonly serialNumber: string;
+  readonly firmwareVersion: string;
+  readonly resourceString: string;
+  readonly resource: MessageBasedResource;  // Escape hatch for raw access
+
+  reset(): Promise<Result<void, Error>>;
+  clear(): Promise<Result<void, Error>>;
+  selfTest(): Promise<Result<boolean, Error>>;
+  getError(): Promise<Result<{ code: number; message: string } | null, Error>>;
+  close(): Promise<Result<void, Error>>;
+}
+```
+
+#### PowerSupply
+
+```typescript
+interface PowerSupplyChannel {
+  readonly channelNumber: number;
+
+  getVoltage(): Promise<Result<number, Error>>;
+  setVoltage(v: number): Promise<Result<void, Error>>;
+  getCurrent(): Promise<Result<number, Error>>;
+  setCurrent(v: number): Promise<Result<void, Error>>;
+  getOutputEnabled(): Promise<Result<boolean, Error>>;
+  setOutputEnabled(v: boolean): Promise<Result<void, Error>>;
+}
+
+interface PowerSupply extends BaseInstrument {
+  readonly channelCount: number;
+  channel(n: number): PowerSupplyChannel;
+}
+```
+
+#### Oscilloscope
+
+```typescript
+interface OscilloscopeChannel {
+  readonly channelNumber: number;
+
+  getEnabled(): Promise<Result<boolean, Error>>;
+  setEnabled(on: boolean): Promise<Result<void, Error>>;
+  getScale(): Promise<Result<number, Error>>;
+  setScale(voltsPerDiv: number): Promise<Result<void, Error>>;
+  getOffset(): Promise<Result<number, Error>>;
+  setOffset(volts: number): Promise<Result<void, Error>>;
+  getCoupling(): Promise<Result<Coupling, Error>>;
+  setCoupling(coupling: Coupling): Promise<Result<void, Error>>;
+
+  // Measurements
+  getMeasuredFrequency(): Promise<Result<number, Error>>;
+  getMeasuredPeriod(): Promise<Result<number, Error>>;
+  getMeasuredVpp(): Promise<Result<number, Error>>;
+  getMeasuredVmax(): Promise<Result<number, Error>>;
+  getMeasuredVmin(): Promise<Result<number, Error>>;
+  getMeasuredVavg(): Promise<Result<number, Error>>;
+  getMeasuredVrms(): Promise<Result<number, Error>>;
+}
+
+interface Oscilloscope extends BaseInstrument {
+  readonly channelCount: number;
+  channel(n: number): OscilloscopeChannel;
+
+  getTimebase(): Promise<Result<number, Error>>;
+  setTimebase(secondsPerDiv: number): Promise<Result<void, Error>>;
+
+  run(): Promise<Result<void, Error>>;
+  stop(): Promise<Result<void, Error>>;
+}
+```
+
+#### DigitalMultimeter
+
+```typescript
+type DMMFunction = 'VDC' | 'VAC' | 'IDC' | 'IAC' | 'RES' | 'FRES' | 'FREQ' | 'TEMP' | 'DIODE' | 'CONT';
+
+interface DigitalMultimeter extends BaseInstrument {
+  getFunction(): Promise<Result<DMMFunction, Error>>;
+  setFunction(fn: DMMFunction): Promise<Result<void, Error>>;
+
+  getMeasuredValue(): Promise<Result<number, Error>>;
+  getRange(): Promise<Result<number | 'AUTO', Error>>;
+  setRange(range: number | 'AUTO'): Promise<Result<void, Error>>;
+}
+```
+
+### Complete Driver Example: Rigol DP832
+
+```typescript
+import { defineDriver } from '../../define-driver.js';
+import { parseScpiNumber, parseScpiBool, formatScpiBool } from '../../parsers.js';
+import type { DriverSpec } from '../../types.js';
+import type { Result } from '../../../result.js';
+import type { PowerSupply, PowerSupplyChannel, RegulationMode } from '../../equipment/power-supply.js';
+
+// Device-specific channel interface
+export interface DP832Channel extends PowerSupplyChannel {
+  getMeasuredVoltage(): Promise<Result<number, Error>>;
+  getMeasuredCurrent(): Promise<Result<number, Error>>;
+  getMeasuredPower(): Promise<Result<number, Error>>;
+  getMode(): Promise<Result<RegulationMode, Error>>;
+
+  // Over-voltage protection
+  getOvpEnabled(): Promise<Result<boolean, Error>>;
+  setOvpEnabled(v: boolean): Promise<Result<void, Error>>;
+  getOvpLevel(): Promise<Result<number, Error>>;
+  setOvpLevel(v: number): Promise<Result<void, Error>>;
+}
+
+// Device-specific instrument interface with literal channel types
+export interface DP832PSU extends PowerSupply {
+  channel(n: 1 | 2 | 3): DP832Channel;  // Compile-time channel validation
+
+  getAllOutputEnabled(): Promise<Result<boolean, Error>>;
+  setAllOutputEnabled(v: boolean): Promise<Result<void, Error>>;
+}
+
+// Driver specification
+const dp832Spec: DriverSpec<DP832PSU, DP832Channel> = {
+  type: 'power-supply',
+  manufacturer: 'Rigol',
+  models: ['DP832', 'DP832A', 'DP831', 'DP831A'],
+
+  properties: {
+    allOutputEnabled: {
+      get: ':OUTPut:ALL?',
+      set: ':OUTPut:ALL {value}',
+      parse: parseScpiBool,
+      format: formatScpiBool,
+    },
+  },
+
+  channels: {
+    count: 3,
+    indexStart: 1,
+    properties: {
+      voltage: {
+        get: ':SOURce{ch}:VOLTage?',
+        set: ':SOURce{ch}:VOLTage {value}',
+        parse: parseScpiNumber,
+        unit: 'V',
+      },
+      current: {
+        get: ':SOURce{ch}:CURRent?',
+        set: ':SOURce{ch}:CURRent {value}',
+        parse: parseScpiNumber,
+        unit: 'A',
+      },
+      outputEnabled: {
+        get: ':OUTPut:STATe? CH{ch}',
+        set: ':OUTPut:STATe CH{ch},{value}',
+        parse: parseScpiBool,
+        format: formatScpiBool,
+      },
+      measuredVoltage: {
+        get: ':MEASure:VOLTage? CH{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 'V',
+      },
+      measuredCurrent: {
+        get: ':MEASure:CURRent? CH{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 'A',
+      },
+      measuredPower: {
+        get: ':MEASure:POWer? CH{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 'W',
+      },
+      mode: {
+        get: ':OUTPut:MODE? CH{ch}',
+        parse: parseRegulationMode,
+        readonly: true,
+      },
+      ovpEnabled: {
+        get: ':OUTPut:OVP? CH{ch}',
+        set: ':OUTPut:OVP CH{ch},{value}',
+        parse: parseScpiBool,
+        format: formatScpiBool,
+      },
+      ovpLevel: {
+        get: ':OUTPut:OVP:VALue? CH{ch}',
+        set: ':OUTPut:OVP:VALue CH{ch},{value}',
+        parse: parseScpiNumber,
+        unit: 'V',
+      },
+    },
+  },
+
+  settings: {
+    postCommandDelay: 50,
+    resetDelay: 1000,
+  },
+};
+
+// Export the driver
+export const rigolDP832 = defineDriver(dp832Spec);
+```
+
+### Usage Example
+
+```typescript
+import { createResourceManager } from 'visa-ts';
+import { rigolDP832 } from 'visa-ts/drivers/implementations/rigol/dp832';
+
+async function main() {
+  const rm = createResourceManager();
+
+  const resources = await rm.listResources('USB*::INSTR');
+  if (resources.length === 0) return;
+
+  const resourceResult = await rm.openResource(resources[0]);
+  if (!resourceResult.ok) return;
+
+  const psuResult = await rigolDP832.connect(resourceResult.value);
+  if (!psuResult.ok) return;
+
+  const psu = psuResult.value;
+  console.log(`Connected to: ${psu.manufacturer} ${psu.model}`);
+  console.log(`Channels: ${psu.channelCount}`);
+
+  // Configure channel 1 (compile-time validated)
+  const ch1 = psu.channel(1);
+  await ch1.setVoltage(5.0);
+  await ch1.setCurrent(1.0);
+  await ch1.setOutputEnabled(true);
+
+  // Take measurements
+  const voltage = await ch1.getMeasuredVoltage();
+  const current = await ch1.getMeasuredCurrent();
+  const power = await ch1.getMeasuredPower();
+  const mode = await ch1.getMode();
+
+  if (voltage.ok && current.ok && power.ok && mode.ok) {
+    console.log(`CH1: ${voltage.value}V, ${current.value}A, ${power.value}W (${mode.value})`);
+  }
+
+  // Enable all outputs
+  await psu.setAllOutputEnabled(true);
+
+  // This would be a compile error:
+  // const ch4 = psu.channel(4);  // Error: '4' not assignable to '1 | 2 | 3'
+
+  await psu.close();
+  await rm.close();
+}
+```
+
+### Built-in Drivers
+
+The library includes drivers for common instruments:
+
+| Driver | Import | Instruments |
+|--------|--------|-------------|
+| `rigolDS1054Z` | `visa-ts/drivers/implementations/rigol/ds1054z` | DS1054Z, DS1104Z-Plus, DS1074Z |
+| `rigolDP832` | `visa-ts/drivers/implementations/rigol/dp832` | DP832, DP832A, DP831, DP821, DP811 |
+| `keysight34465A` | `visa-ts/drivers/implementations/keysight/34465a` | 34465A, 34460A, 34461A |
+
+### Design Principles
+
+1. **Declarative over imperative** — Define what properties exist, not how to get/set them
+2. **Type safety** — Full TypeScript types, compile-time channel validation
+3. **Result-based errors** — All I/O returns `Result<T, Error>`, never throws
+4. **Extensible** — Base interfaces define common features, device-specific interfaces add more
+5. **Escape hatch** — `instrument.resource` provides raw access when needed
+6. **No magic** — Property names directly map to method names (`voltage` → `getVoltage()`)

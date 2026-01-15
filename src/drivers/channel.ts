@@ -9,7 +9,7 @@ import type { MessageBasedResource } from '../resources/message-based-resource.j
 import {
   isSupported,
   isCommandSupported,
-  type QuirkConfig,
+  type DriverSettings,
   type DriverHooks,
   type PropertyDef,
   type CommandDef,
@@ -60,7 +60,7 @@ export function createChannelGetter<T>(
   prop: PropertyDef<T>,
   channelNum: number,
   scpiIndex: number,
-  quirks: QuirkConfig | undefined,
+  settings: DriverSettings | undefined,
   hooks: DriverHooks | undefined,
   channelCount: number
 ): () => Promise<Result<T, Error>> {
@@ -87,8 +87,8 @@ export function createChannelGetter<T>(
     if (!result.ok) return result;
 
     // Apply post-query delay if configured
-    if (quirks?.postQueryDelay) {
-      await delay(quirks.postQueryDelay);
+    if (settings?.postQueryDelay) {
+      await delay(settings.postQueryDelay);
     }
 
     let response = result.value;
@@ -119,7 +119,7 @@ export function createChannelSetter<T>(
   prop: PropertyDef<T>,
   channelNum: number,
   scpiIndex: number,
-  quirks: QuirkConfig | undefined,
+  settings: DriverSettings | undefined,
   hooks: DriverHooks | undefined,
   channelCount: number
 ): (value: T) => Promise<Result<void, Error>> {
@@ -171,8 +171,8 @@ export function createChannelSetter<T>(
     if (!result.ok) return result;
 
     // Apply post-command delay if configured
-    if (quirks?.postCommandDelay) {
-      await delay(quirks.postCommandDelay);
+    if (settings?.postCommandDelay) {
+      await delay(settings.postCommandDelay);
     }
 
     return Ok(undefined);
@@ -231,7 +231,7 @@ export function createChannelAccessor<TChannel>(
   resource: MessageBasedResource,
   channelSpec: ChannelSpec<TChannel>,
   channelNum: number,
-  quirks: QuirkConfig | undefined,
+  settings: DriverSettings | undefined,
   hooks: DriverHooks | undefined
 ): Record<string, unknown> {
   // Calculate SCPI index from channel number:
@@ -256,7 +256,7 @@ export function createChannelAccessor<TChannel>(
       propDef,
       channelNum,
       scpiIndex,
-      quirks,
+      settings,
       hooks,
       channelSpec.count
     );
@@ -269,7 +269,7 @@ export function createChannelAccessor<TChannel>(
         propDef,
         channelNum,
         scpiIndex,
-        quirks,
+        settings,
         hooks,
         channelSpec.count
       );
