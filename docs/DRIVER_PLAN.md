@@ -9,6 +9,7 @@ This document outlines the design for adding a driver abstraction layer to visa-
 3. **Escape hatches** - Hooks and custom methods for complex interactions
 4. **Extensible types** - Users can define new equipment types for unusual hardware
 5. **Explicit async** - No hidden async behind sync-looking APIs; all operations return `Result<T, Error>`
+6. **Unified channel model** - Single types handle both single and multi-channel instruments
 
 ## Architecture
 
@@ -103,6 +104,9 @@ interface DriverSpec<T> {
   properties: PropertyMap;          // get/set properties
   commands: CommandMap;             // fire-and-forget commands
 
+  // Channel configuration
+  channels?: ChannelSpec;           // Indexed channel definitions
+
   // Imperative escape hatches
   hooks?: {
     onConnect?(ctx: DriverContext): Promise<Result<void, Error>>;
@@ -116,6 +120,9 @@ interface DriverSpec<T> {
 
   // Hardware quirks
   quirks?: QuirkConfig;
+
+  // Capability declarations
+  capabilities?: CapabilitySet;
 }
 ```
 
@@ -134,11 +141,120 @@ const raw = scope.resource;
 await raw.query(':CUSTOM:VENDOR:CMD?');
 ```
 
+---
+
+## Unified Channel System
+
+All multi-channel equipment uses a consistent channel access pattern. The base types always support multiple channels - single-channel devices simply have `channelCount = 1`.
+
+### Channel Access Pattern
+
+```typescript
+// All channelized equipment exposes:
+interface ChannelizedInstrument {
+  readonly channelCount: number;              // How many channels this instrument has
+  channel(n: number): ChannelAPI;             // Access a specific channel (1-indexed)
+}
+
+// Channel accessor validates bounds and returns typed channel API
+const ch1 = psu.channel(1);  // Returns PowerSupplyChannelAPI
+const ch2 = psu.channel(2);  // Returns PowerSupplyChannelAPI (or error if channelCount < 2)
+```
+
+### Driver Channel Declaration
+
+Drivers declare their channel count, and the runtime enforces bounds:
+
+```typescript
+const rigolDP832 = defineDriver<PowerSupplyAPI>({
+  manufacturer: 'Rigol',
+  models: ['DP832', 'DP832A'],
+
+  channels: {
+    count: 3,                    // This PSU has 3 channels
+    indexStart: 1,               // SCPI uses 1-based indexing (default)
+
+    properties: {
+      voltage: {
+        get: ':SOUR{ch}:VOLT?',
+        set: ':SOUR{ch}:VOLT {value}',
+        parse: parseScpiNumber,
+      },
+      current: {
+        get: ':SOUR{ch}:CURR?',
+        set: ':SOUR{ch}:CURR {value}',
+        parse: parseScpiNumber,
+      },
+      outputEnabled: {
+        get: ':OUTP:STAT? CH{ch}',
+        set: ':OUTP:STAT CH{ch},{value}',
+        parse: parseScpiBool,
+        format: (v) => v ? 'ON' : 'OFF',
+      },
+    },
+  },
+
+  // Global properties (not per-channel)
+  properties: {
+    allOutputEnabled: {
+      get: ':OUTP:ALL:STAT?',
+      set: ':OUTP:ALL:STAT {value}',
+      parse: parseScpiBool,
+    },
+  },
+});
+
+// Single-channel PSU
+const keysightE36312A = defineDriver<PowerSupplyAPI>({
+  channels: {
+    count: 1,
+    properties: { /* ... */ },
+  },
+});
+```
+
+### Convenience Accessors for Single-Channel
+
+Single-channel instruments get shortcut methods that delegate to `channel(1)`:
+
+```typescript
+interface PowerSupplyAPI extends BaseInstrumentAPI {
+  readonly channelCount: number;
+  channel(n: number): PowerSupplyChannelAPI;
+
+  // Convenience methods delegate to channel(1) when channelCount === 1
+  // These are optional - only available if driver declares them or channelCount === 1
+  getVoltage?(): Promise<Result<number, Error>>;
+  setVoltage?(volts: number): Promise<Result<void, Error>>;
+  // ...
+}
+
+// Usage: both work identically for single-channel PSU
+await psu.setVoltage(5.0);           // Shortcut
+await psu.channel(1).setVoltage(5.0); // Explicit
+```
+
+### Type-Safe Channel Validation
+
+```typescript
+// Runtime validation returns Result
+const ch = psu.channel(5);
+// If psu.channelCount < 5, operations on `ch` return Err('Channel 5 out of range (1-3)')
+
+// Or channel() itself could return Result<ChannelAPI, Error>
+const chResult = psu.channel(5);
+if (!chResult.ok) {
+  console.error(chResult.error); // "Channel 5 out of range (max: 3)"
+}
+```
+
+---
+
 ## Property Definition
 
 ```typescript
 interface PropertyDef<T> {
-  // SCPI commands (use {value} placeholder for setter)
+  // SCPI commands (use {value} placeholder for setter, {ch} for channel)
   get: string;                      // e.g., ':TIMebase:SCALe?'
   set?: string;                     // e.g., ':TIMebase:SCALe {value}'
 
@@ -152,23 +268,8 @@ interface PropertyDef<T> {
   // Metadata
   readonly?: boolean;
   description?: string;
+  unit?: string;                    // For documentation: 'V', 'A', 'Hz', 's', etc.
 }
-
-// Example
-const properties = {
-  timebase: {
-    get: ':TIMebase:SCALe?',
-    set: ':TIMebase:SCALe {value}',
-    parse: parseScpiNumber,
-    validate: (v) => v >= 1e-9 && v <= 50,
-  },
-  outputEnabled: {
-    get: ':OUTPut?',
-    set: ':OUTPut {value}',
-    parse: parseScpiBool,
-    format: (v) => v ? 'ON' : 'OFF',
-  },
-};
 ```
 
 ## Command Definition
@@ -179,206 +280,294 @@ interface CommandDef {
   description?: string;
   delay?: number;                   // Post-command delay (ms)
 }
-
-// Example
-const commands = {
-  autoScale: ':AUToscale',
-  run: ':RUN',
-  stop: ':STOP',
-  single: ':SINGle',
-  reset: '*RST',
-};
 ```
 
-## Indexed Properties (Channels)
+## Capability System
 
-For instruments with multiple channels:
-
-```typescript
-interface IndexedPropertyDef<T> {
-  count: number | ((ctx: DriverContext) => Promise<number>);
-  startIndex?: number;              // Default: 1
-  properties: {
-    [key: string]: PropertyDef<any>;  // Use {i} for index placeholder
-  };
-}
-
-// Example
-const indexedProperties = {
-  channel: {
-    count: 4,
-    properties: {
-      enabled: {
-        get: ':CHANnel{i}:DISPlay?',
-        set: ':CHANnel{i}:DISPlay {value}',
-        parse: parseScpiBool,
-        format: (v) => v ? 'ON' : 'OFF',
-      },
-      scale: {
-        get: ':CHANnel{i}:SCALe?',
-        set: ':CHANnel{i}:SCALe {value}',
-        parse: parseScpiNumber,
-      },
-      offset: {
-        get: ':CHANnel{i}:OFFSet?',
-        set: ':CHANnel{i}:OFFSet {value}',
-        parse: parseScpiNumber,
-      },
-      coupling: {
-        get: ':CHANnel{i}:COUPling?',
-        set: ':CHANnel{i}:COUPling {value}',
-        parse: (s) => s.trim() as 'AC' | 'DC' | 'GND',
-      },
-    },
-  },
-};
-
-// Usage
-await scope.channel(1).setScale(0.5);
-const coupling = await scope.channel(2).getCoupling();
-```
-
-## Custom Methods
-
-For complex operations that can't be declarative:
+Drivers declare which optional features they support:
 
 ```typescript
-const methods = {
-  async getWaveform(ctx: DriverContext, channel: number): Promise<Result<WaveformData, Error>> {
-    // Multi-step acquisition sequence
-    const setupResult = await ctx.write(`:WAVeform:SOURce CHANnel${channel}`);
-    if (!setupResult.ok) return setupResult;
+type OscilloscopeCapability =
+  | 'digital-channels'      // Has digital/logic analyzer channels
+  | 'math-channels'         // Has math/computed channels
+  | 'fft'                   // Has FFT analysis
+  | 'protocol-decode'       // Has serial protocol decoding
+  | 'mask-test'             // Has mask/limit testing
+  | 'segmented-memory'      // Has segmented acquisition
+  | 'waveform-generator'    // Has built-in AWG
+  | 'bode-plot';            // Has frequency response analysis
 
-    await ctx.write(':WAVeform:MODE RAW');
-    await ctx.write(':WAVeform:FORMat BYTE');
+type PowerSupplyCapability =
+  | 'tracking'              // Channels can track each other
+  | 'series-parallel'       // Channels can be combined series/parallel
+  | 'sequencing'            // Has output sequencing/list mode
+  | 'ovp'                   // Has over-voltage protection
+  | 'ocp'                   // Has over-current protection
+  | 'opp'                   // Has over-power protection
+  | 'otp'                   // Has over-temperature protection
+  | 'remote-sense';         // Has 4-wire remote sensing
 
-    const preamble = await ctx.query(':WAVeform:PREamble?');
-    if (!preamble.ok) return preamble;
+// Driver declares capabilities
+const rigolDS1054Z = defineDriver<OscilloscopeAPI>({
+  capabilities: ['fft', 'protocol-decode', 'math-channels'],
+  // ...
+});
 
-    const data = await ctx.queryBinary(':WAVeform:DATA?');
-    if (!data.ok) return data;
-
-    return Ok(parseWaveform(preamble.value, data.value));
-  },
-
-  async screenshot(ctx: DriverContext): Promise<Result<Buffer, Error>> {
-    return ctx.queryBinary(':DISPlay:DATA? PNG');
-  },
-};
-```
-
-## Quirks Configuration
-
-Handle manufacturer-specific behaviors:
-
-```typescript
-interface QuirkConfig {
-  // Timing
-  postCommandDelay?: number;        // Delay after each command (ms)
-  postQueryDelay?: number;          // Delay after each query (ms)
-
-  // Connection
-  clearOnConnect?: boolean;         // Send *CLS on connect
-  resetOnConnect?: boolean;         // Send *RST on connect
-  identifyOnConnect?: boolean;      // Query *IDN? on connect (default: true)
-
-  // Protocol
-  useOpc?: boolean;                 // Use *OPC? for synchronization
-  maxResponseLength?: number;       // Truncate responses
-
-  // Manufacturer-specific
-  rigolSlowMode?: boolean;          // Extra delays for older Rigol firmware
-  lecroyClearSweeps?: boolean;      // Clear statistics on measurement change
+// User can check capabilities
+if (scope.hasCapability('protocol-decode')) {
+  await scope.configureDecoder('i2c', { sda: 1, scl: 2 });
 }
 ```
+
+---
 
 ## Equipment Base Types
 
-Based on research from [sigrok](https://sigrok.org/wiki/Supported_hardware), [ngscopeclient](https://www.ngscopeclient.org/manual/OscilloscopeDrivers.html), and SCPI standards:
+Based on research from [sigrok](https://sigrok.org/wiki/Supported_hardware), [ngscopeclient](https://www.ngscopeclient.org/manual/OscilloscopeDrivers.html), and SCPI standards.
+
+### Base Instrument API
+
+```typescript
+interface BaseInstrumentAPI {
+  // Identity
+  readonly resourceString: string;
+  readonly manufacturer: string;
+  readonly model: string;
+  readonly serialNumber: string;
+  readonly firmwareVersion: string;
+
+  // Raw access escape hatch
+  readonly resource: MessageBasedResource;
+
+  // Common operations
+  reset(): Promise<Result<void, Error>>;
+  clear(): Promise<Result<void, Error>>;
+  selfTest(): Promise<Result<boolean, Error>>;
+  getError(): Promise<Result<{ code: number; message: string } | null, Error>>;
+
+  // Connection
+  close(): Promise<Result<void, Error>>;
+
+  // Capability checking
+  hasCapability(cap: string): boolean;
+  readonly capabilities: readonly string[];
+}
+```
 
 ### Oscilloscope
 
 ```typescript
 interface OscilloscopeAPI extends BaseInstrumentAPI {
-  // Timebase
-  getTimebase(): Promise<Result<number, Error>>;
-  setTimebase(secPerDiv: number): Promise<Result<void, Error>>;
-  getTimebaseOffset(): Promise<Result<number, Error>>;
-  setTimebaseOffset(seconds: number): Promise<Result<void, Error>>;
+  // === Channel System ===
+  readonly analogChannelCount: number;
+  readonly digitalChannelCount: number;      // 0 if no digital channels
+  analogChannel(n: number): OscilloscopeAnalogChannelAPI;
+  digitalChannel?(n: number): OscilloscopeDigitalChannelAPI;  // Optional
 
-  // Trigger
-  getTriggerLevel(): Promise<Result<number, Error>>;
+  // === Timebase ===
+  getTimebase(): Promise<Result<number, Error>>;              // s/div
+  setTimebase(secPerDiv: number): Promise<Result<void, Error>>;
+  getTimebaseOffset(): Promise<Result<number, Error>>;        // seconds from trigger
+  setTimebaseOffset(seconds: number): Promise<Result<void, Error>>;
+  getTimebaseMode(): Promise<Result<TimebaseMode, Error>>;
+  setTimebaseMode(mode: TimebaseMode): Promise<Result<void, Error>>;
+  getSampleRate(): Promise<Result<number, Error>>;            // Sa/s (read-only usually)
+  getRecordLength(): Promise<Result<number, Error>>;          // points
+  setRecordLength(points: number): Promise<Result<void, Error>>;
+
+  // === Trigger ===
+  getTriggerSource(): Promise<Result<TriggerSource, Error>>;
+  setTriggerSource(source: TriggerSource): Promise<Result<void, Error>>;
+  getTriggerLevel(): Promise<Result<number, Error>>;          // volts
   setTriggerLevel(volts: number): Promise<Result<void, Error>>;
-  getTriggerSource(): Promise<Result<string, Error>>;
-  setTriggerSource(source: string): Promise<Result<void, Error>>;
+  getTriggerSlope(): Promise<Result<TriggerSlope, Error>>;
+  setTriggerSlope(slope: TriggerSlope): Promise<Result<void, Error>>;
   getTriggerMode(): Promise<Result<TriggerMode, Error>>;
   setTriggerMode(mode: TriggerMode): Promise<Result<void, Error>>;
+  getTriggerHoldoff(): Promise<Result<number, Error>>;        // seconds
+  setTriggerHoldoff(seconds: number): Promise<Result<void, Error>>;
+  forceTrigger(): Promise<Result<void, Error>>;
 
-  // Channels (indexed)
-  channel(n: number): ChannelAPI;
-
-  // Acquisition control
+  // === Acquisition Control ===
   run(): Promise<Result<void, Error>>;
   stop(): Promise<Result<void, Error>>;
   single(): Promise<Result<void, Error>>;
   autoScale(): Promise<Result<void, Error>>;
+  getAcquisitionMode(): Promise<Result<AcquisitionMode, Error>>;
+  setAcquisitionMode(mode: AcquisitionMode): Promise<Result<void, Error>>;
+  getAcquisitionCount(): Promise<Result<number, Error>>;      // for averaging
+  setAcquisitionCount(count: number): Promise<Result<void, Error>>;
+  isRunning(): Promise<Result<boolean, Error>>;
 
-  // Data acquisition
+  // === Data Acquisition ===
   getWaveform(channel: number): Promise<Result<WaveformData, Error>>;
+  getWaveformRaw(channel: number): Promise<Result<Buffer, Error>>;
 
-  // Measurements
+  // === Measurements ===
   measure(channel: number, type: MeasurementType): Promise<Result<number, Error>>;
+  measureAll(channel: number): Promise<Result<MeasurementSet, Error>>;
+
+  // === Display ===
+  getScreenshot(format?: 'PNG' | 'BMP' | 'JPEG'): Promise<Result<Buffer, Error>>;
+
+  // === Math (optional capability) ===
+  mathChannel?(n: number): OscilloscopeMathChannelAPI;
+
+  // === FFT (optional capability) ===
+  getFFT?(channel: number): Promise<Result<FFTData, Error>>;
+
+  // === Protocol Decode (optional capability) ===
+  configureDecoder?(protocol: Protocol, config: DecoderConfig): Promise<Result<void, Error>>;
+  getDecodedData?(protocol: Protocol): Promise<Result<DecodedData, Error>>;
 }
 
-interface ChannelAPI {
+interface OscilloscopeAnalogChannelAPI {
+  readonly channelNumber: number;
+
   getEnabled(): Promise<Result<boolean, Error>>;
   setEnabled(on: boolean): Promise<Result<void, Error>>;
-  getScale(): Promise<Result<number, Error>>;
+  getScale(): Promise<Result<number, Error>>;                 // V/div
   setScale(voltsPerDiv: number): Promise<Result<void, Error>>;
-  getOffset(): Promise<Result<number, Error>>;
+  getOffset(): Promise<Result<number, Error>>;                // V
   setOffset(volts: number): Promise<Result<void, Error>>;
   getCoupling(): Promise<Result<Coupling, Error>>;
   setCoupling(coupling: Coupling): Promise<Result<void, Error>>;
-  getBandwidthLimit(): Promise<Result<boolean, Error>>;
-  setBandwidthLimit(on: boolean): Promise<Result<void, Error>>;
-  getProbeAttenuation(): Promise<Result<number, Error>>;
+  getBandwidthLimit(): Promise<Result<BandwidthLimit, Error>>;
+  setBandwidthLimit(limit: BandwidthLimit): Promise<Result<void, Error>>;
+  getProbeAttenuation(): Promise<Result<number, Error>>;      // 1x, 10x, 100x, etc.
   setProbeAttenuation(ratio: number): Promise<Result<void, Error>>;
+  getInverted(): Promise<Result<boolean, Error>>;
+  setInverted(inverted: boolean): Promise<Result<void, Error>>;
+  getLabel(): Promise<Result<string, Error>>;
+  setLabel(label: string): Promise<Result<void, Error>>;
 }
 
+interface OscilloscopeDigitalChannelAPI {
+  readonly channelNumber: number;
+
+  getEnabled(): Promise<Result<boolean, Error>>;
+  setEnabled(on: boolean): Promise<Result<void, Error>>;
+  getThreshold(): Promise<Result<number, Error>>;             // V
+  setThreshold(volts: number): Promise<Result<void, Error>>;
+  getLabel(): Promise<Result<string, Error>>;
+  setLabel(label: string): Promise<Result<void, Error>>;
+}
+
+// Types
+type TimebaseMode = 'MAIN' | 'WINDOW' | 'XY' | 'ROLL';
+type TriggerSource = 'CH1' | 'CH2' | 'CH3' | 'CH4' | 'EXT' | 'LINE' | 'D0' | 'D1' | /* ... */;
+type TriggerSlope = 'RISING' | 'FALLING' | 'EITHER';
 type TriggerMode = 'AUTO' | 'NORMAL' | 'SINGLE';
+type AcquisitionMode = 'NORMAL' | 'AVERAGE' | 'PEAK' | 'HIGHRES';
 type Coupling = 'AC' | 'DC' | 'GND';
-type MeasurementType = 'FREQUENCY' | 'PERIOD' | 'VMAX' | 'VMIN' | 'VPP' | 'VAVG' | 'VRMS' | 'RISE' | 'FALL' | 'PWIDTH' | 'NWIDTH' | 'DUTY';
+type BandwidthLimit = 'OFF' | '20MHZ' | '100MHZ' | '200MHZ';  // Varies by model
+type MeasurementType =
+  | 'FREQUENCY' | 'PERIOD' | 'COUNTER'
+  | 'VMAX' | 'VMIN' | 'VPP' | 'VTOP' | 'VBASE' | 'VAMP'
+  | 'VAVG' | 'VRMS' | 'VAVG_CYCLE' | 'VRMS_CYCLE'
+  | 'OVERSHOOT' | 'PRESHOOT'
+  | 'RISE' | 'FALL' | 'PWIDTH' | 'NWIDTH' | 'DUTY_POS' | 'DUTY_NEG'
+  | 'DELAY_RISE' | 'DELAY_FALL' | 'PHASE';
+type Protocol = 'I2C' | 'SPI' | 'UART' | 'CAN' | 'LIN' | 'I2S' | 'FLEXRAY' | '1WIRE';
+
+interface WaveformData {
+  points: Float64Array;
+  xIncrement: number;              // Time between samples (s)
+  xOrigin: number;                 // Time of first sample (s)
+  yIncrement: number;              // Voltage per LSB (V)
+  yOrigin: number;                 // Voltage offset (V)
+  xUnit: 's';
+  yUnit: 'V';
+}
+
+interface MeasurementSet {
+  frequency?: number;
+  period?: number;
+  vmax?: number;
+  vmin?: number;
+  vpp?: number;
+  vavg?: number;
+  vrms?: number;
+  rise?: number;
+  fall?: number;
+  // ... etc
+}
+
+interface FFTData {
+  magnitudes: Float64Array;        // dB or linear
+  frequencies: Float64Array;       // Hz
+  rbw: number;                     // Resolution bandwidth
+}
 ```
 
 ### Power Supply
 
 ```typescript
 interface PowerSupplyAPI extends BaseInstrumentAPI {
-  // Output control
-  getOutputEnabled(): Promise<Result<boolean, Error>>;
-  setOutputEnabled(on: boolean): Promise<Result<void, Error>>;
+  // === Channel System ===
+  readonly channelCount: number;
+  channel(n: number): PowerSupplyChannelAPI;
 
-  // Voltage
+  // === Global Controls ===
+  getAllOutputEnabled(): Promise<Result<boolean, Error>>;
+  setAllOutputEnabled(on: boolean): Promise<Result<void, Error>>;
+
+  // === Tracking (optional capability) ===
+  getTrackingMode?(): Promise<Result<TrackingMode, Error>>;
+  setTrackingMode?(mode: TrackingMode): Promise<Result<void, Error>>;
+
+  // === Series/Parallel (optional capability) ===
+  getCombineMode?(): Promise<Result<CombineMode, Error>>;
+  setCombineMode?(mode: CombineMode): Promise<Result<void, Error>>;
+
+  // === Sequencing (optional capability) ===
+  getSequenceEnabled?(): Promise<Result<boolean, Error>>;
+  setSequenceEnabled?(on: boolean): Promise<Result<void, Error>>;
+  setSequenceDelay?(channel: number, delayMs: number): Promise<Result<void, Error>>;
+
+  // === Convenience (single-channel shorthand) ===
+  // These delegate to channel(1) and are always available
   getVoltage(): Promise<Result<number, Error>>;
   setVoltage(volts: number): Promise<Result<void, Error>>;
-  getVoltageLimit(): Promise<Result<number, Error>>;
-  setVoltageLimit(volts: number): Promise<Result<void, Error>>;
-
-  // Current
   getCurrent(): Promise<Result<number, Error>>;
   setCurrent(amps: number): Promise<Result<void, Error>>;
-  getCurrentLimit(): Promise<Result<number, Error>>;
-  setCurrentLimit(amps: number): Promise<Result<void, Error>>;
-
-  // Measurements
+  getOutputEnabled(): Promise<Result<boolean, Error>>;
+  setOutputEnabled(on: boolean): Promise<Result<void, Error>>;
   measureVoltage(): Promise<Result<number, Error>>;
   measureCurrent(): Promise<Result<number, Error>>;
   measurePower(): Promise<Result<number, Error>>;
+}
 
-  // Status
-  getMode(): Promise<Result<'CV' | 'CC' | 'UR', Error>>;  // Constant Voltage/Current/Unregulated
+interface PowerSupplyChannelAPI {
+  readonly channelNumber: number;
 
-  // Protection
+  // === Output Control ===
+  getOutputEnabled(): Promise<Result<boolean, Error>>;
+  setOutputEnabled(on: boolean): Promise<Result<void, Error>>;
+
+  // === Voltage ===
+  getVoltage(): Promise<Result<number, Error>>;               // Setpoint
+  setVoltage(volts: number): Promise<Result<void, Error>>;
+  getVoltageLimit(): Promise<Result<number, Error>>;          // Max settable
+  setVoltageLimit(volts: number): Promise<Result<void, Error>>;
+  getVoltageRange(): Promise<Result<VoltageRange, Error>>;    // HIGH/LOW range
+  setVoltageRange(range: VoltageRange): Promise<Result<void, Error>>;
+
+  // === Current ===
+  getCurrent(): Promise<Result<number, Error>>;               // Setpoint (limit)
+  setCurrent(amps: number): Promise<Result<void, Error>>;
+  getCurrentLimit(): Promise<Result<number, Error>>;          // Max settable
+  setCurrentLimit(amps: number): Promise<Result<void, Error>>;
+
+  // === Measurements ===
+  measureVoltage(): Promise<Result<number, Error>>;           // Actual output
+  measureCurrent(): Promise<Result<number, Error>>;           // Actual output
+  measurePower(): Promise<Result<number, Error>>;             // V * I
+
+  // === Status ===
+  getMode(): Promise<Result<RegulationMode, Error>>;          // CV, CC, or UR
+
+  // === Protection ===
   getOvpEnabled(): Promise<Result<boolean, Error>>;
   setOvpEnabled(on: boolean): Promise<Result<void, Error>>;
   getOvpLevel(): Promise<Result<number, Error>>;
@@ -387,139 +576,388 @@ interface PowerSupplyAPI extends BaseInstrumentAPI {
   setOcpEnabled(on: boolean): Promise<Result<void, Error>>;
   getOcpLevel(): Promise<Result<number, Error>>;
   setOcpLevel(amps: number): Promise<Result<void, Error>>;
+  clearProtection(): Promise<Result<void, Error>>;            // Clear OVP/OCP trip
+
+  // === Remote Sense (optional capability) ===
+  getRemoteSenseEnabled?(): Promise<Result<boolean, Error>>;
+  setRemoteSenseEnabled?(on: boolean): Promise<Result<void, Error>>;
 }
 
-// Multi-channel variant
-interface MultiChannelPowerSupplyAPI extends BaseInstrumentAPI {
-  channel(n: number): PowerSupplyChannelAPI;
-
-  // Global controls
-  getAllOutputEnabled(): Promise<Result<boolean, Error>>;
-  setAllOutputEnabled(on: boolean): Promise<Result<void, Error>>;
-}
+type RegulationMode = 'CV' | 'CC' | 'UR';  // Constant Voltage, Constant Current, Unregulated
+type TrackingMode = 'INDEPENDENT' | 'SERIES' | 'PARALLEL';
+type CombineMode = 'INDEPENDENT' | 'SERIES' | 'PARALLEL';
+type VoltageRange = 'HIGH' | 'LOW' | 'AUTO';
 ```
 
 ### Digital Multimeter (DMM)
 
 ```typescript
 interface MultimeterAPI extends BaseInstrumentAPI {
-  // Function selection
+  // === Channel System (for dual-display DMMs) ===
+  readonly displayCount: number;              // 1 or 2 typically
+  display(n: number): MultimeterDisplayAPI;   // Primary = 1, Secondary = 2
+
+  // === Convenience (primary display shorthand) ===
+  getFunction(): Promise<Result<DmmFunction, Error>>;
+  setFunction(func: DmmFunction): Promise<Result<void, Error>>;
+  getRange(): Promise<Result<number | 'AUTO', Error>>;
+  setRange(range: number | 'AUTO'): Promise<Result<void, Error>>;
+  measure(): Promise<Result<number, Error>>;
+  fetch(): Promise<Result<number, Error>>;
+
+  // === Triggering ===
+  getTriggerSource(): Promise<Result<TriggerSource, Error>>;
+  setTriggerSource(source: TriggerSource): Promise<Result<void, Error>>;
+  getTriggerDelay(): Promise<Result<number | 'AUTO', Error>>;
+  setTriggerDelay(seconds: number | 'AUTO'): Promise<Result<void, Error>>;
+  initiate(): Promise<Result<void, Error>>;                   // Start measurement
+  abort(): Promise<Result<void, Error>>;                      // Abort measurement
+
+  // === Data Logging (optional capability) ===
+  getLoggingEnabled?(): Promise<Result<boolean, Error>>;
+  setLoggingEnabled?(on: boolean): Promise<Result<void, Error>>;
+  getLoggedData?(): Promise<Result<number[], Error>>;
+  clearLog?(): Promise<Result<void, Error>>;
+
+  // === Statistics ===
+  getStatistics(): Promise<Result<DmmStatistics, Error>>;
+  clearStatistics(): Promise<Result<void, Error>>;
+}
+
+interface MultimeterDisplayAPI {
+  readonly displayNumber: number;
+
+  // === Function Selection ===
   getFunction(): Promise<Result<DmmFunction, Error>>;
   setFunction(func: DmmFunction): Promise<Result<void, Error>>;
 
-  // Range
+  // === Range ===
   getRange(): Promise<Result<number | 'AUTO', Error>>;
   setRange(range: number | 'AUTO'): Promise<Result<void, Error>>;
+  getAutoRangeEnabled(): Promise<Result<boolean, Error>>;
+  setAutoRangeEnabled(on: boolean): Promise<Result<void, Error>>;
 
-  // Measurement
-  measure(): Promise<Result<number, Error>>;
-  fetch(): Promise<Result<number, Error>>;  // Get last measurement without triggering new one
+  // === Measurement ===
+  measure(): Promise<Result<number, Error>>;                  // Trigger + read
+  fetch(): Promise<Result<number, Error>>;                    // Read last measurement
+  read(): Promise<Result<number, Error>>;                     // Read current value
 
-  // AC-specific
+  // === Resolution/Speed ===
+  getNplc(): Promise<Result<number, Error>>;                  // Power line cycles (0.001-100)
+  setNplc(nplc: number): Promise<Result<void, Error>>;
+  getAperture(): Promise<Result<number, Error>>;              // Integration time (s)
+  setAperture(seconds: number): Promise<Result<void, Error>>;
+  getResolution(): Promise<Result<number, Error>>;            // Digits (4.5, 5.5, 6.5)
+  setResolution(digits: number): Promise<Result<void, Error>>;
+
+  // === AC Specific ===
   getAcBandwidth(): Promise<Result<AcBandwidth, Error>>;
   setAcBandwidth(bw: AcBandwidth): Promise<Result<void, Error>>;
 
-  // Integration/averaging
-  getNplc(): Promise<Result<number, Error>>;  // Number of Power Line Cycles
-  setNplc(nplc: number): Promise<Result<void, Error>>;
-
-  // Null/relative
+  // === Null/Relative ===
   getNullEnabled(): Promise<Result<boolean, Error>>;
   setNullEnabled(on: boolean): Promise<Result<void, Error>>;
   getNullValue(): Promise<Result<number, Error>>;
   setNullValue(value: number): Promise<Result<void, Error>>;
+  acquireNull(): Promise<Result<void, Error>>;                // Set null to current reading
+
+  // === dB/dBm ===
+  getDbReference(): Promise<Result<number, Error>>;
+  setDbReference(value: number): Promise<Result<void, Error>>;
+  getDbmReference(): Promise<Result<number, Error>>;          // Impedance (ohms)
+  setDbmReference(ohms: number): Promise<Result<void, Error>>;
 }
 
 type DmmFunction =
-  | 'VDC' | 'VAC' | 'VDC_AC'           // Voltage
-  | 'ADC' | 'AAC' | 'ADC_AC'           // Current
-  | 'RESISTANCE' | 'RESISTANCE_4W'     // Resistance
-  | 'FREQUENCY' | 'PERIOD'             // Frequency
-  | 'CAPACITANCE'                      // Capacitance
-  | 'CONTINUITY' | 'DIODE'             // Test modes
-  | 'TEMPERATURE';                     // Temperature
+  // Voltage
+  | 'VDC' | 'VAC' | 'VDC_AC'
+  // Current
+  | 'ADC' | 'AAC' | 'ADC_AC'
+  // Resistance
+  | 'RESISTANCE_2W' | 'RESISTANCE_4W'
+  // Frequency/Period
+  | 'FREQUENCY' | 'PERIOD'
+  // Capacitance
+  | 'CAPACITANCE'
+  // Temperature
+  | 'TEMPERATURE_RTD' | 'TEMPERATURE_TC'  // RTD or Thermocouple
+  // Test modes
+  | 'CONTINUITY' | 'DIODE';
 
-type AcBandwidth = 'SLOW' | 'MEDIUM' | 'FAST';  // 3Hz, 20Hz, 200Hz typical
+type AcBandwidth = 'SLOW' | 'MEDIUM' | 'FAST';  // ~3Hz, ~20Hz, ~200Hz
+
+interface DmmStatistics {
+  min: number;
+  max: number;
+  average: number;
+  stdDev: number;
+  count: number;
+}
 ```
 
 ### Signal/Function Generator
 
 ```typescript
 interface SignalGeneratorAPI extends BaseInstrumentAPI {
-  // Output control
+  // === Channel System ===
+  readonly channelCount: number;
+  channel(n: number): SignalGeneratorChannelAPI;
+
+  // === Sync/Trigger Output ===
+  getSyncEnabled(): Promise<Result<boolean, Error>>;
+  setSyncEnabled(on: boolean): Promise<Result<void, Error>>;
+
+  // === Reference Clock ===
+  getClockSource(): Promise<Result<ClockSource, Error>>;
+  setClockSource(source: ClockSource): Promise<Result<void, Error>>;
+
+  // === Channel Coupling ===
+  getChannelCoupling(): Promise<Result<ChannelCoupling, Error>>;
+  setChannelCoupling(coupling: ChannelCoupling): Promise<Result<void, Error>>;
+
+  // === Convenience (single-channel shorthand) ===
   getOutputEnabled(): Promise<Result<boolean, Error>>;
   setOutputEnabled(on: boolean): Promise<Result<void, Error>>;
-
-  // Waveform
   getWaveform(): Promise<Result<Waveform, Error>>;
   setWaveform(waveform: Waveform): Promise<Result<void, Error>>;
-
-  // Frequency
   getFrequency(): Promise<Result<number, Error>>;
   setFrequency(hz: number): Promise<Result<void, Error>>;
-
-  // Amplitude
   getAmplitude(): Promise<Result<number, Error>>;
   setAmplitude(vpp: number): Promise<Result<void, Error>>;
   getOffset(): Promise<Result<number, Error>>;
   setOffset(volts: number): Promise<Result<void, Error>>;
-
-  // Phase
-  getPhase(): Promise<Result<number, Error>>;
-  setPhase(degrees: number): Promise<Result<void, Error>>;
-
-  // Duty cycle (for pulse/square)
-  getDutyCycle(): Promise<Result<number, Error>>;
-  setDutyCycle(percent: number): Promise<Result<void, Error>>;
-
-  // Impedance
-  getOutputImpedance(): Promise<Result<number | 'HIGHZ', Error>>;
-  setOutputImpedance(ohms: number | 'HIGHZ'): Promise<Result<void, Error>>;
 }
 
-type Waveform = 'SINE' | 'SQUARE' | 'RAMP' | 'PULSE' | 'NOISE' | 'DC' | 'ARB';
+interface SignalGeneratorChannelAPI {
+  readonly channelNumber: number;
+
+  // === Output Control ===
+  getOutputEnabled(): Promise<Result<boolean, Error>>;
+  setOutputEnabled(on: boolean): Promise<Result<void, Error>>;
+  getOutputLoad(): Promise<Result<number | 'HIGHZ', Error>>; // Impedance setting
+  setOutputLoad(ohms: number | 'HIGHZ'): Promise<Result<void, Error>>;
+  getOutputPolarity(): Promise<Result<Polarity, Error>>;
+  setOutputPolarity(polarity: Polarity): Promise<Result<void, Error>>;
+
+  // === Waveform ===
+  getWaveform(): Promise<Result<Waveform, Error>>;
+  setWaveform(waveform: Waveform): Promise<Result<void, Error>>;
+
+  // === Frequency ===
+  getFrequency(): Promise<Result<number, Error>>;
+  setFrequency(hz: number): Promise<Result<void, Error>>;
+
+  // === Amplitude ===
+  getAmplitude(): Promise<Result<number, Error>>;             // Vpp
+  setAmplitude(vpp: number): Promise<Result<void, Error>>;
+  getAmplitudeUnit(): Promise<Result<AmplitudeUnit, Error>>;
+  setAmplitudeUnit(unit: AmplitudeUnit): Promise<Result<void, Error>>;
+  getOffset(): Promise<Result<number, Error>>;                // VDC
+  setOffset(volts: number): Promise<Result<void, Error>>;
+  getHighLevel(): Promise<Result<number, Error>>;             // V
+  setHighLevel(volts: number): Promise<Result<void, Error>>;
+  getLowLevel(): Promise<Result<number, Error>>;              // V
+  setLowLevel(volts: number): Promise<Result<void, Error>>;
+
+  // === Phase ===
+  getPhase(): Promise<Result<number, Error>>;                 // Degrees
+  setPhase(degrees: number): Promise<Result<void, Error>>;
+
+  // === Duty Cycle (pulse/square) ===
+  getDutyCycle(): Promise<Result<number, Error>>;             // %
+  setDutyCycle(percent: number): Promise<Result<void, Error>>;
+
+  // === Pulse Parameters ===
+  getPulseWidth(): Promise<Result<number, Error>>;            // s
+  setPulseWidth(seconds: number): Promise<Result<void, Error>>;
+  getRiseTime(): Promise<Result<number, Error>>;              // s
+  setRiseTime(seconds: number): Promise<Result<void, Error>>;
+  getFallTime(): Promise<Result<number, Error>>;              // s
+  setFallTime(seconds: number): Promise<Result<void, Error>>;
+
+  // === Ramp Parameters ===
+  getSymmetry(): Promise<Result<number, Error>>;              // %
+  setSymmetry(percent: number): Promise<Result<void, Error>>;
+
+  // === Modulation ===
+  getModulationEnabled(): Promise<Result<boolean, Error>>;
+  setModulationEnabled(on: boolean): Promise<Result<void, Error>>;
+  getModulationType(): Promise<Result<ModulationType, Error>>;
+  setModulationType(type: ModulationType): Promise<Result<void, Error>>;
+  getModulationSource(): Promise<Result<ModulationSource, Error>>;
+  setModulationSource(source: ModulationSource): Promise<Result<void, Error>>;
+  // AM-specific
+  getAmDepth(): Promise<Result<number, Error>>;               // %
+  setAmDepth(percent: number): Promise<Result<void, Error>>;
+  // FM-specific
+  getFmDeviation(): Promise<Result<number, Error>>;           // Hz
+  setFmDeviation(hz: number): Promise<Result<void, Error>>;
+  // PM-specific
+  getPmDeviation(): Promise<Result<number, Error>>;           // Degrees
+  setPmDeviation(degrees: number): Promise<Result<void, Error>>;
+  // FSK-specific
+  getFskHopFrequency(): Promise<Result<number, Error>>;       // Hz
+  setFskHopFrequency(hz: number): Promise<Result<void, Error>>;
+  getFskRate(): Promise<Result<number, Error>>;               // Hz
+  setFskRate(hz: number): Promise<Result<void, Error>>;
+  // Internal modulation source
+  getModulationFrequency(): Promise<Result<number, Error>>;   // Hz
+  setModulationFrequency(hz: number): Promise<Result<void, Error>>;
+  getModulationWaveform(): Promise<Result<Waveform, Error>>;
+  setModulationWaveform(waveform: Waveform): Promise<Result<void, Error>>;
+
+  // === Sweep ===
+  getSweepEnabled(): Promise<Result<boolean, Error>>;
+  setSweepEnabled(on: boolean): Promise<Result<void, Error>>;
+  getSweepType(): Promise<Result<SweepType, Error>>;
+  setSweepType(type: SweepType): Promise<Result<void, Error>>;
+  getSweepStartFrequency(): Promise<Result<number, Error>>;
+  setSweepStartFrequency(hz: number): Promise<Result<void, Error>>;
+  getSweepStopFrequency(): Promise<Result<number, Error>>;
+  setSweepStopFrequency(hz: number): Promise<Result<void, Error>>;
+  getSweepTime(): Promise<Result<number, Error>>;             // s
+  setSweepTime(seconds: number): Promise<Result<void, Error>>;
+
+  // === Burst ===
+  getBurstEnabled(): Promise<Result<boolean, Error>>;
+  setBurstEnabled(on: boolean): Promise<Result<void, Error>>;
+  getBurstMode(): Promise<Result<BurstMode, Error>>;
+  setBurstMode(mode: BurstMode): Promise<Result<void, Error>>;
+  getBurstCycles(): Promise<Result<number | 'INFINITE', Error>>;
+  setBurstCycles(cycles: number | 'INFINITE'): Promise<Result<void, Error>>;
+  getBurstPhase(): Promise<Result<number, Error>>;            // Start phase (degrees)
+  setBurstPhase(degrees: number): Promise<Result<void, Error>>;
+  trigger(): Promise<Result<void, Error>>;                    // Manual trigger
+
+  // === Arbitrary Waveform ===
+  loadArbitraryWaveform(data: Float64Array | number[]): Promise<Result<void, Error>>;
+  getArbitrarySampleRate(): Promise<Result<number, Error>>;
+  setArbitrarySampleRate(rate: number): Promise<Result<void, Error>>;
+}
+
+type Waveform = 'SINE' | 'SQUARE' | 'RAMP' | 'PULSE' | 'NOISE' | 'DC' | 'ARB' | 'SINC' | 'GAUSSIAN' | 'LORENTZ' | 'HAVERSINE' | 'EXPRISE' | 'EXPFALL';
+type ModulationType = 'AM' | 'FM' | 'PM' | 'FSK' | 'PSK' | 'PWM' | 'ASK' | 'BPSK' | 'QPSK' | 'OSK' | 'DSB_AM' | 'SUM';
+type ModulationSource = 'INTERNAL' | 'EXTERNAL';
+type SweepType = 'LINEAR' | 'LOG' | 'STEP';
+type BurstMode = 'TRIGGERED' | 'GATED' | 'INFINITE';
+type ClockSource = 'INTERNAL' | 'EXTERNAL';
+type ChannelCoupling = 'OFF' | 'FREQUENCY' | 'AMPLITUDE' | 'BOTH';
+type AmplitudeUnit = 'VPP' | 'VRMS' | 'DBM';
+type Polarity = 'NORMAL' | 'INVERTED';
 ```
 
 ### Electronic Load
 
 ```typescript
 interface ElectronicLoadAPI extends BaseInstrumentAPI {
-  // Input control
+  // === Channel System ===
+  readonly channelCount: number;
+  channel(n: number): ElectronicLoadChannelAPI;
+
+  // === Convenience (single-channel shorthand) ===
   getInputEnabled(): Promise<Result<boolean, Error>>;
   setInputEnabled(on: boolean): Promise<Result<void, Error>>;
-
-  // Mode
   getMode(): Promise<Result<LoadMode, Error>>;
   setMode(mode: LoadMode): Promise<Result<void, Error>>;
-
-  // Setpoints (depending on mode)
-  getCurrentSetpoint(): Promise<Result<number, Error>>;
-  setCurrentSetpoint(amps: number): Promise<Result<void, Error>>;
-  getVoltageSetpoint(): Promise<Result<number, Error>>;
-  setVoltageSetpoint(volts: number): Promise<Result<void, Error>>;
-  getResistanceSetpoint(): Promise<Result<number, Error>>;
-  setResistanceSetpoint(ohms: number): Promise<Result<void, Error>>;
-  getPowerSetpoint(): Promise<Result<number, Error>>;
-  setPowerSetpoint(watts: number): Promise<Result<void, Error>>;
-
-  // Measurements
   measureVoltage(): Promise<Result<number, Error>>;
   measureCurrent(): Promise<Result<number, Error>>;
   measurePower(): Promise<Result<number, Error>>;
-
-  // Slew rate
-  getSlewRate(): Promise<Result<number, Error>>;
-  setSlewRate(ampsPerSec: number): Promise<Result<void, Error>>;
 }
 
-type LoadMode = 'CC' | 'CV' | 'CR' | 'CP';  // Constant Current/Voltage/Resistance/Power
+interface ElectronicLoadChannelAPI {
+  readonly channelNumber: number;
+
+  // === Input Control ===
+  getInputEnabled(): Promise<Result<boolean, Error>>;
+  setInputEnabled(on: boolean): Promise<Result<void, Error>>;
+  getShortEnabled(): Promise<Result<boolean, Error>>;         // Short-circuit mode
+  setShortEnabled(on: boolean): Promise<Result<void, Error>>;
+
+  // === Mode ===
+  getMode(): Promise<Result<LoadMode, Error>>;
+  setMode(mode: LoadMode): Promise<Result<void, Error>>;
+
+  // === CC Mode (Constant Current) ===
+  getCurrentSetpoint(): Promise<Result<number, Error>>;
+  setCurrentSetpoint(amps: number): Promise<Result<void, Error>>;
+  getCurrentRange(): Promise<Result<CurrentRange, Error>>;
+  setCurrentRange(range: CurrentRange): Promise<Result<void, Error>>;
+
+  // === CV Mode (Constant Voltage) ===
+  getVoltageSetpoint(): Promise<Result<number, Error>>;
+  setVoltageSetpoint(volts: number): Promise<Result<void, Error>>;
+
+  // === CR Mode (Constant Resistance) ===
+  getResistanceSetpoint(): Promise<Result<number, Error>>;
+  setResistanceSetpoint(ohms: number): Promise<Result<void, Error>>;
+
+  // === CP Mode (Constant Power) ===
+  getPowerSetpoint(): Promise<Result<number, Error>>;
+  setPowerSetpoint(watts: number): Promise<Result<void, Error>>;
+
+  // === Dynamic/Transient Mode ===
+  getDynamicEnabled(): Promise<Result<boolean, Error>>;
+  setDynamicEnabled(on: boolean): Promise<Result<void, Error>>;
+  getDynamicMode(): Promise<Result<DynamicMode, Error>>;
+  setDynamicMode(mode: DynamicMode): Promise<Result<void, Error>>;
+  getDynamicLevelA(): Promise<Result<number, Error>>;
+  setDynamicLevelA(value: number): Promise<Result<void, Error>>;
+  getDynamicLevelB(): Promise<Result<number, Error>>;
+  setDynamicLevelB(value: number): Promise<Result<void, Error>>;
+  getDynamicFrequency(): Promise<Result<number, Error>>;      // Hz
+  setDynamicFrequency(hz: number): Promise<Result<void, Error>>;
+  getDynamicDutyCycle(): Promise<Result<number, Error>>;      // %
+  setDynamicDutyCycle(percent: number): Promise<Result<void, Error>>;
+
+  // === Slew Rate ===
+  getSlewRate(): Promise<Result<number, Error>>;              // A/s or A/µs
+  setSlewRate(rate: number): Promise<Result<void, Error>>;
+  getSlewRateUnit(): Promise<Result<SlewRateUnit, Error>>;
+  setSlewRateUnit(unit: SlewRateUnit): Promise<Result<void, Error>>;
+
+  // === Measurements ===
+  measureVoltage(): Promise<Result<number, Error>>;
+  measureCurrent(): Promise<Result<number, Error>>;
+  measurePower(): Promise<Result<number, Error>>;
+  measureResistance(): Promise<Result<number, Error>>;
+
+  // === Protection ===
+  getOcpEnabled(): Promise<Result<boolean, Error>>;
+  setOcpEnabled(on: boolean): Promise<Result<void, Error>>;
+  getOcpLevel(): Promise<Result<number, Error>>;
+  setOcpLevel(amps: number): Promise<Result<void, Error>>;
+  getOppEnabled(): Promise<Result<boolean, Error>>;
+  setOppEnabled(on: boolean): Promise<Result<void, Error>>;
+  getOppLevel(): Promise<Result<number, Error>>;
+  setOppLevel(watts: number): Promise<Result<void, Error>>;
+  getOvpEnabled(): Promise<Result<boolean, Error>>;
+  setOvpEnabled(on: boolean): Promise<Result<void, Error>>;
+  getOvpLevel(): Promise<Result<number, Error>>;
+  setOvpLevel(volts: number): Promise<Result<void, Error>>;
+  clearProtection(): Promise<Result<void, Error>>;
+
+  // === Battery Test (optional capability) ===
+  getBatteryTestEnabled?(): Promise<Result<boolean, Error>>;
+  setBatteryTestEnabled?(on: boolean): Promise<Result<void, Error>>;
+  getBatteryStopVoltage?(): Promise<Result<number, Error>>;
+  setBatteryStopVoltage?(volts: number): Promise<Result<void, Error>>;
+  getBatteryStopCapacity?(): Promise<Result<number, Error>>;  // Ah
+  setBatteryStopCapacity?(ah: number): Promise<Result<void, Error>>;
+  getBatteryCapacity?(): Promise<Result<number, Error>>;      // Accumulated Ah
+  resetBatteryCapacity?(): Promise<Result<void, Error>>;
+}
+
+type LoadMode = 'CC' | 'CV' | 'CR' | 'CP' | 'CC_CV' | 'CR_CV';
+type DynamicMode = 'CONTINUOUS' | 'PULSED' | 'TOGGLED';
+type CurrentRange = 'HIGH' | 'LOW' | 'AUTO';
+type SlewRateUnit = 'A/S' | 'A/US';
 ```
 
 ### Spectrum Analyzer
 
 ```typescript
 interface SpectrumAnalyzerAPI extends BaseInstrumentAPI {
-  // Frequency
+  // === Frequency ===
   getCenterFrequency(): Promise<Result<number, Error>>;
   setCenterFrequency(hz: number): Promise<Result<void, Error>>;
   getSpan(): Promise<Result<number, Error>>;
@@ -528,33 +966,334 @@ interface SpectrumAnalyzerAPI extends BaseInstrumentAPI {
   setStartFrequency(hz: number): Promise<Result<void, Error>>;
   getStopFrequency(): Promise<Result<number, Error>>;
   setStopFrequency(hz: number): Promise<Result<void, Error>>;
+  setFullSpan(): Promise<Result<void, Error>>;
+  setZeroSpan(): Promise<Result<void, Error>>;
 
-  // Resolution/Video bandwidth
-  getRbw(): Promise<Result<number | 'AUTO', Error>>;
-  setRbw(hz: number | 'AUTO'): Promise<Result<void, Error>>;
-  getVbw(): Promise<Result<number | 'AUTO', Error>>;
-  setVbw(hz: number | 'AUTO'): Promise<Result<void, Error>>;
+  // === Resolution/Video Bandwidth ===
+  getRbw(): Promise<Result<number, Error>>;
+  setRbw(hz: number): Promise<Result<void, Error>>;
+  getRbwAuto(): Promise<Result<boolean, Error>>;
+  setRbwAuto(auto: boolean): Promise<Result<void, Error>>;
+  getVbw(): Promise<Result<number, Error>>;
+  setVbw(hz: number): Promise<Result<void, Error>>;
+  getVbwAuto(): Promise<Result<boolean, Error>>;
+  setVbwAuto(auto: boolean): Promise<Result<void, Error>>;
+  getRbwVbwRatio(): Promise<Result<number, Error>>;
 
-  // Reference level
-  getReferenceLevel(): Promise<Result<number, Error>>;
+  // === Sweep ===
+  getSweepTime(): Promise<Result<number, Error>>;
+  setSweepTime(seconds: number): Promise<Result<void, Error>>;
+  getSweepTimeAuto(): Promise<Result<boolean, Error>>;
+  setSweepTimeAuto(auto: boolean): Promise<Result<void, Error>>;
+  getSweepPoints(): Promise<Result<number, Error>>;
+  setSweepPoints(points: number): Promise<Result<void, Error>>;
+  getContinuousSweep(): Promise<Result<boolean, Error>>;
+  setContinuousSweep(continuous: boolean): Promise<Result<void, Error>>;
+  singleSweep(): Promise<Result<void, Error>>;
+  restart(): Promise<Result<void, Error>>;
+
+  // === Amplitude ===
+  getReferenceLevel(): Promise<Result<number, Error>>;        // dBm
   setReferenceLevel(dbm: number): Promise<Result<void, Error>>;
-  getScale(): Promise<Result<number, Error>>;
+  getScale(): Promise<Result<number, Error>>;                 // dB/div
   setScale(dbPerDiv: number): Promise<Result<void, Error>>;
+  getScaleType(): Promise<Result<ScaleType, Error>>;
+  setScaleType(type: ScaleType): Promise<Result<void, Error>>;
+  getAttenuation(): Promise<Result<number, Error>>;           // dB
+  setAttenuation(db: number): Promise<Result<void, Error>>;
+  getAttenuationAuto(): Promise<Result<boolean, Error>>;
+  setAttenuationAuto(auto: boolean): Promise<Result<void, Error>>;
+  getPreampEnabled(): Promise<Result<boolean, Error>>;
+  setPreampEnabled(on: boolean): Promise<Result<void, Error>>;
 
-  // Trace
-  getTrace(n?: number): Promise<Result<TraceData, Error>>;
+  // === Detection ===
+  getDetectorType(): Promise<Result<DetectorType, Error>>;
+  setDetectorType(type: DetectorType): Promise<Result<void, Error>>;
 
-  // Markers
-  markerToCenter(): Promise<Result<void, Error>>;
-  markerToPeak(): Promise<Result<void, Error>>;
-  getMarkerFrequency(n?: number): Promise<Result<number, Error>>;
-  getMarkerAmplitude(n?: number): Promise<Result<number, Error>>;
+  // === Traces ===
+  readonly traceCount: number;
+  trace(n: number): SpectrumAnalyzerTraceAPI;
+
+  // === Markers ===
+  readonly markerCount: number;
+  marker(n: number): SpectrumAnalyzerMarkerAPI;
+
+  // === Peak Search ===
+  peakSearch(): Promise<Result<{ frequency: number; amplitude: number }, Error>>;
+  nextPeak(): Promise<Result<{ frequency: number; amplitude: number }, Error>>;
+  nextPeakLeft(): Promise<Result<{ frequency: number; amplitude: number }, Error>>;
+  nextPeakRight(): Promise<Result<{ frequency: number; amplitude: number }, Error>>;
+
+  // === Tracking Generator (optional capability) ===
+  getTrackingGeneratorEnabled?(): Promise<Result<boolean, Error>>;
+  setTrackingGeneratorEnabled?(on: boolean): Promise<Result<void, Error>>;
+  getTrackingGeneratorLevel?(): Promise<Result<number, Error>>; // dBm
+  setTrackingGeneratorLevel?(dbm: number): Promise<Result<void, Error>>;
+
+  // === Display ===
+  getScreenshot(format?: 'PNG' | 'BMP' | 'JPEG'): Promise<Result<Buffer, Error>>;
+}
+
+interface SpectrumAnalyzerTraceAPI {
+  readonly traceNumber: number;
+
+  getEnabled(): Promise<Result<boolean, Error>>;
+  setEnabled(on: boolean): Promise<Result<void, Error>>;
+  getMode(): Promise<Result<TraceMode, Error>>;
+  setMode(mode: TraceMode): Promise<Result<void, Error>>;
+  getData(): Promise<Result<TraceData, Error>>;
+  clear(): Promise<Result<void, Error>>;
+}
+
+interface SpectrumAnalyzerMarkerAPI {
+  readonly markerNumber: number;
+
+  getEnabled(): Promise<Result<boolean, Error>>;
+  setEnabled(on: boolean): Promise<Result<void, Error>>;
+  getFrequency(): Promise<Result<number, Error>>;
+  setFrequency(hz: number): Promise<Result<void, Error>>;
+  getAmplitude(): Promise<Result<number, Error>>;             // Read-only
+
+  // === Marker Functions ===
+  toCenter(): Promise<Result<void, Error>>;                   // Set center freq to marker
+  toReference(): Promise<Result<void, Error>>;                // Set ref level to marker
+  toPeak(): Promise<Result<void, Error>>;                     // Move marker to peak
+
+  // === Delta Marker ===
+  getDeltaEnabled(): Promise<Result<boolean, Error>>;
+  setDeltaEnabled(on: boolean): Promise<Result<void, Error>>;
+  getDeltaReference(): Promise<Result<number, Error>>;        // Reference marker number
+  setDeltaReference(markerNum: number): Promise<Result<void, Error>>;
+}
+
+type ScaleType = 'LOG' | 'LINEAR';
+type DetectorType = 'NORMAL' | 'POSITIVE' | 'NEGATIVE' | 'SAMPLE' | 'AVERAGE' | 'QUASI_PEAK' | 'EMI_AVERAGE' | 'RMS';
+type TraceMode = 'WRITE' | 'MAXHOLD' | 'MINHOLD' | 'AVERAGE' | 'VIEW' | 'BLANK';
+
+interface TraceData {
+  frequencies: Float64Array;        // Hz
+  amplitudes: Float64Array;         // dBm (or linear if LOG scale)
+  startFrequency: number;
+  stopFrequency: number;
+  rbw: number;
+  vbw: number;
 }
 ```
 
+### Source Measure Unit (SMU)
+
+```typescript
+interface SourceMeasureUnitAPI extends BaseInstrumentAPI {
+  // === Channel System ===
+  readonly channelCount: number;
+  channel(n: number): SMUChannelAPI;
+
+  // === Convenience (single-channel shorthand) ===
+  getOutputEnabled(): Promise<Result<boolean, Error>>;
+  setOutputEnabled(on: boolean): Promise<Result<void, Error>>;
+}
+
+interface SMUChannelAPI {
+  readonly channelNumber: number;
+
+  // === Output Control ===
+  getOutputEnabled(): Promise<Result<boolean, Error>>;
+  setOutputEnabled(on: boolean): Promise<Result<void, Error>>;
+  getOutputOff(): Promise<Result<OutputOffMode, Error>>;
+  setOutputOff(mode: OutputOffMode): Promise<Result<void, Error>>;
+
+  // === Source Function ===
+  getSourceFunction(): Promise<Result<SourceFunction, Error>>;
+  setSourceFunction(func: SourceFunction): Promise<Result<void, Error>>;
+
+  // === Voltage Source ===
+  getVoltage(): Promise<Result<number, Error>>;
+  setVoltage(volts: number): Promise<Result<void, Error>>;
+  getVoltageRange(): Promise<Result<number, Error>>;
+  setVoltageRange(volts: number): Promise<Result<void, Error>>;
+  getVoltageRangeAuto(): Promise<Result<boolean, Error>>;
+  setVoltageRangeAuto(auto: boolean): Promise<Result<void, Error>>;
+
+  // === Current Source ===
+  getCurrent(): Promise<Result<number, Error>>;
+  setCurrent(amps: number): Promise<Result<void, Error>>;
+  getCurrentRange(): Promise<Result<number, Error>>;
+  setCurrentRange(amps: number): Promise<Result<void, Error>>;
+  getCurrentRangeAuto(): Promise<Result<boolean, Error>>;
+  setCurrentRangeAuto(auto: boolean): Promise<Result<void, Error>>;
+
+  // === Compliance (Limit) ===
+  getVoltageCompliance(): Promise<Result<number, Error>>;     // Limit when sourcing current
+  setVoltageCompliance(volts: number): Promise<Result<void, Error>>;
+  getCurrentCompliance(): Promise<Result<number, Error>>;     // Limit when sourcing voltage
+  setCurrentCompliance(amps: number): Promise<Result<void, Error>>;
+  isInCompliance(): Promise<Result<boolean, Error>>;
+
+  // === Measurement ===
+  measureVoltage(): Promise<Result<number, Error>>;
+  measureCurrent(): Promise<Result<number, Error>>;
+  measureResistance(): Promise<Result<number, Error>>;
+  measurePower(): Promise<Result<number, Error>>;
+  measureAll(): Promise<Result<SMUMeasurement, Error>>;
+
+  // === Sense Mode ===
+  getSenseMode(): Promise<Result<SenseMode, Error>>;
+  setSenseMode(mode: SenseMode): Promise<Result<void, Error>>;
+
+  // === Integration/NPLC ===
+  getNplc(): Promise<Result<number, Error>>;
+  setNplc(nplc: number): Promise<Result<void, Error>>;
+
+  // === Sweep ===
+  configureSweep(config: SweepConfig): Promise<Result<void, Error>>;
+  runSweep(): Promise<Result<SweepResult, Error>>;
+  abortSweep(): Promise<Result<void, Error>>;
+
+  // === Pulse ===
+  configurePulse?(config: PulseConfig): Promise<Result<void, Error>>;
+  runPulse?(): Promise<Result<void, Error>>;
+}
+
+type SourceFunction = 'VOLTAGE' | 'CURRENT';
+type SenseMode = '2WIRE' | '4WIRE';
+type OutputOffMode = 'NORMAL' | 'ZERO' | 'HIGHZ' | 'GUARD';
+
+interface SMUMeasurement {
+  voltage: number;
+  current: number;
+  resistance: number;
+  power: number;
+  timestamp: number;
+}
+
+interface SweepConfig {
+  type: 'LINEAR' | 'LOG' | 'LIST' | 'CUSTOM';
+  source: 'VOLTAGE' | 'CURRENT';
+  start: number;
+  stop: number;
+  points: number;
+  delay?: number;                   // Per-point delay (s)
+  compliance?: number;
+}
+
+interface SweepResult {
+  sourceValues: Float64Array;
+  measuredVoltages: Float64Array;
+  measuredCurrents: Float64Array;
+  timestamps: Float64Array;
+}
+
+interface PulseConfig {
+  source: 'VOLTAGE' | 'CURRENT';
+  level: number;
+  width: number;                    // Pulse width (s)
+  period?: number;                  // Pulse period (s)
+  count?: number;
+}
+```
+
+### LCR Meter
+
+```typescript
+interface LcrMeterAPI extends BaseInstrumentAPI {
+  // === Frequency ===
+  getFrequency(): Promise<Result<number, Error>>;
+  setFrequency(hz: number): Promise<Result<void, Error>>;
+
+  // === Test Signal ===
+  getTestVoltage(): Promise<Result<number, Error>>;           // Vrms
+  setTestVoltage(vrms: number): Promise<Result<void, Error>>;
+  getTestCurrent(): Promise<Result<number, Error>>;           // Arms
+  setTestCurrent(arms: number): Promise<Result<void, Error>>;
+  getSignalMode(): Promise<Result<SignalMode, Error>>;
+  setSignalMode(mode: SignalMode): Promise<Result<void, Error>>;
+
+  // === DC Bias ===
+  getDcBiasEnabled(): Promise<Result<boolean, Error>>;
+  setDcBiasEnabled(on: boolean): Promise<Result<void, Error>>;
+  getDcBiasVoltage(): Promise<Result<number, Error>>;
+  setDcBiasVoltage(volts: number): Promise<Result<void, Error>>;
+  getDcBiasCurrent(): Promise<Result<number, Error>>;
+  setDcBiasCurrent(amps: number): Promise<Result<void, Error>>;
+
+  // === Measurement Function ===
+  getPrimaryParameter(): Promise<Result<LcrParameter, Error>>;
+  setPrimaryParameter(param: LcrParameter): Promise<Result<void, Error>>;
+  getSecondaryParameter(): Promise<Result<LcrParameter, Error>>;
+  setSecondaryParameter(param: LcrParameter): Promise<Result<void, Error>>;
+
+  // === Equivalent Circuit ===
+  getEquivalentCircuit(): Promise<Result<EquivalentCircuit, Error>>;
+  setEquivalentCircuit(circuit: EquivalentCircuit): Promise<Result<void, Error>>;
+
+  // === Range ===
+  getRange(): Promise<Result<number | 'AUTO', Error>>;
+  setRange(ohms: number | 'AUTO'): Promise<Result<void, Error>>;
+
+  // === Speed/Averaging ===
+  getMeasurementSpeed(): Promise<Result<MeasurementSpeed, Error>>;
+  setMeasurementSpeed(speed: MeasurementSpeed): Promise<Result<void, Error>>;
+  getAveraging(): Promise<Result<number, Error>>;
+  setAveraging(count: number): Promise<Result<void, Error>>;
+
+  // === Measurement ===
+  measure(): Promise<Result<LcrMeasurement, Error>>;
+  fetch(): Promise<Result<LcrMeasurement, Error>>;
+
+  // === Open/Short Correction ===
+  performOpenCorrection(): Promise<Result<void, Error>>;
+  performShortCorrection(): Promise<Result<void, Error>>;
+  getOpenCorrectionEnabled(): Promise<Result<boolean, Error>>;
+  setOpenCorrectionEnabled(on: boolean): Promise<Result<void, Error>>;
+  getShortCorrectionEnabled(): Promise<Result<boolean, Error>>;
+  setShortCorrectionEnabled(on: boolean): Promise<Result<void, Error>>;
+
+  // === Sweep (optional capability) ===
+  configureSweep?(config: LcrSweepConfig): Promise<Result<void, Error>>;
+  runSweep?(): Promise<Result<LcrSweepResult, Error>>;
+}
+
+type LcrParameter =
+  | 'Z' | 'Y'                       // Impedance, Admittance
+  | 'R' | 'X'                       // Resistance, Reactance
+  | 'G' | 'B'                       // Conductance, Susceptance
+  | 'L' | 'C'                       // Inductance, Capacitance
+  | 'D' | 'Q'                       // Dissipation factor, Quality factor
+  | 'THETA'                         // Phase angle
+  | 'ESR';                          // Equivalent series resistance
+
+type EquivalentCircuit = 'SERIES' | 'PARALLEL';
+type MeasurementSpeed = 'SLOW' | 'MEDIUM' | 'FAST';
+type SignalMode = 'VOLTAGE' | 'CURRENT';
+
+interface LcrMeasurement {
+  primary: number;                  // Value of primary parameter
+  secondary: number;                // Value of secondary parameter
+  frequency: number;                // Test frequency
+  primaryParam: LcrParameter;
+  secondaryParam: LcrParameter;
+}
+
+interface LcrSweepConfig {
+  parameter: 'FREQUENCY' | 'VOLTAGE' | 'CURRENT' | 'BIAS';
+  start: number;
+  stop: number;
+  points: number;
+  type: 'LINEAR' | 'LOG';
+}
+
+interface LcrSweepResult {
+  sweepValues: Float64Array;
+  primaryValues: Float64Array;
+  secondaryValues: Float64Array;
+}
+```
+
+---
+
 ## Common SCPI Patterns (Research Summary)
 
-From analysis of [sigrok](https://sigrok.org/wiki/Supported_hardware), [ngscopeclient](https://www.ngscopeclient.org/manual/OscilloscopeDrivers.html), and SCPI-99 standard:
+From analysis of [sigrok](https://sigrok.org/wiki/Supported_hardware), [ngscopeclient](https://www.ngscopeclient.org/manual/OscilloscopeDrivers.html), and SCPI-99 standard.
 
 ### Standard Subsystems
 
@@ -572,6 +1311,10 @@ From analysis of [sigrok](https://sigrok.org/wiki/Supported_hardware), [ngscopec
 | `OUTPut` | Output enable | `:OUTP`, `:OUTP:STAT?` |
 | `SENSe` | Measurement config | `:SENS:FUNC`, `:SENS:RANG`, `:SENS:NPLC` |
 | `DISPlay` | Display settings | `:DISP:DATA?`, `:DISP:GRID` |
+| `CALCulate` | Math/calculations | `:CALC:MARK`, `:CALC:AVER` |
+| `FORMat` | Data format | `:FORM:DATA`, `:FORM:BORD` |
+| `INITiate` | Trigger initiation | `:INIT`, `:INIT:CONT` |
+| `FETCh` | Retrieve data | `:FETC?` |
 
 ### Manufacturer Quirks (from ngscopeclient)
 
@@ -584,23 +1327,29 @@ From analysis of [sigrok](https://sigrok.org/wiki/Supported_hardware), [ngscopec
 | Siglent | Missing digital channel support | Feature detection |
 | Keysight/Agilent | Consistent across models | Minimal quirks |
 
+---
+
 ## File Structure
 
 ```
 src/drivers/
 ├── index.ts                    # Public exports
-├── types.ts                    # DriverSpec, PropertyDef, etc.
+├── types.ts                    # DriverSpec, PropertyDef, ChannelSpec, etc.
 ├── define-driver.ts            # defineDriver<T>() factory
 ├── context.ts                  # DriverContext for hooks/methods
+├── channel.ts                  # Channel accessor implementation
 ├── parsers.ts                  # SCPI value parsers
+├── capabilities.ts             # Capability type definitions
 ├── equipment/
 │   ├── base.ts                 # BaseInstrumentAPI
-│   ├── oscilloscope.ts         # OscilloscopeAPI, ChannelAPI
-│   ├── power-supply.ts         # PowerSupplyAPI
+│   ├── oscilloscope.ts         # OscilloscopeAPI, channels
+│   ├── power-supply.ts         # PowerSupplyAPI, channels
 │   ├── multimeter.ts           # MultimeterAPI
-│   ├── signal-generator.ts     # SignalGeneratorAPI
-│   ├── electronic-load.ts      # ElectronicLoadAPI
-│   └── spectrum-analyzer.ts    # SpectrumAnalyzerAPI
+│   ├── signal-generator.ts     # SignalGeneratorAPI, channels
+│   ├── electronic-load.ts      # ElectronicLoadAPI, channels
+│   ├── spectrum-analyzer.ts    # SpectrumAnalyzerAPI, traces, markers
+│   ├── smu.ts                  # SourceMeasureUnitAPI, channels
+│   └── lcr-meter.ts            # LcrMeterAPI
 └── implementations/
     ├── rigol/
     │   ├── ds1054z.ts          # Rigol oscilloscope driver
@@ -608,8 +1357,11 @@ src/drivers/
     ├── siglent/
     │   └── sds1104x.ts         # Siglent oscilloscope driver
     └── keysight/
-        └── 34465a.ts           # Keysight DMM driver
+        ├── 34465a.ts           # Keysight DMM driver
+        └── e36312a.ts          # Keysight PSU driver
 ```
+
+---
 
 ## Usage Examples
 
@@ -628,8 +1380,8 @@ if (!scope.ok) throw scope.error;
 
 // Typed API - IDE autocomplete, compile-time checks
 await scope.value.setTimebase(1e-3);
-await scope.value.channel(1).setEnabled(true);
-await scope.value.channel(1).setScale(0.5);
+await scope.value.analogChannel(1).setEnabled(true);
+await scope.value.analogChannel(1).setScale(0.5);
 await scope.value.run();
 
 const waveform = await scope.value.getWaveform(1);
@@ -640,6 +1392,33 @@ if (waveform.ok) {
 await scope.value.close();
 ```
 
+### Multi-Channel Power Supply
+
+```typescript
+import { rigolDP832 } from 'visa-ts/drivers/implementations/rigol/dp832';
+
+const psu = await rigolDP832.connect(resource.value);
+if (!psu.ok) throw psu.error;
+
+console.log(`PSU has ${psu.value.channelCount} channels`);
+
+// Configure each channel
+await psu.value.channel(1).setVoltage(3.3);
+await psu.value.channel(1).setCurrent(0.5);
+await psu.value.channel(2).setVoltage(5.0);
+await psu.value.channel(2).setCurrent(1.0);
+await psu.value.channel(3).setVoltage(12.0);
+await psu.value.channel(3).setCurrent(0.3);
+
+// Enable all outputs at once
+await psu.value.setAllOutputEnabled(true);
+
+// Measure
+const v1 = await psu.value.channel(1).measureVoltage();
+const i1 = await psu.value.channel(1).measureCurrent();
+console.log(`CH1: ${v1.value}V @ ${i1.value}A`);
+```
+
 ### Custom Driver for Unusual Hardware
 
 ```typescript
@@ -647,25 +1426,39 @@ import { defineDriver, BaseInstrumentAPI, Ok, Err } from 'visa-ts';
 
 // Define custom interface
 interface PlasmaControllerAPI extends BaseInstrumentAPI {
-  getPlasmaTemperature(): Promise<Result<number, Error>>;
-  setPlasmaTemperature(kelvin: number): Promise<Result<void, Error>>;
+  readonly chamberCount: number;
+  chamber(n: number): PlasmaChamberAPI;
   activateContainmentField(): Promise<Result<void, Error>>;
-  getFieldStrength(): Promise<Result<number, Error>>;
+}
+
+interface PlasmaChamberAPI {
+  getTemperature(): Promise<Result<number, Error>>;
+  setTargetTemperature(kelvin: number): Promise<Result<void, Error>>;
+  getPressure(): Promise<Result<number, Error>>;
 }
 
 // Define driver
 const plasmaController = defineDriver<PlasmaControllerAPI>({
-  properties: {
-    plasmaTemperature: {
-      get: ':PLAS:TEMP?',
-      set: ':PLAS:TEMP {value}',
-      parse: parseScpiNumber,
-      validate: (v) => v >= 0 && v <= 1e8,
-    },
-    fieldStrength: {
-      get: ':FIELD:STR?',
-      parse: parseScpiNumber,
-      readonly: true,
+  channels: {
+    name: 'chamber',
+    count: 2,
+    properties: {
+      temperature: {
+        get: ':CHAM{ch}:TEMP?',
+        parse: parseScpiNumber,
+        readonly: true,
+      },
+      targetTemperature: {
+        get: ':CHAM{ch}:TEMP:TARG?',
+        set: ':CHAM{ch}:TEMP:TARG {value}',
+        parse: parseScpiNumber,
+        validate: (v) => v >= 0 && v <= 1e8,
+      },
+      pressure: {
+        get: ':CHAM{ch}:PRES?',
+        parse: parseScpiNumber,
+        readonly: true,
+      },
     },
   },
 
@@ -690,7 +1483,11 @@ const plasmaController = defineDriver<PlasmaControllerAPI>({
 
 // Use it
 const plasma = await plasmaController.connect(resource);
+console.log(`Controller has ${plasma.chamberCount} chambers`);
+await plasma.chamber(1).setTargetTemperature(5000);
 ```
+
+---
 
 ## Implementation Phases
 
@@ -698,29 +1495,35 @@ const plasma = await plasmaController.connect(resource);
 - [ ] `DriverSpec` and related types
 - [ ] `defineDriver<T>()` factory function
 - [ ] `DriverContext` for hooks and methods
+- [ ] Channel accessor implementation with bounds checking
 - [ ] Property get/set code generation
 - [ ] Command code generation
+- [ ] Capability system
 
 ### Phase 2: Equipment Base Types
 - [ ] `BaseInstrumentAPI`
-- [ ] `OscilloscopeAPI` with `ChannelAPI`
-- [ ] `PowerSupplyAPI`
-- [ ] `MultimeterAPI`
+- [ ] `OscilloscopeAPI` with analog/digital channels
+- [ ] `PowerSupplyAPI` with channel support
+- [ ] `MultimeterAPI` with dual display support
 
 ### Phase 3: Reference Implementations
 - [ ] Rigol DS1054Z oscilloscope
-- [ ] Rigol DP832 power supply
-- [ ] One DMM (Keysight 34465A or Rigol DM3058)
+- [ ] Rigol DP832 power supply (3-channel)
+- [ ] Keysight 34465A DMM
 
 ### Phase 4: Extended Equipment Types
-- [ ] `SignalGeneratorAPI`
-- [ ] `ElectronicLoadAPI`
-- [ ] `SpectrumAnalyzerAPI`
+- [ ] `SignalGeneratorAPI` with modulation/sweep/burst
+- [ ] `ElectronicLoadAPI` with dynamic mode
+- [ ] `SpectrumAnalyzerAPI` with traces/markers
+- [ ] `SourceMeasureUnitAPI` with sweep
+- [ ] `LcrMeterAPI`
 
 ### Phase 5: Additional Drivers
 - [ ] Siglent oscilloscopes
 - [ ] Keysight oscilloscopes
-- [ ] More PSUs and DMMs
+- [ ] More PSUs, DMMs, signal generators
+
+---
 
 ## References
 
@@ -728,3 +1531,7 @@ const plasma = await plasmaController.connect(resource);
 - [sigrok Supported Hardware](https://sigrok.org/wiki/Supported_hardware) - GPL project with 258+ device drivers
 - [ngscopeclient Oscilloscope Drivers](https://www.ngscopeclient.org/manual/OscilloscopeDrivers.html) - BSD-3 project with extensive SCPI driver docs
 - [Rohde & Schwarz SCPI Introduction](https://www.rohde-schwarz.com/us/driver-pages/remote-control/remote-programming-environments_231250.html)
+- [Keysight E36200 Series](https://www.keysight.com/us/en/assets/7018-06533/data-sheets/5992-3747.pdf) - PSU with tracking/sequencing
+- [Siglent SDG7000A](https://siglentna.com/wp-content/uploads/dlm_uploads/2022/02/SDG7000A_Datasheet_EN01A.pdf) - AWG with comprehensive modulation
+- [Keysight B2900A SMU](https://www.keysight.com/us/en/assets/7018-02794/data-sheets/5990-7009.pdf) - 4-quadrant SMU reference
+- [BK Precision 8600 Series](https://www.mouser.com/datasheet/2/43/bkprecision_08312015_8600_Series-1158913.pdf) - Electronic load with dynamic mode
