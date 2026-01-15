@@ -11,9 +11,12 @@ examples/
 ├── power-test.ts      # Simulated PSU + Load (runs in CI)
 └── hardware/          # Real hardware (requires physical instruments)
     ├── real-power-test.ts
-    ├── scope-test.ts
-    ├── scope-screenshot.ts
-    └── scope-waveform.ts
+    ├── scope-test.ts           # USB-TMC
+    ├── scope-screenshot.ts     # USB-TMC
+    ├── scope-waveform.ts       # USB-TMC
+    ├── scope-test-tcpip.ts     # TCP/IP (LAN)
+    ├── scope-screenshot-tcpip.ts
+    └── scope-waveform-tcpip.ts
 ```
 
 ## Simulated Examples
@@ -31,10 +34,15 @@ npx tsx examples/power-test.ts
 These require real instruments connected via USB or serial:
 
 ```bash
-# Oscilloscope (Rigol DS1000Z series)
+# Oscilloscope via USB-TMC (Rigol DS1000Z series)
 npx tsx examples/hardware/scope-test.ts
 npx tsx examples/hardware/scope-screenshot.ts
 npx tsx examples/hardware/scope-waveform.ts
+
+# Oscilloscope via TCP/IP (LAN)
+npx tsx examples/hardware/scope-test-tcpip.ts [ip:port]
+npx tsx examples/hardware/scope-screenshot-tcpip.ts [ip:port]
+npx tsx examples/hardware/scope-waveform-tcpip.ts [ip:port]
 
 # PSU + Electronic Load
 npx tsx examples/hardware/real-power-test.ts
@@ -81,3 +89,15 @@ Capture oscilloscope display as PNG image.
 ### scope-waveform.ts
 
 Download waveform data as CSV with time and voltage columns.
+
+### scope-*-tcpip.ts
+
+Same functionality as USB versions but over TCP/IP (LAN). Accepts optional `ip:port` argument:
+
+```bash
+# Default: 169.254.245.2:5555 (link-local direct connection)
+npx tsx examples/hardware/scope-test-tcpip.ts
+
+# Custom IP/port
+npx tsx examples/hardware/scope-test-tcpip.ts 192.168.1.100:5555
+```
