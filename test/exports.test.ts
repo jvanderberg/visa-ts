@@ -107,22 +107,24 @@ describe('Package exports', () => {
     it('exports simulation backend', async () => {
       const {
         createSimulationTransport,
-        createDeviceState,
         createCommandHandler,
-        simulatedPsu,
-        simulatedLoad,
+        createSimulatedPsu,
+        createSimulatedLoad,
+        createSimulatedDmm,
       } = await import('../src/index.js');
 
       // Verify factories are functions
       expect(typeof createSimulationTransport).toBe('function');
-      expect(typeof createDeviceState).toBe('function');
       expect(typeof createCommandHandler).toBe('function');
+      expect(typeof createSimulatedPsu).toBe('function');
+      expect(typeof createSimulatedLoad).toBe('function');
+      expect(typeof createSimulatedDmm).toBe('function');
 
-      // Verify device definitions are objects with expected structure
-      expect(typeof simulatedPsu).toBe('object');
-      expect(typeof simulatedLoad).toBe('object');
-      expect(simulatedPsu.device).toBeDefined();
-      expect(simulatedLoad.device).toBeDefined();
+      // Verify device factories return objects with expected structure
+      const psu = createSimulatedPsu();
+      const load = createSimulatedLoad();
+      expect(psu.device).toBeDefined();
+      expect(load.device).toBeDefined();
     });
   });
 
@@ -139,71 +141,59 @@ describe('Package exports', () => {
   });
 
   describe('simulation subpath (visa-ts/simulation)', () => {
-    it('exports device state factory as function', async () => {
-      const { createDeviceState } = await import('../src/simulation/index.js');
-      expect(typeof createDeviceState).toBe('function');
-
-      // Functional verification
-      const state = createDeviceState({
-        testProp: { default: 42 },
-      });
-      expect(state.get('testProp')).toBe(42);
-    });
-
     it('exports command handler factory as function', async () => {
-      const { createCommandHandler, createDeviceState } =
+      const { createCommandHandler, createSimulatedPsu } =
         await import('../src/simulation/index.js');
       expect(typeof createCommandHandler).toBe('function');
 
-      // Functional verification
-      const state = createDeviceState({});
-      const handler = createCommandHandler(
-        {
-          device: { manufacturer: 'TEST', model: 'TEST', serial: '001' },
-        },
-        state
-      );
+      // Functional verification - createCommandHandler takes a SimulatedDevice
+      const psu = createSimulatedPsu();
+      const handler = createCommandHandler(psu);
       expect(handler).toBeDefined();
       expect(typeof handler.handleCommand).toBe('function');
     });
 
-    it('exports example device definitions as objects', async () => {
-      const { simulatedPsu, simulatedLoad } = await import('../src/simulation/index.js');
+    it('exports device factory functions', async () => {
+      const { createSimulatedPsu, createSimulatedLoad, createSimulatedDmm } =
+        await import('../src/simulation/index.js');
 
-      expect(typeof simulatedPsu).toBe('object');
-      expect(typeof simulatedLoad).toBe('object');
+      expect(typeof createSimulatedPsu).toBe('function');
+      expect(typeof createSimulatedLoad).toBe('function');
+      expect(typeof createSimulatedDmm).toBe('function');
     });
 
-    it('simulatedPsu has correct structure', async () => {
-      const { simulatedPsu } = await import('../src/simulation/index.js');
+    it('createSimulatedPsu returns device with correct structure', async () => {
+      const { createSimulatedPsu } = await import('../src/simulation/index.js');
 
-      expect(simulatedPsu.device).toBeDefined();
-      expect(simulatedPsu.device.manufacturer).toBe('VISA-TS');
-      expect(simulatedPsu.device.model).toBe('SIM-PSU');
-      expect(simulatedPsu.device.serial).toBe('PSU001');
+      const psu = createSimulatedPsu();
+      expect(psu.device).toBeDefined();
+      expect(psu.device.manufacturer).toBe('VISA-TS');
+      expect(psu.device.model).toBe('SIM-PSU');
+      expect(psu.device.serial).toBe('PSU001');
 
-      expect(simulatedPsu.properties).toBeDefined();
-      expect(simulatedPsu.properties?.voltage).toBeDefined();
-      expect(simulatedPsu.properties?.voltage?.default).toBe(0);
-      expect(simulatedPsu.properties?.current).toBeDefined();
-      expect(simulatedPsu.properties?.output).toBeDefined();
-      expect(simulatedPsu.properties?.output?.default).toBe(false);
+      expect(psu.properties).toBeDefined();
+      expect(psu.properties?.voltage).toBeDefined();
+      expect(psu.properties?.voltage?.get()).toBe(0);
+      expect(psu.properties?.current).toBeDefined();
+      expect(psu.properties?.output).toBeDefined();
+      expect(psu.properties?.output?.get()).toBe(false);
     });
 
-    it('simulatedLoad has correct structure', async () => {
-      const { simulatedLoad } = await import('../src/simulation/index.js');
+    it('createSimulatedLoad returns device with correct structure', async () => {
+      const { createSimulatedLoad } = await import('../src/simulation/index.js');
 
-      expect(simulatedLoad.device).toBeDefined();
-      expect(simulatedLoad.device.manufacturer).toBe('VISA-TS');
-      expect(simulatedLoad.device.model).toBe('SIM-LOAD');
-      expect(simulatedLoad.device.serial).toBe('LOAD001');
+      const load = createSimulatedLoad();
+      expect(load.device).toBeDefined();
+      expect(load.device.manufacturer).toBe('VISA-TS');
+      expect(load.device.model).toBe('SIM-LOAD');
+      expect(load.device.serial).toBe('LOAD001');
 
-      expect(simulatedLoad.properties).toBeDefined();
-      expect(simulatedLoad.properties?.mode).toBeDefined();
-      expect(simulatedLoad.properties?.mode?.default).toBe('CC');
-      expect(simulatedLoad.properties?.current).toBeDefined();
-      expect(simulatedLoad.properties?.input).toBeDefined();
-      expect(simulatedLoad.properties?.input?.default).toBe(false);
+      expect(load.properties).toBeDefined();
+      expect(load.properties?.mode).toBeDefined();
+      expect(load.properties?.mode?.get()).toBe('CC');
+      expect(load.properties?.current).toBeDefined();
+      expect(load.properties?.input).toBeDefined();
+      expect(load.properties?.input?.get()).toBe(false);
     });
   });
 });

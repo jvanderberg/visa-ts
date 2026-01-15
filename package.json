@@ -1,6 +1,6 @@
 {
   "name": "visa-ts",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "TypeScript VISA library for instrument communication",
   "type": "module",
   "main": "dist/index.js",

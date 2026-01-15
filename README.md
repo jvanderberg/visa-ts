@@ -113,24 +113,17 @@ Test your instrument control code without physical hardware:
 ```typescript
 import { createResourceManager, createSimulatedPsu } from 'visa-ts';
 
-// Create a simulated PSU
-const rm = createResourceManager({
-  simulatedDevices: {
-    'SIM::PSU::INSTR': createSimulatedPsu({
-      manufacturer: 'TEST',
-      model: 'PSU-SIM',
-      serial: 'SIM001',
-    }),
-  },
-});
+// Create resource manager and register a simulated PSU
+const rm = createResourceManager();
+rm.registerSimulatedDevice('PSU', createSimulatedPsu());
 
 // Use it like real hardware
 const result = await rm.openResource('SIM::PSU::INSTR');
 if (result.ok) {
   const psu = result.value;
-  await psu.write(':SOUR:VOLT 12.0');
-  await psu.write(':OUTP ON');
-  const voltage = await psu.query(':MEAS:VOLT?');
+  await psu.write('VOLT 12.0');
+  await psu.write('OUTP ON');
+  const voltage = await psu.query('MEAS:VOLT?');
   console.log(voltage.value); // '12.000'
 }
 ```
