@@ -1,0 +1,361 @@
+/**
+ * Oscilloscope interface and related types.
+ *
+ * @packageDocumentation
+ */
+
+import type { Result } from '../../result.js';
+import type { BaseInstrument } from './base.js';
+
+// ─────────────────────────────────────────────────────────────────
+// Oscilloscope Types
+// ─────────────────────────────────────────────────────────────────
+
+/** Timebase display mode */
+export type TimebaseMode = 'MAIN' | 'WINDOW' | 'XY' | 'ROLL';
+
+/** Trigger source selection */
+export type TriggerSource =
+  | 'CH1'
+  | 'CH2'
+  | 'CH3'
+  | 'CH4'
+  | 'EXT'
+  | 'EXT5'
+  | 'LINE'
+  | 'D0'
+  | 'D1'
+  | 'D2'
+  | 'D3'
+  | 'D4'
+  | 'D5'
+  | 'D6'
+  | 'D7'
+  | 'D8'
+  | 'D9'
+  | 'D10'
+  | 'D11'
+  | 'D12'
+  | 'D13'
+  | 'D14'
+  | 'D15';
+
+/** Trigger edge slope */
+export type TriggerSlope = 'RISING' | 'FALLING' | 'EITHER';
+
+/** Trigger mode */
+export type TriggerMode = 'AUTO' | 'NORMAL' | 'SINGLE';
+
+/** Acquisition mode */
+export type AcquisitionMode = 'NORMAL' | 'AVERAGE' | 'PEAK' | 'HIGHRES';
+
+/** Channel coupling mode */
+export type Coupling = 'AC' | 'DC' | 'GND';
+
+/** Channel bandwidth limit setting */
+export type BandwidthLimit = 'OFF' | '20MHZ' | '100MHZ' | '200MHZ';
+
+/** Automatic measurement types */
+export type MeasurementType =
+  // Frequency/Timing
+  | 'FREQUENCY'
+  | 'PERIOD'
+  | 'COUNTER'
+  // Voltage
+  | 'VMAX'
+  | 'VMIN'
+  | 'VPP'
+  | 'VTOP'
+  | 'VBASE'
+  | 'VAMP'
+  | 'VAVG'
+  | 'VRMS'
+  | 'VAVG_CYCLE'
+  | 'VRMS_CYCLE'
+  // Pulse
+  | 'OVERSHOOT'
+  | 'PRESHOOT'
+  | 'RISE'
+  | 'FALL'
+  | 'PWIDTH'
+  | 'NWIDTH'
+  | 'DUTY_POS'
+  | 'DUTY_NEG'
+  // Phase/Delay
+  | 'DELAY_RISE'
+  | 'DELAY_FALL'
+  | 'PHASE';
+
+/** Protocol decode types */
+export type Protocol = 'I2C' | 'SPI' | 'UART' | 'CAN' | 'LIN' | 'I2S' | 'FLEXRAY' | '1WIRE';
+
+/** Oscilloscope-specific capabilities */
+export type OscilloscopeCapability =
+  | 'digital-channels'
+  | 'math-channels'
+  | 'fft'
+  | 'protocol-decode'
+  | 'mask-test'
+  | 'segmented-memory'
+  | 'waveform-generator'
+  | 'bode-plot';
+
+// ─────────────────────────────────────────────────────────────────
+// Waveform Data
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Waveform data with scaling information.
+ *
+ * To convert raw points to physical values:
+ * - time[i] = xOrigin + (i * xIncrement)
+ * - voltage[i] = yOrigin + (points[i] * yIncrement)
+ */
+export interface WaveformData {
+  /** Raw waveform points */
+  points: Float64Array;
+
+  /** Time between samples in seconds */
+  xIncrement: number;
+
+  /** Time of first sample in seconds */
+  xOrigin: number;
+
+  /** Voltage per point unit */
+  yIncrement: number;
+
+  /** Voltage offset */
+  yOrigin: number;
+
+  /** Time unit (always 's') */
+  xUnit: 's';
+
+  /** Voltage unit (always 'V') */
+  yUnit: 'V';
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Oscilloscope Channel
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Oscilloscope analog channel interface.
+ *
+ * Each channel has independent vertical settings (scale, offset, coupling)
+ * and can be enabled/disabled individually.
+ */
+export interface OscilloscopeChannel {
+  /** Channel number (1-based) */
+  readonly channelNumber: number;
+
+  /** Get channel display enabled state */
+  getEnabled(): Promise<Result<boolean, Error>>;
+
+  /** Set channel display enabled state */
+  setEnabled(on: boolean): Promise<Result<void, Error>>;
+
+  /** Get vertical scale in V/div */
+  getScale(): Promise<Result<number, Error>>;
+
+  /** Set vertical scale in V/div */
+  setScale(voltsPerDiv: number): Promise<Result<void, Error>>;
+
+  /** Get vertical offset in V */
+  getOffset(): Promise<Result<number, Error>>;
+
+  /** Set vertical offset in V */
+  setOffset(volts: number): Promise<Result<void, Error>>;
+
+  /** Get input coupling mode */
+  getCoupling(): Promise<Result<Coupling, Error>>;
+
+  /** Set input coupling mode */
+  setCoupling(coupling: Coupling): Promise<Result<void, Error>>;
+
+  /** Get bandwidth limit setting */
+  getBandwidthLimit(): Promise<Result<BandwidthLimit, Error>>;
+
+  /** Set bandwidth limit setting */
+  setBandwidthLimit(limit: BandwidthLimit): Promise<Result<void, Error>>;
+
+  /** Get probe attenuation ratio (1x, 10x, 100x, etc.) */
+  getProbeAttenuation(): Promise<Result<number, Error>>;
+
+  /** Set probe attenuation ratio */
+  setProbeAttenuation(ratio: number): Promise<Result<void, Error>>;
+
+  /** Get channel inversion state */
+  getInverted(): Promise<Result<boolean, Error>>;
+
+  /** Set channel inversion state */
+  setInverted(inverted: boolean): Promise<Result<void, Error>>;
+
+  /** Get channel label */
+  getLabel(): Promise<Result<string, Error>>;
+
+  /** Set channel label */
+  setLabel(label: string): Promise<Result<void, Error>>;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Oscilloscope Interface
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Oscilloscope instrument interface.
+ *
+ * Provides typed access to oscilloscope functionality including:
+ * - Channel configuration
+ * - Timebase control
+ * - Trigger settings
+ * - Acquisition control
+ * - Waveform capture
+ * - Measurements
+ *
+ * @example
+ * ```typescript
+ * // Configure scope
+ * await scope.setTimebase(1e-3);  // 1ms/div
+ * await scope.channel(1).setEnabled(true);
+ * await scope.channel(1).setScale(1.0);  // 1V/div
+ * await scope.setTriggerLevel(0.5);  // 500mV
+ *
+ * // Run and capture
+ * await scope.run();
+ * const waveform = await scope.getWaveform(1);
+ * ```
+ */
+export interface Oscilloscope extends BaseInstrument {
+  // ─────────────────────────────────────────────────────────────────
+  // Channel System
+  // ─────────────────────────────────────────────────────────────────
+
+  /** Number of analog channels */
+  readonly channelCount: number;
+
+  /** Access a specific analog channel (1-indexed) */
+  channel(n: number): OscilloscopeChannel;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Timebase
+  // ─────────────────────────────────────────────────────────────────
+
+  /** Get horizontal scale in s/div */
+  getTimebase(): Promise<Result<number, Error>>;
+
+  /** Set horizontal scale in s/div */
+  setTimebase(secPerDiv: number): Promise<Result<void, Error>>;
+
+  /** Get horizontal offset in seconds from trigger */
+  getTimebaseOffset(): Promise<Result<number, Error>>;
+
+  /** Set horizontal offset in seconds from trigger */
+  setTimebaseOffset(seconds: number): Promise<Result<void, Error>>;
+
+  /** Get timebase mode */
+  getTimebaseMode(): Promise<Result<TimebaseMode, Error>>;
+
+  /** Set timebase mode */
+  setTimebaseMode(mode: TimebaseMode): Promise<Result<void, Error>>;
+
+  /** Get sample rate in Sa/s (typically read-only) */
+  getSampleRate(): Promise<Result<number, Error>>;
+
+  /** Get record length in points */
+  getRecordLength(): Promise<Result<number, Error>>;
+
+  /** Set record length in points */
+  setRecordLength(points: number): Promise<Result<void, Error>>;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Trigger
+  // ─────────────────────────────────────────────────────────────────
+
+  /** Get trigger source */
+  getTriggerSource(): Promise<Result<TriggerSource, Error>>;
+
+  /** Set trigger source */
+  setTriggerSource(source: TriggerSource): Promise<Result<void, Error>>;
+
+  /** Get trigger level in volts */
+  getTriggerLevel(): Promise<Result<number, Error>>;
+
+  /** Set trigger level in volts */
+  setTriggerLevel(volts: number): Promise<Result<void, Error>>;
+
+  /** Get trigger edge slope */
+  getTriggerSlope(): Promise<Result<TriggerSlope, Error>>;
+
+  /** Set trigger edge slope */
+  setTriggerSlope(slope: TriggerSlope): Promise<Result<void, Error>>;
+
+  /** Get trigger mode */
+  getTriggerMode(): Promise<Result<TriggerMode, Error>>;
+
+  /** Set trigger mode */
+  setTriggerMode(mode: TriggerMode): Promise<Result<void, Error>>;
+
+  /** Get trigger holdoff in seconds */
+  getTriggerHoldoff(): Promise<Result<number, Error>>;
+
+  /** Set trigger holdoff in seconds */
+  setTriggerHoldoff(seconds: number): Promise<Result<void, Error>>;
+
+  /** Force a trigger event */
+  forceTrigger(): Promise<Result<void, Error>>;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Acquisition Control
+  // ─────────────────────────────────────────────────────────────────
+
+  /** Start acquisition (run) */
+  run(): Promise<Result<void, Error>>;
+
+  /** Stop acquisition */
+  stop(): Promise<Result<void, Error>>;
+
+  /** Single trigger acquisition */
+  single(): Promise<Result<void, Error>>;
+
+  /** Auto-scale all channels and timebase */
+  autoScale(): Promise<Result<void, Error>>;
+
+  /** Get acquisition mode */
+  getAcquisitionMode(): Promise<Result<AcquisitionMode, Error>>;
+
+  /** Set acquisition mode */
+  setAcquisitionMode(mode: AcquisitionMode): Promise<Result<void, Error>>;
+
+  /** Get averaging count (for AVERAGE mode) */
+  getAcquisitionCount(): Promise<Result<number, Error>>;
+
+  /** Set averaging count */
+  setAcquisitionCount(count: number): Promise<Result<void, Error>>;
+
+  /** Check if acquisition is running */
+  isRunning(): Promise<Result<boolean, Error>>;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Data Acquisition
+  // ─────────────────────────────────────────────────────────────────
+
+  /** Get waveform data from a channel */
+  getWaveform(channel: number): Promise<Result<WaveformData, Error>>;
+
+  /** Get raw waveform data (unprocessed) */
+  getWaveformRaw(channel: number): Promise<Result<Buffer, Error>>;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Measurements
+  // ─────────────────────────────────────────────────────────────────
+
+  /** Perform an automatic measurement on a channel */
+  measure(channel: number, type: MeasurementType): Promise<Result<number, Error>>;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Display
+  // ─────────────────────────────────────────────────────────────────
+
+  /** Capture a screenshot */
+  getScreenshot(format?: 'PNG' | 'BMP' | 'JPEG'): Promise<Result<Buffer, Error>>;
+}

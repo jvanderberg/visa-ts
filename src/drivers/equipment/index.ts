@@ -1,0 +1,47 @@
+/**
+ * Equipment type exports.
+ *
+ * @packageDocumentation
+ */
+
+// Base instrument
+export type { BaseInstrument, InstrumentIdentity, InstrumentError } from './base.js';
+export { parseIdentity, parseError } from './base.js';
+
+// Oscilloscope
+export type {
+  Oscilloscope,
+  OscilloscopeChannel,
+  TimebaseMode,
+  TriggerSource,
+  TriggerSlope,
+  TriggerMode,
+  AcquisitionMode,
+  Coupling,
+  BandwidthLimit,
+  MeasurementType,
+  Protocol,
+  OscilloscopeCapability,
+  WaveformData,
+} from './oscilloscope.js';
+
+// Power Supply
+export type {
+  PowerSupply,
+  PowerSupplyChannel,
+  RegulationMode,
+  TrackingMode,
+  CombineMode,
+  VoltageRange,
+  PowerSupplyCapability,
+} from './power-supply.js';
+
+// Multimeter
+export type {
+  Multimeter,
+  MultimeterDisplay,
+  DmmFunction,
+  AcBandwidth,
+  DmmTriggerSource,
+  DmmStatistics,
+} from './multimeter.js';
