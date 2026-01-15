@@ -8,6 +8,7 @@ import type { Transport, TransportState, TransportConfig } from './transport.js'
 import type { Result } from '../result.js';
 import { Ok, Err } from '../result.js';
 import { SerialPort } from 'serialport';
+import { createBufferedReader } from '../util/buffered-reader.js';
 
 // Node.js error type for error code handling
 interface ErrnoException extends Error {
@@ -61,14 +62,6 @@ const DEFAULT_MAX_BUFFER_SIZE = 1048576; // 1MB
 export function createSerialTransport(config: SerialTransportConfig): SerialTransport {
   let state: TransportState = 'closed';
   let port: SerialPort | null = null;
-  let readBuffer = Buffer.alloc(0);
-  let pendingRead: {
-    resolve: (result: Result<Buffer, Error>) => void;
-    type: 'termination' | 'raw' | 'bytes';
-    bytesNeeded?: number;
-    termination?: string;
-    timeoutId?: ReturnType<typeof setTimeout>;
-  } | null = null;
 
   let timeout = config.timeout ?? DEFAULT_TIMEOUT;
   let readTermination = config.readTermination ?? '\n';
@@ -82,106 +75,20 @@ export function createSerialTransport(config: SerialTransportConfig): SerialTran
   const flowControl = config.flowControl ?? 'none';
   const maxBufferSize = config.maxBufferSize ?? DEFAULT_MAX_BUFFER_SIZE;
 
-  function handleData(data: Buffer): void {
-    // Check for buffer overflow before adding data
-    if (readBuffer.length + data.length > maxBufferSize) {
-      // Trigger buffer overflow error
-      if (pendingRead) {
-        if (pendingRead.timeoutId) {
-          clearTimeout(pendingRead.timeoutId);
-        }
-        const pending = pendingRead;
-        pendingRead = null;
-        readBuffer = Buffer.alloc(0); // Clear buffer
-        pending.resolve(Err(new Error(`Read buffer overflow: exceeded ${maxBufferSize} bytes`)));
-      }
-      return;
-    }
-
-    readBuffer = Buffer.concat([readBuffer, data]);
-
-    if (pendingRead) {
-      checkPendingRead();
-    }
-  }
-
-  function checkPendingRead(): void {
-    if (!pendingRead) return;
-
-    if (pendingRead.type === 'termination') {
-      const termBytes = Buffer.from(pendingRead.termination ?? readTermination);
-      const termIndex = readBuffer.indexOf(termBytes);
-
-      if (termIndex !== -1) {
-        const result = readBuffer.subarray(0, termIndex);
-        readBuffer = readBuffer.subarray(termIndex + termBytes.length);
-
-        if (pendingRead.timeoutId) {
-          clearTimeout(pendingRead.timeoutId);
-        }
-
-        const resolve = pendingRead.resolve;
-        pendingRead = null;
-        resolve(Ok(result));
-      }
-    } else if (pendingRead.type === 'raw') {
-      if (readBuffer.length > 0) {
-        const result = readBuffer;
-        readBuffer = Buffer.alloc(0);
-
-        if (pendingRead.timeoutId) {
-          clearTimeout(pendingRead.timeoutId);
-        }
-
-        const resolve = pendingRead.resolve;
-        pendingRead = null;
-        resolve(Ok(result));
-      }
-    } else if (pendingRead.type === 'bytes') {
-      const bytesNeeded = pendingRead.bytesNeeded ?? 0;
-
-      if (readBuffer.length >= bytesNeeded) {
-        const result = readBuffer.subarray(0, bytesNeeded);
-        readBuffer = readBuffer.subarray(bytesNeeded);
-
-        if (pendingRead.timeoutId) {
-          clearTimeout(pendingRead.timeoutId);
-        }
-
-        const resolve = pendingRead.resolve;
-        pendingRead = null;
-        resolve(Ok(result));
-      }
-    }
-  }
+  const reader = createBufferedReader({
+    maxBufferSize,
+    getReadTermination: () => readTermination,
+  });
 
   function handleClose(): void {
     state = 'closed';
     port = null;
-
-    if (pendingRead) {
-      if (pendingRead.timeoutId) {
-        clearTimeout(pendingRead.timeoutId);
-      }
-
-      const resolve = pendingRead.resolve;
-      pendingRead = null;
-      resolve(Err(new Error('Port closed unexpectedly')));
-    }
+    reader.handleClose('Port closed unexpectedly');
   }
 
   function handleError(error: Error): void {
     state = 'error';
-
-    if (pendingRead) {
-      if (pendingRead.timeoutId) {
-        clearTimeout(pendingRead.timeoutId);
-      }
-
-      const resolve = pendingRead.resolve;
-      pendingRead = null;
-      resolve(Err(error));
-    }
+    reader.handleError(error);
   }
 
   async function delay(ms: number): Promise<void> {
@@ -244,7 +151,7 @@ export function createSerialTransport(config: SerialTransportConfig): SerialTran
       }
 
       state = 'opening';
-      readBuffer = Buffer.alloc(0);
+      reader.clearBuffer();
 
       return new Promise((resolve) => {
         try {
@@ -260,7 +167,7 @@ export function createSerialTransport(config: SerialTransportConfig): SerialTran
             xoff: flowControl === 'software',
           });
 
-          port.on('data', handleData);
+          port.on('data', (data: Buffer) => reader.handleData(data));
           port.on('close', handleClose);
           port.on('error', handleError);
 
@@ -334,29 +241,30 @@ export function createSerialTransport(config: SerialTransportConfig): SerialTran
         return Err(new Error('Transport is not open'));
       }
 
-      if (pendingRead) {
+      if (reader.getPendingRead()) {
         return Err(new Error('Read already in progress'));
       }
 
       // Check if termination is already in buffer
       const termBytes = Buffer.from(readTermination);
-      const termIndex = readBuffer.indexOf(termBytes);
+      const buffer = reader.getBuffer();
+      const termIndex = buffer.indexOf(termBytes);
 
       if (termIndex !== -1) {
-        const result = readBuffer.subarray(0, termIndex);
-        readBuffer = readBuffer.subarray(termIndex + termBytes.length);
+        const result = buffer.subarray(0, termIndex);
+        reader.setBuffer(buffer.subarray(termIndex + termBytes.length));
         return Ok(result.toString());
       }
 
       return new Promise((resolve) => {
         const timeoutId = setTimeout(() => {
-          if (pendingRead) {
-            pendingRead = null;
+          if (reader.getPendingRead()) {
+            reader.setPendingRead(null);
             resolve(Err(new Error(`Read timeout after ${timeout}ms`)));
           }
         }, timeout);
 
-        pendingRead = {
+        reader.setPendingRead({
           resolve: (result) => {
             if (result.ok) {
               resolve(Ok(result.value.toString()));
@@ -367,7 +275,7 @@ export function createSerialTransport(config: SerialTransportConfig): SerialTran
           type: 'termination',
           termination: readTermination,
           timeoutId,
-        };
+        });
       });
     },
 
@@ -409,32 +317,33 @@ export function createSerialTransport(config: SerialTransportConfig): SerialTran
         return Err(new Error('Transport is not open'));
       }
 
-      if (pendingRead) {
+      if (reader.getPendingRead()) {
         return Err(new Error('Read already in progress'));
       }
 
       // If we already have data in buffer, return it
-      if (readBuffer.length > 0) {
+      const buffer = reader.getBuffer();
+      if (buffer.length > 0) {
         const maxSize = size ?? DEFAULT_CHUNK_SIZE;
-        const bytesToReturn = Math.min(readBuffer.length, maxSize);
-        const result = readBuffer.subarray(0, bytesToReturn);
-        readBuffer = readBuffer.subarray(bytesToReturn);
+        const bytesToReturn = Math.min(buffer.length, maxSize);
+        const result = buffer.subarray(0, bytesToReturn);
+        reader.setBuffer(buffer.subarray(bytesToReturn));
         return Ok(result);
       }
 
       return new Promise((resolve) => {
         const timeoutId = setTimeout(() => {
-          if (pendingRead) {
-            pendingRead = null;
+          if (reader.getPendingRead()) {
+            reader.setPendingRead(null);
             resolve(Err(new Error(`Read timeout after ${timeout}ms`)));
           }
         }, timeout);
 
-        pendingRead = {
+        reader.setPendingRead({
           resolve,
           type: 'raw',
           timeoutId,
-        };
+        });
       });
     },
 
@@ -443,37 +352,38 @@ export function createSerialTransport(config: SerialTransportConfig): SerialTran
         return Err(new Error('Transport is not open'));
       }
 
-      if (pendingRead) {
+      if (reader.getPendingRead()) {
         return Err(new Error('Read already in progress'));
       }
 
       // If we already have enough data in buffer, return it
-      if (readBuffer.length >= count) {
-        const result = readBuffer.subarray(0, count);
-        readBuffer = readBuffer.subarray(count);
+      const buffer = reader.getBuffer();
+      if (buffer.length >= count) {
+        const result = buffer.subarray(0, count);
+        reader.setBuffer(buffer.subarray(count));
         return Ok(result);
       }
 
       return new Promise((resolve) => {
         const timeoutId = setTimeout(() => {
-          if (pendingRead) {
-            pendingRead = null;
+          if (reader.getPendingRead()) {
+            reader.setPendingRead(null);
             resolve(
               Err(
                 new Error(
-                  `Read timeout after ${timeout}ms: expected ${count} bytes, got ${readBuffer.length}`
+                  `Read timeout after ${timeout}ms: expected ${count} bytes, got ${reader.getBuffer().length}`
                 )
               )
             );
           }
         }, timeout);
 
-        pendingRead = {
+        reader.setPendingRead({
           resolve,
           type: 'bytes',
           bytesNeeded: count,
           timeoutId,
-        };
+        });
       });
     },
 
@@ -482,7 +392,7 @@ export function createSerialTransport(config: SerialTransportConfig): SerialTran
         return Err(new Error('Transport is not open'));
       }
 
-      readBuffer = Buffer.alloc(0);
+      reader.clearBuffer();
 
       return new Promise((resolve) => {
         port!.flush((err) => {
