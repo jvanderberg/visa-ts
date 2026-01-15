@@ -10,29 +10,35 @@ import { defineDriver } from '../../define-driver.js';
 import { parseScpiNumber, parseScpiBool, formatScpiBool } from '../../parsers.js';
 import type { DriverSpec } from '../../types.js';
 import type { Result } from '../../../result.js';
+import type {
+  PowerSupply,
+  PowerSupplyChannel,
+  RegulationMode,
+} from '../../equipment/power-supply.js';
 
 // ─────────────────────────────────────────────────────────────────
-// DP832-specific interfaces
+// DP832-specific interfaces (extend base)
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * DP832 channel interface - defines what this driver implements.
+ * DP832 channel interface - extends base with measurements and protection.
  */
-export interface DP832Channel {
-  getVoltage(): Promise<Result<number, Error>>;
-  setVoltage(v: number): Promise<Result<void, Error>>;
-  getCurrent(): Promise<Result<number, Error>>;
-  setCurrent(v: number): Promise<Result<void, Error>>;
-  getOutputEnabled(): Promise<Result<boolean, Error>>;
-  setOutputEnabled(v: boolean): Promise<Result<void, Error>>;
+export interface DP832Channel extends PowerSupplyChannel {
+  // Measurements
   getMeasuredVoltage(): Promise<Result<number, Error>>;
   getMeasuredCurrent(): Promise<Result<number, Error>>;
   getMeasuredPower(): Promise<Result<number, Error>>;
-  getMode(): Promise<Result<string, Error>>;
+
+  // Status
+  getMode(): Promise<Result<RegulationMode, Error>>;
+
+  // Over-voltage protection
   getOvpEnabled(): Promise<Result<boolean, Error>>;
   setOvpEnabled(v: boolean): Promise<Result<void, Error>>;
   getOvpLevel(): Promise<Result<number, Error>>;
   setOvpLevel(v: number): Promise<Result<void, Error>>;
+
+  // Over-current protection
   getOcpEnabled(): Promise<Result<boolean, Error>>;
   setOcpEnabled(v: boolean): Promise<Result<void, Error>>;
   getOcpLevel(): Promise<Result<number, Error>>;
@@ -40,10 +46,16 @@ export interface DP832Channel {
 }
 
 /**
- * DP832 power supply interface - defines what this driver implements.
+ * DP832 power supply interface - extends base with global output control.
  */
-export interface DP832PSU {
+export interface DP832PSU extends PowerSupply {
+  /** Access a specific channel with DP832-specific features */
+  channel(n: number): DP832Channel;
+
+  /** Get global output enabled state (all channels) */
   getAllOutputEnabled(): Promise<Result<boolean, Error>>;
+
+  /** Set global output enabled state (all channels) */
   setAllOutputEnabled(v: boolean): Promise<Result<void, Error>>;
 }
 
@@ -54,12 +66,12 @@ export interface DP832PSU {
 /**
  * Parse regulation mode response.
  */
-function parseRegulationMode(s: string): string {
+function parseRegulationMode(s: string): RegulationMode {
   const val = s.trim().toUpperCase();
   if (val === 'CONSTANT VOLTAGE' || val === 'CV') return 'CV';
   if (val === 'CONSTANT CURRENT' || val === 'CC') return 'CC';
   if (val === 'UNREGULATED' || val === 'UR') return 'UR';
-  return val;
+  return 'UR'; // Default to unregulated for unknown values
 }
 
 // ─────────────────────────────────────────────────────────────────

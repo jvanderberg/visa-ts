@@ -12,10 +12,47 @@ import type { MessageBasedResource } from '../resources/message-based-resource.j
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Extract property name from getter method name.
- * e.g., 'getVoltage' -> 'voltage'
+ * Base instrument property names to exclude from extraction.
+ * These are auto-provided by defineDriver.
  */
-type ExtractPropertyName<K> = K extends `get${infer Name}` ? Uncapitalize<Name> : never;
+type BaseInstrumentPropertyNames =
+  | 'manufacturer'
+  | 'model'
+  | 'serialNumber'
+  | 'firmwareVersion'
+  | 'resourceString'
+  | 'capabilities'
+  | 'error';
+
+/**
+ * Base instrument command names to exclude from extraction.
+ * These are auto-provided by defineDriver.
+ */
+type BaseInstrumentCommandNames = 'reset' | 'clear' | 'selfTest' | 'close' | 'hasCapability';
+
+/**
+ * Base channel property name to exclude - channelNumber is auto-provided.
+ */
+type BaseChannelPropertyNames = 'channelNumber';
+
+/**
+ * Extract property name from getter method name, excluding base properties.
+ * e.g., 'getVoltage' -> 'voltage', 'getError' -> never (excluded)
+ */
+type ExtractPropertyName<K> = K extends `get${infer Name}`
+  ? Uncapitalize<Name> extends BaseInstrumentPropertyNames
+    ? never
+    : Uncapitalize<Name>
+  : never;
+
+/**
+ * Extract property name for channels, excluding base channel properties.
+ */
+type ExtractChannelPropertyName<K> = K extends `get${infer Name}`
+  ? Uncapitalize<Name> extends BaseChannelPropertyNames
+    ? never
+    : Uncapitalize<Name>
+  : never;
 
 /**
  * Extract the return type from a getter method.
@@ -28,9 +65,17 @@ type ExtractPropertyType<T, K extends keyof T> = T[K] extends () => Promise<Resu
 /**
  * Extract all properties from an interface based on getter methods.
  * Maps getX() methods to property name 'x' with its return type.
+ * Excludes base instrument properties that are auto-provided.
  */
 type ExtractProperties<T> = {
   [K in keyof T as ExtractPropertyName<K & string>]: ExtractPropertyType<T, K>;
+};
+
+/**
+ * Extract channel properties, excluding base channel properties.
+ */
+type ExtractChannelProperties<T> = {
+  [K in keyof T as ExtractChannelPropertyName<K & string>]: ExtractPropertyType<T, K>;
 };
 
 /**
@@ -42,18 +87,28 @@ type TypedPropertyMap<T> = {
 };
 
 /**
+ * Typed property map for channels.
+ */
+type TypedChannelPropertyMap<T> = {
+  [K in keyof ExtractChannelProperties<T>]: PropertyDef<ExtractChannelProperties<T>[K]>;
+};
+
+/**
  * Check if a method is a command (not a getter/setter, returns Promise<Result<void, Error>>, no params).
+ * Excludes base instrument commands that are auto-provided.
  */
 type IsCommand<K, M> = K extends `get${string}` | `set${string}`
   ? never
-  : M extends () => Promise<Result<void, Error>>
-    ? K
-    : never;
+  : K extends BaseInstrumentCommandNames
+    ? never
+    : M extends () => Promise<Result<void, Error>>
+      ? K
+      : never;
 
 /**
  * Extract command names from an interface.
  * Commands are methods that return Promise<Result<void, Error>> with no parameters,
- * excluding getters and setters.
+ * excluding getters, setters, and base instrument commands.
  */
 type ExtractCommandNames<T> = {
   [K in keyof T as IsCommand<K & string, T[K]>]: true;
@@ -215,7 +270,7 @@ interface ChannelSpecBase<TChannel> {
   indexStart?: number;
 
   /** Properties available on each channel - must match TChannel interface */
-  properties: TypedPropertyMap<TChannel>;
+  properties: TypedChannelPropertyMap<TChannel>;
 }
 
 /**

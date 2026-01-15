@@ -66,7 +66,6 @@ export type {
   PowerSupplyCapability,
   // Multimeter
   Multimeter,
-  MultimeterDisplay,
   DmmFunction,
   AcBandwidth,
   DmmTriggerSource,

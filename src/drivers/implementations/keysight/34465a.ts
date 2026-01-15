@@ -11,35 +11,38 @@ import { parseScpiNumber, parseScpiBool, formatScpiBool } from '../../parsers.js
 import { Ok } from '../../../result.js';
 import type { DriverSpec, DriverContext } from '../../types.js';
 import type { Result } from '../../../result.js';
+import type { Multimeter, DmmTriggerSource } from '../../equipment/multimeter.js';
+import type { DmmFunction } from '../../equipment/multimeter.js';
 
 // ─────────────────────────────────────────────────────────────────
-// 34465A-specific interfaces
+// 34465A-specific interfaces (extend base)
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Keysight 34465A DMM interface - defines what this driver implements.
+ * Keysight 34465A DMM interface - extends base with advanced features.
  */
-export interface Keysight34465ADMM {
-  // Properties
-  getFunction(): Promise<Result<string, Error>>;
-  setFunction(v: string): Promise<Result<void, Error>>;
-  getRange(): Promise<Result<number, Error>>;
-  setRange(v: number): Promise<Result<void, Error>>;
+export interface Keysight34465ADMM extends Multimeter {
+  // Auto range
   getAutoRange(): Promise<Result<boolean, Error>>;
   setAutoRange(v: boolean): Promise<Result<void, Error>>;
+
+  // Resolution (NPLC)
   getNplc(): Promise<Result<number, Error>>;
   setNplc(v: number): Promise<Result<void, Error>>;
-  getTriggerSource(): Promise<Result<string, Error>>;
-  setTriggerSource(v: string): Promise<Result<void, Error>>;
+
+  // Triggering
+  getTriggerSource(): Promise<Result<DmmTriggerSource, Error>>;
+  setTriggerSource(v: DmmTriggerSource): Promise<Result<void, Error>>;
   getTriggerDelay(): Promise<Result<number, Error>>;
   setTriggerDelay(v: number): Promise<Result<void, Error>>;
   getTriggerCount(): Promise<Result<number, Error>>;
   setTriggerCount(v: number): Promise<Result<void, Error>>;
+
+  // Sampling
   getSampleCount(): Promise<Result<number, Error>>;
   setSampleCount(v: number): Promise<Result<void, Error>>;
 
-  // Methods
-  measure(): Promise<Result<number, Error>>;
+  // Additional measurement methods
   read(): Promise<Result<number, Error>>;
   fetch(): Promise<Result<number, Error>>;
 
@@ -83,16 +86,20 @@ const FUNCTION_REVERSE_MAP: Record<string, string> = Object.fromEntries(
 /**
  * Parse DMM function response.
  */
-function parseDmmFunction(s: string): string {
+function parseDmmFunction(s: string): DmmFunction {
   // Remove quotes and normalize
   const val = s.trim().replace(/^"|"$/g, '').toUpperCase();
-  return FUNCTION_REVERSE_MAP[val] ?? val;
+  const mapped = FUNCTION_REVERSE_MAP[val];
+  if (mapped && mapped in FUNCTION_MAP) {
+    return mapped as DmmFunction;
+  }
+  return 'VDC'; // Default
 }
 
 /**
  * Format DMM function for command.
  */
-function formatDmmFunction(func: string): string {
+function formatDmmFunction(func: DmmFunction): string {
   const scpiFunc = FUNCTION_MAP[func];
   return scpiFunc ? `"${scpiFunc}"` : func;
 }
@@ -100,11 +107,13 @@ function formatDmmFunction(func: string): string {
 /**
  * Parse trigger source response.
  */
-function parseTriggerSource(s: string): string {
+function parseTriggerSource(s: string): DmmTriggerSource {
   const val = s.trim().toUpperCase();
   if (val === 'IMMEDIATE' || val === 'IMM') return 'IMMEDIATE';
   if (val === 'EXTERNAL' || val === 'EXT') return 'EXTERNAL';
-  return val;
+  if (val === 'BUS') return 'BUS';
+  if (val === 'INTERNAL' || val === 'INT') return 'INTERNAL';
+  return 'IMMEDIATE'; // Default
 }
 
 // ─────────────────────────────────────────────────────────────────

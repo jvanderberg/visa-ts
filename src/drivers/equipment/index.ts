@@ -39,7 +39,6 @@ export type {
 // Multimeter
 export type {
   Multimeter,
-  MultimeterDisplay,
   DmmFunction,
   AcBandwidth,
   DmmTriggerSource,

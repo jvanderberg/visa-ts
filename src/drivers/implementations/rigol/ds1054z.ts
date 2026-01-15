@@ -10,44 +10,55 @@ import { defineDriver } from '../../define-driver.js';
 import { parseScpiNumber, parseScpiBool, formatScpiBool } from '../../parsers.js';
 import type { DriverSpec } from '../../types.js';
 import type { Result } from '../../../result.js';
+import type {
+  Oscilloscope,
+  OscilloscopeChannel,
+  BandwidthLimit,
+  TriggerSlope,
+  TriggerMode,
+  TriggerSource,
+  TimebaseMode,
+  AcquisitionMode,
+  Coupling,
+} from '../../equipment/oscilloscope.js';
 
 // ─────────────────────────────────────────────────────────────────
-// DS1054Z-specific interfaces
+// DS1054Z-specific interfaces (extend base)
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * DS1054Z channel interface - defines what this driver implements.
+ * DS1054Z channel interface - extends base with probe/bandwidth/invert/label.
  */
-export interface DS1054ZChannel {
-  getEnabled(): Promise<Result<boolean, Error>>;
-  setEnabled(v: boolean): Promise<Result<void, Error>>;
-  getScale(): Promise<Result<number, Error>>;
-  setScale(v: number): Promise<Result<void, Error>>;
-  getOffset(): Promise<Result<number, Error>>;
-  setOffset(v: number): Promise<Result<void, Error>>;
-  getCoupling(): Promise<Result<string, Error>>;
-  setCoupling(v: string): Promise<Result<void, Error>>;
-  getBandwidthLimit(): Promise<Result<string, Error>>;
-  setBandwidthLimit(v: string): Promise<Result<void, Error>>;
+export interface DS1054ZChannel extends OscilloscopeChannel {
+  // Bandwidth limit
+  getBandwidthLimit(): Promise<Result<BandwidthLimit, Error>>;
+  setBandwidthLimit(v: BandwidthLimit): Promise<Result<void, Error>>;
+
+  // Probe attenuation
   getProbeAttenuation(): Promise<Result<number, Error>>;
   setProbeAttenuation(v: number): Promise<Result<void, Error>>;
+
+  // Inversion
   getInverted(): Promise<Result<boolean, Error>>;
   setInverted(v: boolean): Promise<Result<void, Error>>;
+
+  // Label
   getLabel(): Promise<Result<string, Error>>;
   setLabel(v: string): Promise<Result<void, Error>>;
 }
 
 /**
- * DS1054Z oscilloscope interface - defines what this driver implements.
+ * DS1054Z oscilloscope interface - extends base with trigger/acquisition features.
  */
-export interface DS1054ZScope {
-  // Timebase
-  getTimebase(): Promise<Result<number, Error>>;
-  setTimebase(v: number): Promise<Result<void, Error>>;
+export interface DS1054ZScope extends Oscilloscope {
+  /** Access a specific channel with DS1054Z-specific features */
+  channel(n: number): DS1054ZChannel;
+
+  // Extended timebase
   getTimebaseOffset(): Promise<Result<number, Error>>;
   setTimebaseOffset(v: number): Promise<Result<void, Error>>;
-  getTimebaseMode(): Promise<Result<string, Error>>;
-  setTimebaseMode(v: string): Promise<Result<void, Error>>;
+  getTimebaseMode(): Promise<Result<TimebaseMode, Error>>;
+  setTimebaseMode(v: TimebaseMode): Promise<Result<void, Error>>;
   getSampleRate(): Promise<Result<number, Error>>;
   getRecordLength(): Promise<Result<number, Error>>;
   setRecordLength(v: number): Promise<Result<void, Error>>;
@@ -55,21 +66,19 @@ export interface DS1054ZScope {
   // Trigger
   getTriggerLevel(): Promise<Result<number, Error>>;
   setTriggerLevel(v: number): Promise<Result<void, Error>>;
-  getTriggerSlope(): Promise<Result<string, Error>>;
-  setTriggerSlope(v: string): Promise<Result<void, Error>>;
-  getTriggerMode(): Promise<Result<string, Error>>;
-  setTriggerMode(v: string): Promise<Result<void, Error>>;
-  getTriggerSource(): Promise<Result<string, Error>>;
-  setTriggerSource(v: string): Promise<Result<void, Error>>;
+  getTriggerSlope(): Promise<Result<TriggerSlope, Error>>;
+  setTriggerSlope(v: TriggerSlope): Promise<Result<void, Error>>;
+  getTriggerMode(): Promise<Result<TriggerMode, Error>>;
+  setTriggerMode(v: TriggerMode): Promise<Result<void, Error>>;
+  getTriggerSource(): Promise<Result<TriggerSource, Error>>;
+  setTriggerSource(v: TriggerSource): Promise<Result<void, Error>>;
 
   // Acquisition
-  getAcquisitionMode(): Promise<Result<string, Error>>;
-  setAcquisitionMode(v: string): Promise<Result<void, Error>>;
+  getAcquisitionMode(): Promise<Result<AcquisitionMode, Error>>;
+  setAcquisitionMode(v: AcquisitionMode): Promise<Result<void, Error>>;
   getRunning(): Promise<Result<boolean, Error>>;
 
   // Commands
-  run(): Promise<Result<void, Error>>;
-  stop(): Promise<Result<void, Error>>;
   single(): Promise<Result<void, Error>>;
   autoScale(): Promise<Result<void, Error>>;
   forceTrigger(): Promise<Result<void, Error>>;
@@ -82,18 +91,18 @@ export interface DS1054ZScope {
 /**
  * Parse trigger slope response.
  */
-function parseTriggerSlope(s: string): string {
+function parseTriggerSlope(s: string): TriggerSlope {
   const val = s.trim().toUpperCase();
   if (val === 'POSITIVE' || val === 'POS') return 'RISING';
   if (val === 'NEGATIVE' || val === 'NEG') return 'FALLING';
   if (val === 'RFAL' || val === 'EITHER') return 'EITHER';
-  return val;
+  return 'RISING'; // Default
 }
 
 /**
  * Format trigger slope for command.
  */
-function formatTriggerSlope(slope: string): string {
+function formatTriggerSlope(slope: TriggerSlope): string {
   if (slope === 'RISING') return 'POSitive';
   if (slope === 'FALLING') return 'NEGative';
   if (slope === 'EITHER') return 'RFALl';
@@ -103,20 +112,90 @@ function formatTriggerSlope(slope: string): string {
 /**
  * Parse trigger mode response.
  */
-function parseTriggerMode(s: string): string {
+function parseTriggerMode(s: string): TriggerMode {
   const val = s.trim().toUpperCase();
-  if (val === 'SING') return 'SINGLE';
-  if (val === 'NORM') return 'NORMAL';
-  return val;
+  if (val === 'SING' || val === 'SINGLE') return 'SINGLE';
+  if (val === 'NORM' || val === 'NORMAL') return 'NORMAL';
+  if (val === 'AUTO') return 'AUTO';
+  return 'AUTO'; // Default
 }
 
 /**
  * Format trigger mode for command.
  */
-function formatTriggerMode(mode: string): string {
+function formatTriggerMode(mode: TriggerMode): string {
   if (mode === 'SINGLE') return 'SINGle';
   if (mode === 'NORMAL') return 'NORMal';
   return mode;
+}
+
+/**
+ * Parse timebase mode response.
+ */
+function parseTimebaseMode(s: string): TimebaseMode {
+  const val = s.trim().toUpperCase();
+  if (val === 'MAIN') return 'MAIN';
+  if (val === 'WIND' || val === 'WINDOW') return 'WINDOW';
+  if (val === 'XY') return 'XY';
+  if (val === 'ROLL') return 'ROLL';
+  return 'MAIN'; // Default
+}
+
+/**
+ * Parse trigger source response.
+ */
+function parseTriggerSource(s: string): TriggerSource {
+  const val = s.trim().toUpperCase();
+  // Channel sources
+  if (val === 'CHAN1' || val === 'CH1') return 'CH1';
+  if (val === 'CHAN2' || val === 'CH2') return 'CH2';
+  if (val === 'CHAN3' || val === 'CH3') return 'CH3';
+  if (val === 'CHAN4' || val === 'CH4') return 'CH4';
+  // External sources
+  if (val === 'EXT' || val === 'EXTERNAL') return 'EXT';
+  if (val === 'EXT5') return 'EXT5';
+  if (val === 'LINE' || val === 'AC' || val === 'MAINS') return 'LINE';
+  // Digital channels
+  if (val.startsWith('D') && /^D\d+$/.test(val)) return val as TriggerSource;
+  return 'CH1'; // Default
+}
+
+/**
+ * Parse acquisition mode response.
+ */
+function parseAcquisitionMode(s: string): AcquisitionMode {
+  const val = s.trim().toUpperCase();
+  if (val === 'NORM' || val === 'NORMAL') return 'NORMAL';
+  if (val === 'AVER' || val === 'AVERAGE') return 'AVERAGE';
+  if (val === 'PEAK' || val === 'PDET' || val === 'PDETECT') return 'PEAK';
+  if (val === 'HRES' || val === 'HIGHRES') return 'HIGHRES';
+  return 'NORMAL'; // Default
+}
+
+/**
+ * Parse coupling mode response.
+ */
+function parseCoupling(s: string): Coupling {
+  const val = s.trim().toUpperCase();
+  if (val === 'AC') return 'AC';
+  if (val === 'DC') return 'DC';
+  if (val === 'GND') return 'GND';
+  return 'DC'; // Default
+}
+
+/**
+ * Parse bandwidth limit response.
+ */
+function parseBandwidthLimit(s: string): BandwidthLimit {
+  if (parseScpiBool(s)) return '20MHZ';
+  return 'OFF';
+}
+
+/**
+ * Format bandwidth limit for command.
+ */
+function formatBandwidthLimit(v: BandwidthLimit): string {
+  return v === 'OFF' ? 'OFF' : '20M';
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -150,7 +229,7 @@ const ds1054zSpec: DriverSpec<DS1054ZScope, DS1054ZChannel> = {
     timebaseMode: {
       get: ':TIMebase:MODE?',
       set: ':TIMebase:MODE {value}',
-      parse: (s: string) => s.trim().toUpperCase(),
+      parse: parseTimebaseMode,
     },
 
     sampleRate: {
@@ -196,14 +275,14 @@ const ds1054zSpec: DriverSpec<DS1054ZScope, DS1054ZChannel> = {
     triggerSource: {
       get: ':TRIGger:EDGe:SOURce?',
       set: ':TRIGger:EDGe:SOURce {value}',
-      parse: (s: string) => s.trim().toUpperCase(),
+      parse: parseTriggerSource,
     },
 
     // Acquisition
     acquisitionMode: {
       get: ':ACQuire:TYPE?',
       set: ':ACQuire:TYPE {value}',
-      parse: (s: string) => s.trim().toUpperCase(),
+      parse: parseAcquisitionMode,
     },
 
     running: {
@@ -252,14 +331,14 @@ const ds1054zSpec: DriverSpec<DS1054ZScope, DS1054ZChannel> = {
       coupling: {
         get: ':CHANnel{ch}:COUPling?',
         set: ':CHANnel{ch}:COUPling {value}',
-        parse: (s: string) => s.trim().toUpperCase(),
+        parse: parseCoupling,
       },
 
       bandwidthLimit: {
         get: ':CHANnel{ch}:BWLimit?',
         set: ':CHANnel{ch}:BWLimit {value}',
-        parse: (s: string) => (parseScpiBool(s) ? '20MHZ' : 'OFF'),
-        format: (v: string) => (v === 'OFF' ? 'OFF' : '20M'),
+        parse: parseBandwidthLimit,
+        format: formatBandwidthLimit,
       },
 
       probeAttenuation: {

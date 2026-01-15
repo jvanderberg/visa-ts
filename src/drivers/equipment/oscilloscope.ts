@@ -1,6 +1,9 @@
 /**
  * Oscilloscope interface and related types.
  *
+ * Base interfaces define the minimum common denominator for all oscilloscopes.
+ * Device-specific drivers extend these interfaces to add additional features.
+ *
  * @packageDocumentation
  */
 
@@ -135,14 +138,19 @@ export interface WaveformData {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Oscilloscope Channel
+// Oscilloscope Channel (Base - Minimal)
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Oscilloscope analog channel interface.
+ * Base oscilloscope channel interface.
  *
- * Each channel has independent vertical settings (scale, offset, coupling)
- * and can be enabled/disabled individually.
+ * Defines the minimum functionality all scope channels have:
+ * - Enable/disable display
+ * - Vertical scale
+ * - Vertical offset
+ * - Input coupling
+ *
+ * Device-specific drivers extend this to add probe settings, bandwidth limit, etc.
  */
 export interface OscilloscopeChannel {
   /** Channel number (1-based) */
@@ -171,46 +179,22 @@ export interface OscilloscopeChannel {
 
   /** Set input coupling mode */
   setCoupling(coupling: Coupling): Promise<Result<void, Error>>;
-
-  /** Get bandwidth limit setting */
-  getBandwidthLimit(): Promise<Result<BandwidthLimit, Error>>;
-
-  /** Set bandwidth limit setting */
-  setBandwidthLimit(limit: BandwidthLimit): Promise<Result<void, Error>>;
-
-  /** Get probe attenuation ratio (1x, 10x, 100x, etc.) */
-  getProbeAttenuation(): Promise<Result<number, Error>>;
-
-  /** Set probe attenuation ratio */
-  setProbeAttenuation(ratio: number): Promise<Result<void, Error>>;
-
-  /** Get channel inversion state */
-  getInverted(): Promise<Result<boolean, Error>>;
-
-  /** Set channel inversion state */
-  setInverted(inverted: boolean): Promise<Result<void, Error>>;
-
-  /** Get channel label */
-  getLabel(): Promise<Result<string, Error>>;
-
-  /** Set channel label */
-  setLabel(label: string): Promise<Result<void, Error>>;
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Oscilloscope Interface
+// Oscilloscope Interface (Base - Minimal)
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Oscilloscope instrument interface.
+ * Base oscilloscope instrument interface.
  *
- * Provides typed access to oscilloscope functionality including:
- * - Channel configuration
+ * Defines the minimum functionality all oscilloscopes have:
+ * - Channel access
  * - Timebase control
- * - Trigger settings
- * - Acquisition control
- * - Waveform capture
- * - Measurements
+ * - Run/stop
+ *
+ * Device-specific drivers extend this to add trigger settings,
+ * waveform capture, measurements, etc.
  *
  * @example
  * ```typescript
@@ -218,27 +202,15 @@ export interface OscilloscopeChannel {
  * await scope.setTimebase(1e-3);  // 1ms/div
  * await scope.channel(1).setEnabled(true);
  * await scope.channel(1).setScale(1.0);  // 1V/div
- * await scope.setTriggerLevel(0.5);  // 500mV
- *
- * // Run and capture
  * await scope.run();
- * const waveform = await scope.getWaveform(1);
  * ```
  */
 export interface Oscilloscope extends BaseInstrument {
-  // ─────────────────────────────────────────────────────────────────
-  // Channel System
-  // ─────────────────────────────────────────────────────────────────
-
   /** Number of analog channels */
   readonly channelCount: number;
 
   /** Access a specific analog channel (1-indexed) */
   channel(n: number): OscilloscopeChannel;
-
-  // ─────────────────────────────────────────────────────────────────
-  // Timebase
-  // ─────────────────────────────────────────────────────────────────
 
   /** Get horizontal scale in s/div */
   getTimebase(): Promise<Result<number, Error>>;
@@ -246,116 +218,9 @@ export interface Oscilloscope extends BaseInstrument {
   /** Set horizontal scale in s/div */
   setTimebase(secPerDiv: number): Promise<Result<void, Error>>;
 
-  /** Get horizontal offset in seconds from trigger */
-  getTimebaseOffset(): Promise<Result<number, Error>>;
-
-  /** Set horizontal offset in seconds from trigger */
-  setTimebaseOffset(seconds: number): Promise<Result<void, Error>>;
-
-  /** Get timebase mode */
-  getTimebaseMode(): Promise<Result<TimebaseMode, Error>>;
-
-  /** Set timebase mode */
-  setTimebaseMode(mode: TimebaseMode): Promise<Result<void, Error>>;
-
-  /** Get sample rate in Sa/s (typically read-only) */
-  getSampleRate(): Promise<Result<number, Error>>;
-
-  /** Get record length in points */
-  getRecordLength(): Promise<Result<number, Error>>;
-
-  /** Set record length in points */
-  setRecordLength(points: number): Promise<Result<void, Error>>;
-
-  // ─────────────────────────────────────────────────────────────────
-  // Trigger
-  // ─────────────────────────────────────────────────────────────────
-
-  /** Get trigger source */
-  getTriggerSource(): Promise<Result<TriggerSource, Error>>;
-
-  /** Set trigger source */
-  setTriggerSource(source: TriggerSource): Promise<Result<void, Error>>;
-
-  /** Get trigger level in volts */
-  getTriggerLevel(): Promise<Result<number, Error>>;
-
-  /** Set trigger level in volts */
-  setTriggerLevel(volts: number): Promise<Result<void, Error>>;
-
-  /** Get trigger edge slope */
-  getTriggerSlope(): Promise<Result<TriggerSlope, Error>>;
-
-  /** Set trigger edge slope */
-  setTriggerSlope(slope: TriggerSlope): Promise<Result<void, Error>>;
-
-  /** Get trigger mode */
-  getTriggerMode(): Promise<Result<TriggerMode, Error>>;
-
-  /** Set trigger mode */
-  setTriggerMode(mode: TriggerMode): Promise<Result<void, Error>>;
-
-  /** Get trigger holdoff in seconds */
-  getTriggerHoldoff(): Promise<Result<number, Error>>;
-
-  /** Set trigger holdoff in seconds */
-  setTriggerHoldoff(seconds: number): Promise<Result<void, Error>>;
-
-  /** Force a trigger event */
-  forceTrigger(): Promise<Result<void, Error>>;
-
-  // ─────────────────────────────────────────────────────────────────
-  // Acquisition Control
-  // ─────────────────────────────────────────────────────────────────
-
   /** Start acquisition (run) */
   run(): Promise<Result<void, Error>>;
 
   /** Stop acquisition */
   stop(): Promise<Result<void, Error>>;
-
-  /** Single trigger acquisition */
-  single(): Promise<Result<void, Error>>;
-
-  /** Auto-scale all channels and timebase */
-  autoScale(): Promise<Result<void, Error>>;
-
-  /** Get acquisition mode */
-  getAcquisitionMode(): Promise<Result<AcquisitionMode, Error>>;
-
-  /** Set acquisition mode */
-  setAcquisitionMode(mode: AcquisitionMode): Promise<Result<void, Error>>;
-
-  /** Get averaging count (for AVERAGE mode) */
-  getAcquisitionCount(): Promise<Result<number, Error>>;
-
-  /** Set averaging count */
-  setAcquisitionCount(count: number): Promise<Result<void, Error>>;
-
-  /** Check if acquisition is running */
-  isRunning(): Promise<Result<boolean, Error>>;
-
-  // ─────────────────────────────────────────────────────────────────
-  // Data Acquisition
-  // ─────────────────────────────────────────────────────────────────
-
-  /** Get waveform data from a channel */
-  getWaveform(channel: number): Promise<Result<WaveformData, Error>>;
-
-  /** Get raw waveform data (unprocessed) */
-  getWaveformRaw(channel: number): Promise<Result<Buffer, Error>>;
-
-  // ─────────────────────────────────────────────────────────────────
-  // Measurements
-  // ─────────────────────────────────────────────────────────────────
-
-  /** Perform an automatic measurement on a channel */
-  measure(channel: number, type: MeasurementType): Promise<Result<number, Error>>;
-
-  // ─────────────────────────────────────────────────────────────────
-  // Display
-  // ─────────────────────────────────────────────────────────────────
-
-  /** Capture a screenshot */
-  getScreenshot(format?: 'PNG' | 'BMP' | 'JPEG'): Promise<Result<Buffer, Error>>;
 }
