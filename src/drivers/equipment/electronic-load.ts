@@ -76,16 +76,6 @@ export interface ElectronicLoadChannel {
 }
 
 /**
- * Electronic load instrument interface.
- */
-export interface ElectronicLoad extends BaseInstrument {
-  readonly channelCount: number;
-
-  /** Access a specific channel */
-  channel(n: number): ElectronicLoadChannel;
-}
-
-/**
  * List mode configuration options.
  */
 export interface ListModeOptions {
@@ -94,9 +84,15 @@ export interface ListModeOptions {
 }
 
 /**
- * Electronic load with list mode support.
+ * Electronic load instrument interface.
  */
-export interface ElectronicLoadWithListMode extends ElectronicLoad {
+export interface ElectronicLoad extends BaseInstrument {
+  readonly channelCount: number;
+
+  /** Access a specific channel */
+  channel(n: number): ElectronicLoadChannel;
+
+  // List mode (standard on all loads)
   /** Upload a list sequence. Returns true on success. */
   uploadList(mode: LoadMode, steps: ListStep[], repeat?: number): Promise<Result<boolean, Error>>;
 

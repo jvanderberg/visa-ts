@@ -16,6 +16,7 @@ import { defineDriver } from '../../define-driver.js';
 import { parseScpiNumber } from '../../parsers.js';
 import type { DriverSpec } from '../../types.js';
 import type { PowerSupply, PowerSupplyChannel } from '../../equipment/power-supply.js';
+import type { PsuFeatureId } from '../../features/index.js';
 
 // ─────────────────────────────────────────────────────────────────
 // WPS300S-specific interfaces
@@ -52,13 +53,17 @@ function formatOutputState(enabled: boolean): string {
 // Driver specification
 // ─────────────────────────────────────────────────────────────────
 
+/** WPS300S supported features (none - basic PSU) */
+const wps300sFeatures = [] as const satisfies readonly PsuFeatureId[];
+
 /**
  * Matrix WPS300S driver specification.
  */
-const wps300sSpec: DriverSpec<WPS300SPSU, PowerSupplyChannel> = {
+const wps300sSpec: DriverSpec<WPS300SPSU, PowerSupplyChannel, typeof wps300sFeatures> = {
   type: 'power-supply',
   manufacturer: 'Matrix',
   models: ['WPS300S', 'WPS3010'],
+  features: wps300sFeatures,
 
   // This device does NOT support *IDN? - use static identity with probe
   identity: {

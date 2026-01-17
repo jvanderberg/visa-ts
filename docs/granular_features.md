@@ -319,40 +319,143 @@ await configureProtection(basicCh, 5.5, 1.1);
 | Feature | String | Brand | Description |
 |---------|--------|-------|-------------|
 | OVP | `'ovp'` | `HasOvp` | Over-voltage protection with level, enable, trip status, clear |
-| OCP | `'ocp'` | `HasOcp` | Over-current protection with level, enable, trip status, clear |
-| Slew | `'slew'` | `HasSlew` | Voltage/current slew rate control |
-| Sense | `'sense'` | `HasSense` | Remote sensing (2-wire vs 4-wire) |
-| Sequence | `'sequence'` | `HasSequence` | Programmable output sequences/lists |
-| Tracking | `'tracking'` | `HasTracking` | Channel tracking modes (series/parallel) |
+| OCP | `'ocp'` | `HasOcp` | Over-current protection with level, enable, trip status, clear, delay |
+| OPP | `'opp'` | `HasOpp` | Over-power protection (level, enable) |
+| Slew | `'slew'` | `HasSlew` | Voltage/current slew rate control (rise/fall times) |
+| Sense | `'sense'` | `HasSense` | Remote sensing (4-wire voltage regulation at load) |
+| Sequence | `'sequence'` | `HasSequence` | Programmable output sequences/lists/timers |
+| Tracking | `'tracking'` | `HasTracking` | Channel tracking modes (series/parallel/independent) |
+| Trigger | `'trigger'` | `HasTrigger` | Triggered voltage/current step mode |
+| Datalog | `'datalog'` | `HasDatalog` | Built-in data logging with configurable interval |
+| Analyzer | `'analyzer'` | `HasAnalyzer` | Power analyzer functions (Rigol-specific) |
+
+#### PSU Feature Support by Vendor
+
+| Feature | Rigol DP800 | Siglent SPD | Keysight E36xx | Keysight N67xx | R&S HMP/NGE | Chroma 62000P |
+|---------|-------------|-------------|----------------|----------------|-------------|---------------|
+| `ovp` | ✓ | ✗ (front panel only) | ✓ | ✓ | ✓ | ✓ |
+| `ocp` | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ |
+| `opp` | ✗ | ✗ | ✗ | ✓ | ✗ | ✓ |
+| `slew` | ✗ | ✗ | ✓ (E36300) | ✓ | ✓ (ramp) | ✓ |
+| `sense` | ✗ | ✗ | ✓ | ✓ | ✓ | ✓ |
+| `sequence` | ✓ (timer) | ✓ (timer) | ✓ (list) | ✓ (list/arb) | ✓ (arb) | ✓ |
+| `tracking` | ✓ | ✓ (series/parallel) | ✓ (coupling) | ✓ | ✓ | ✓ |
+| `trigger` | ✗ | ✗ | ✓ | ✓ | ✓ | ✓ |
+| `datalog` | ✗ | ✗ | ✓ (E36312A/13A) | ✓ | ✗ | ✓ |
+| `analyzer` | ✓ (DP831A) | ✗ | ✗ | ✗ | ✗ | ✗ |
+
+#### PSU Feature Properties
+
+```typescript
+type PsuFeatureProperties = {
+  ovp: 'ovpLevel' | 'ovpEnabled' | 'ovpTripped';
+  ocp: 'ocpLevel' | 'ocpEnabled' | 'ocpTripped' | 'ocpDelay';
+  opp: 'oppLevel' | 'oppEnabled';
+  slew: 'voltageSlewRate' | 'currentSlewRate';
+  sense: 'senseMode';  // 'internal' | 'external'
+  sequence: 'sequenceSteps' | 'sequenceCount' | 'sequenceRunning';
+  tracking: 'trackingMode';  // 'independent' | 'series' | 'parallel'
+  trigger: 'triggerVoltage' | 'triggerCurrent' | 'triggerSource';
+  datalog: 'datalogInterval' | 'datalogDuration' | 'datalogRunning';
+  analyzer: 'analyzerMode';
+};
+```
+
+---
 
 ### Electronic Load Features
 
+Base capabilities (all loads have these): CC/CV/CR modes, dynamic/transient, slew rate, list/sequence, OCP, OVP, Von/Voff thresholds.
+
 | Feature | String | Brand | Description |
 |---------|--------|-------|-------------|
-| CC Mode | `'cc'` | `HasCC` | Constant current mode |
-| CV Mode | `'cv'` | `HasCV` | Constant voltage mode |
-| CR Mode | `'cr'` | `HasCR` | Constant resistance mode |
-| CP Mode | `'cp'` | `HasCP` | Constant power mode |
-| Dynamic | `'dynamic'` | `HasDynamic` | Dynamic/transient loading |
-| Slew | `'slew'` | `HasSlew` | Current slew rate control |
-| OCP | `'ocp'` | `HasOcp` | Over-current protection |
+| CP | `'cp'` | `HasCP` | Constant power mode |
+| Battery | `'battery'` | `HasBattery` | Battery discharge testing (Ah/Wh accumulation, cutoff) |
+| LED | `'led'` | `HasLED` | LED driver test mode (Vf, Rd parameters) |
+| Short | `'short'` | `HasShort` | Electronic short circuit simulation |
 | OPP | `'opp'` | `HasOpp` | Over-power protection |
-| Battery | `'battery'` | `HasBattery` | Battery discharge testing |
-| List | `'list'` | `HasList` | List/sequence mode |
-| Short | `'short'` | `HasShort` | Electronic short circuit mode |
+| OCPTest | `'ocpTest'` | `HasOCPTest` | Automated OCP trip point testing |
+| OPPTest | `'oppTest'` | `HasOPPTest` | Automated OPP trip point testing |
+| CRCC | `'crcc'` | `HasCRCC` | Combined CR+CC mode |
+
+#### Load Feature Support by Vendor
+
+| Feature | Rigol DL3000 | Siglent SDL1000 | BK 8500/8600 | ITECH IT8500/8800 | Keysight N3300A | Chroma 63600 |
+|---------|--------------|-----------------|--------------|-------------------|-----------------|--------------|
+| `cp` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `battery` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `led` | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
+| `short` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `opp` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `ocpTest` | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| `oppTest` | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| `crcc` | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
+
+#### Load Feature Properties
+
+```typescript
+type LoadFeatureProperties = {
+  cp: 'cpLevel';
+  battery: 'batteryMode' | 'batteryCutoffVoltage' | 'batteryCutoffCapacity' | 'batteryTimeout' | 'batteryAh' | 'batteryWh' | 'batteryTime';
+  led: 'ledVf' | 'ledRd';
+  short: 'shortEnabled';
+  opp: 'oppLevel' | 'oppEnabled';
+  ocpTest: 'ocpTestStart' | 'ocpTestEnd' | 'ocpTestStep' | 'ocpTestTripCurrent' | 'ocpTestResult';
+  oppTest: 'oppTestStart' | 'oppTestEnd' | 'oppTestStep' | 'oppTestTripPower' | 'oppTestResult';
+  crcc: 'crccResistance' | 'crccCurrentLimit';
+};
+```
+
+---
 
 ### Oscilloscope Features
 
+Base capabilities (all scopes have these): FFT, math operations, reference waveforms, zoom/delayed timebase, persistence display.
+
 | Feature | String | Brand | Description |
 |---------|--------|-------|-------------|
-| FFT | `'fft'` | `HasFFT` | FFT/spectrum analysis |
-| Decode | `'decode'` | `HasDecode` | Protocol decoding (I2C, SPI, UART, etc.) |
-| Mask | `'mask'` | `HasMask` | Mask testing |
+| Decode | `'decode'` | `HasDecode` | Protocol decoding (I2C, SPI, UART, CAN, LIN, etc.) |
+| Digital | `'digital'` | `HasDigital` | Digital/logic analyzer channels (MSO) |
+| Mask | `'mask'` | `HasMask` | Mask/limit testing |
 | Histogram | `'histogram'` | `HasHistogram` | Histogram analysis |
 | Segmented | `'segmented'` | `HasSegmented` | Segmented memory acquisition |
-| WaveGen | `'wavegen'` | `HasWaveGen` | Built-in waveform generator |
+| WaveGen | `'wavegen'` | `HasWaveGen` | Built-in arbitrary waveform generator |
+| Search | `'search'` | `HasSearch` | Search and mark events |
+| Bode | `'bode'` | `HasBode` | Bode plot analysis (requires AWG) |
 | Power | `'power'` | `HasPower` | Power analysis measurements |
 | Jitter | `'jitter'` | `HasJitter` | Jitter analysis |
+
+#### Oscilloscope Feature Support by Vendor
+
+| Feature | Rigol DS1000Z | Rigol MSO5000 | Siglent SDS1000X-E | Keysight DSOX1000 | Keysight MSOX3000 | Tektronix MSO4/5/6 |
+|---------|---------------|---------------|--------------------|--------------------|-------------------|---------------------|
+| `decode` | ✓ (optional) | ✓ | ✓ | ✓ (optional) | ✓ | ✓ |
+| `digital` | ✗ | ✓ (16ch) | ✗ | ✗ | ✓ (16ch) | ✓ (FlexChannel) |
+| `mask` | ✗ | ✓ | ✓ | ✗ | ✓ | ✓ |
+| `histogram` | ✗ | ✓ | ✗ | ✗ | ✓ | ✓ |
+| `segmented` | ✗ | ✓ | ✓ | ✗ | ✓ | ✓ |
+| `wavegen` | ✗ | ✓ | ✗ | ✓ (G models) | ✓ (G models) | ✓ (AFG option) |
+| `search` | ✗ | ✓ | ✓ | ✗ | ✓ | ✓ |
+| `bode` | ✗ | ✓ | ✓ (with AWG) | ✓ (G models) | ✓ (G models) | ✓ (with AFG) |
+| `power` | ✗ | ✓ (optional) | ✗ | ✗ | ✓ (optional) | ✓ (optional) |
+| `jitter` | ✗ | ✗ | ✗ | ✗ | ✓ (optional) | ✓ (optional) |
+
+#### Oscilloscope Feature Properties
+
+```typescript
+type OscFeatureProperties = {
+  decode: 'decodeProtocol' | 'decodeEnabled';
+  digital: 'digitalChannelEnabled' | 'digitalThreshold';
+  mask: 'maskEnabled' | 'maskSource' | 'maskTestResult';
+  histogram: 'histogramEnabled' | 'histogramSource' | 'histogramAxis';
+  segmented: 'segmentCount' | 'segmentIndex';
+  wavegen: 'wavegenFunction' | 'wavegenFrequency' | 'wavegenAmplitude' | 'wavegenOffset' | 'wavegenEnabled';
+  search: 'searchType' | 'searchSource' | 'searchMarks';
+  bode: 'bodeStartFreq' | 'bodeStopFreq' | 'bodeAmplitude';
+  power: 'powerSource' | 'powerAnalysisType';
+  jitter: 'jitterSource' | 'jitterMeasurement';
+};
+```
 
 ---
 

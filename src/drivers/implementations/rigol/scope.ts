@@ -17,9 +17,13 @@ import { Ok } from '../../../result.js';
 import type {
   Oscilloscope,
   OscilloscopeChannel,
+  BandwidthLimit,
   Coupling,
   TriggerSlope,
   TriggerMode,
+  TriggerSource,
+  TimebaseMode,
+  AcquisitionMode,
   WaveformData,
 } from '../../equipment/oscilloscope.js';
 
@@ -28,62 +32,11 @@ import type {
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Rigol oscilloscope channel with extended features.
+ * Rigol oscilloscope channel - extends base with phase measurement.
  */
 export interface RigolScopeChannel extends OscilloscopeChannel {
-  /** Get probe attenuation ratio */
-  getProbeAttenuation(): Promise<Result<number, Error>>;
-
-  /** Set probe attenuation ratio */
-  setProbeAttenuation(ratio: number): Promise<Result<void, Error>>;
-
-  /** Get bandwidth limit enabled state */
-  getBandwidthLimit(): Promise<Result<boolean, Error>>;
-
-  /** Set bandwidth limit enabled state */
-  setBandwidthLimit(enabled: boolean): Promise<Result<void, Error>>;
-
-  // Extended measurements
-  /** Measure top voltage (flat top of waveform) in V */
-  getMeasuredVtop(): Promise<Result<number, Error>>;
-
-  /** Measure base voltage (flat bottom of waveform) in V */
-  getMeasuredVbase(): Promise<Result<number, Error>>;
-
-  /** Measure amplitude (Vtop - Vbase) in V */
-  getMeasuredVamp(): Promise<Result<number, Error>>;
-
-  /** Measure overshoot as percentage */
-  getMeasuredOvershoot(): Promise<Result<number, Error>>;
-
-  /** Measure preshoot as percentage */
-  getMeasuredPreshoot(): Promise<Result<number, Error>>;
-
-  /** Measure rise time (10%-90%) in seconds */
-  getMeasuredRiseTime(): Promise<Result<number, Error>>;
-
-  /** Measure fall time (90%-10%) in seconds */
-  getMeasuredFallTime(): Promise<Result<number, Error>>;
-
-  /** Measure positive pulse width in seconds */
-  getMeasuredPositiveWidth(): Promise<Result<number, Error>>;
-
-  /** Measure negative pulse width in seconds */
-  getMeasuredNegativeWidth(): Promise<Result<number, Error>>;
-
-  /** Measure positive duty cycle as percentage */
-  getMeasuredPositiveDuty(): Promise<Result<number, Error>>;
-
-  /** Measure negative duty cycle as percentage */
-  getMeasuredNegativeDuty(): Promise<Result<number, Error>>;
-
-  // Model-dependent measurements (may timeout on some models)
-
-  /** Get phase measurement - requires signal on channel (not supported on all models) */
+  /** Get phase measurement (not supported on all models, may timeout) */
   getMeasuredPhase(): Promise<Result<number, Error>>;
-
-  /** Get counter value - must be enabled on scope first (not supported on all models) */
-  getMeasuredCounter(): Promise<Result<number, Error>>;
 }
 
 /**
@@ -93,31 +46,10 @@ export interface RigolScope extends Oscilloscope {
   /** Access a specific channel (1-4 for most models) */
   channel(n: 1 | 2 | 3 | 4): RigolScopeChannel;
 
-  // Timebase extended
-  getTimebaseOffset(): Promise<Result<number, Error>>;
-  setTimebaseOffset(seconds: number): Promise<Result<void, Error>>;
-  getSampleRate(): Promise<Result<number, Error>>;
-  getMemoryDepth(): Promise<Result<number, Error>>;
+  // ─────────────────────────────────────────────────────────────────
+  // Rigol-specific methods (waveform capture)
+  // ─────────────────────────────────────────────────────────────────
 
-  // Trigger settings
-  getTriggerSource(): Promise<Result<string, Error>>;
-  setTriggerSource(source: string): Promise<Result<void, Error>>;
-  getTriggerLevel(): Promise<Result<number, Error>>;
-  setTriggerLevel(volts: number): Promise<Result<void, Error>>;
-  getTriggerSlope(): Promise<Result<TriggerSlope, Error>>;
-  setTriggerSlope(slope: TriggerSlope): Promise<Result<void, Error>>;
-  getTriggerMode(): Promise<Result<TriggerMode, Error>>;
-  setTriggerMode(mode: TriggerMode): Promise<Result<void, Error>>;
-
-  // Acquisition state
-  getRunning(): Promise<Result<boolean, Error>>;
-
-  // Commands
-  single(): Promise<Result<void, Error>>;
-  autoScale(): Promise<Result<void, Error>>;
-  forceTrigger(): Promise<Result<void, Error>>;
-
-  // Waveform capture (custom methods - named to avoid property extraction)
   /** Capture waveform data from a channel */
   captureWaveform(channel: string): Promise<Result<WaveformData, Error>>;
 
@@ -159,15 +91,6 @@ function parseTriggerMode(s: string): TriggerMode {
 }
 
 /**
- * Format trigger mode for SCPI command.
- */
-function formatTriggerMode(mode: TriggerMode): string {
-  if (mode === 'NORMAL') return 'NORM';
-  if (mode === 'SINGLE') return 'SING';
-  return 'AUTO';
-}
-
-/**
  * Parse running state from trigger status.
  */
 function parseRunning(s: string): boolean {
@@ -183,6 +106,70 @@ function parseCoupling(s: string): Coupling {
   if (upper === 'AC') return 'AC';
   if (upper === 'GND') return 'GND';
   return 'DC';
+}
+
+/**
+ * Parse bandwidth limit from SCPI response.
+ * Rigol returns ON/OFF or 20M etc.
+ */
+function parseBandwidthLimit(s: string): BandwidthLimit {
+  const upper = s.trim().toUpperCase();
+  if (upper === 'OFF' || upper === '0') return 'OFF';
+  if (upper === '20M' || upper === '20MHZ' || upper === 'ON' || upper === '1') return '20MHZ';
+  if (upper === '100M' || upper === '100MHZ') return '100MHZ';
+  if (upper === '200M' || upper === '200MHZ') return '200MHZ';
+  return 'OFF';
+}
+
+/**
+ * Format bandwidth limit for SCPI command.
+ */
+function formatBandwidthLimit(v: BandwidthLimit): string {
+  if (v === 'OFF') return 'OFF';
+  if (v === '20MHZ') return '20M';
+  if (v === '100MHZ') return '100M';
+  if (v === '200MHZ') return '200M';
+  return 'OFF';
+}
+
+/**
+ * Parse trigger source from SCPI response.
+ */
+function parseTriggerSource(s: string): TriggerSource {
+  const upper = s.trim().toUpperCase();
+  if (upper === 'CHAN1' || upper === 'CH1') return 'CH1';
+  if (upper === 'CHAN2' || upper === 'CH2') return 'CH2';
+  if (upper === 'CHAN3' || upper === 'CH3') return 'CH3';
+  if (upper === 'CHAN4' || upper === 'CH4') return 'CH4';
+  if (upper === 'EXT' || upper === 'EXTERNAL') return 'EXT';
+  if (upper === 'EXT5') return 'EXT5';
+  if (upper === 'LINE' || upper === 'AC' || upper === 'MAINS') return 'LINE';
+  if (upper.startsWith('D') && /^D\d+$/.test(upper)) return upper as TriggerSource;
+  return 'CH1';
+}
+
+/**
+ * Parse timebase mode from SCPI response.
+ */
+function parseTimebaseMode(s: string): TimebaseMode {
+  const upper = s.trim().toUpperCase();
+  if (upper === 'MAIN') return 'MAIN';
+  if (upper === 'WIND' || upper === 'WINDOW') return 'WINDOW';
+  if (upper === 'XY') return 'XY';
+  if (upper === 'ROLL') return 'ROLL';
+  return 'MAIN';
+}
+
+/**
+ * Parse acquisition mode from SCPI response.
+ */
+function parseAcquisitionMode(s: string): AcquisitionMode {
+  const upper = s.trim().toUpperCase();
+  if (upper === 'NORM' || upper === 'NORMAL') return 'NORMAL';
+  if (upper === 'AVER' || upper === 'AVERAGE') return 'AVERAGE';
+  if (upper === 'PEAK' || upper === 'PDET' || upper === 'PDETECT') return 'PEAK';
+  if (upper === 'HRES' || upper === 'HIGHRES') return 'HIGHRES';
+  return 'NORMAL';
 }
 
 /**
@@ -310,6 +297,7 @@ const rigolScopeSpec: DriverSpec<RigolScope, RigolScopeChannel> = {
   ],
 
   properties: {
+    // Timebase settings
     timebase: {
       get: ':TIM:SCAL?',
       set: ':TIM:SCAL {value}',
@@ -324,6 +312,12 @@ const rigolScopeSpec: DriverSpec<RigolScope, RigolScopeChannel> = {
       unit: 's',
     },
 
+    timebaseMode: {
+      get: ':TIM:MODE?',
+      set: ':TIM:MODE {value}',
+      parse: parseTimebaseMode,
+    },
+
     sampleRate: {
       get: ':ACQ:SRAT?',
       parse: parseScpiNumber,
@@ -331,16 +325,22 @@ const rigolScopeSpec: DriverSpec<RigolScope, RigolScopeChannel> = {
       unit: 'Sa/s',
     },
 
-    memoryDepth: {
+    recordLength: {
       get: ':ACQ:MDEP?',
-      parse: parseScpiNumber,
-      readonly: true,
+      set: ':ACQ:MDEP {value}',
+      parse: (s: string) => {
+        const val = s.trim().toUpperCase();
+        if (val === 'AUTO') return 0;
+        return parseScpiNumber(val);
+      },
       unit: 'pts',
     },
 
+    // Trigger settings
     triggerSource: {
       get: ':TRIG:EDG:SOUR?',
       set: ':TRIG:EDG:SOUR {value}',
+      parse: parseTriggerSource,
     },
 
     triggerLevel: {
@@ -361,7 +361,13 @@ const rigolScopeSpec: DriverSpec<RigolScope, RigolScopeChannel> = {
       get: ':TRIG:SWE?',
       set: ':TRIG:SWE {value}',
       parse: parseTriggerMode,
-      format: formatTriggerMode,
+    },
+
+    // Acquisition control
+    acquisitionMode: {
+      get: ':ACQ:TYPE?',
+      set: ':ACQ:TYPE {value}',
+      parse: parseAcquisitionMode,
     },
 
     running: {
@@ -425,8 +431,21 @@ const rigolScopeSpec: DriverSpec<RigolScope, RigolScopeChannel> = {
       bandwidthLimit: {
         get: ':CHAN{ch}:BWL?',
         set: ':CHAN{ch}:BWL {value}',
+        parse: parseBandwidthLimit,
+        format: formatBandwidthLimit,
+      },
+
+      inverted: {
+        get: ':CHAN{ch}:INV?',
+        set: ':CHAN{ch}:INV {value}',
         parse: parseScpiBool,
         format: formatScpiBool,
+      },
+
+      label: {
+        get: ':CHAN{ch}:LAB?',
+        set: ':CHAN{ch}:LAB {value}',
+        parse: (s: string) => s.trim().replace(/^"|"$/g, ''),
       },
 
       // Measurements

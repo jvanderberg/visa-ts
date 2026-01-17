@@ -15,6 +15,7 @@ import type {
   PowerSupplyChannel,
   RegulationMode,
 } from '../../equipment/power-supply.js';
+import type { PsuFeatureId } from '../../features/index.js';
 
 // ─────────────────────────────────────────────────────────────────
 // DP832-specific interfaces (extend base)
@@ -76,13 +77,17 @@ function parseRegulationMode(s: string): RegulationMode {
 // Driver specification
 // ─────────────────────────────────────────────────────────────────
 
+/** DP832 supported features */
+const dp832Features = ['ovp', 'ocp'] as const satisfies readonly PsuFeatureId[];
+
 /**
  * Rigol DP800 series driver specification.
  */
-const dp832Spec: DriverSpec<DP832PSU, DP832Channel> = {
+const dp832Spec: DriverSpec<DP832PSU, DP832Channel, typeof dp832Features> = {
   type: 'power-supply',
   manufacturer: 'Rigol',
   models: ['DP832', 'DP832A', 'DP831', 'DP831A', 'DP821', 'DP821A', 'DP811', 'DP811A'],
+  features: dp832Features,
 
   properties: {
     allOutputEnabled: {

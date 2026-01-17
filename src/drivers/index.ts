@@ -72,3 +72,6 @@ export type {
 
 // Utility functions
 export { parseIdentity, parseError } from './equipment/index.js';
+
+// Features and type guards
+export * from './features/index.js';

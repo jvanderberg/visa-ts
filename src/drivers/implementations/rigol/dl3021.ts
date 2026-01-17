@@ -14,7 +14,7 @@ import type { Result } from '../../../result.js';
 import { Ok, Err } from '../../../result.js';
 import {
   LoadMode,
-  type ElectronicLoadWithListMode,
+  type ElectronicLoad,
   type ElectronicLoadChannel,
   type ListStep,
   type ListModeOptions,
@@ -25,11 +25,16 @@ import {
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * DL3021 electronic load interface with list mode support (single-channel).
+ * DL3021 channel interface.
  */
-export interface DL3021Load extends ElectronicLoadWithListMode {
-  /** Access channel 1 (the only channel) */
-  channel(n: 1): ElectronicLoadChannel;
+export type DL3021Channel = ElectronicLoadChannel;
+
+/**
+ * DL3021 electronic load interface.
+ */
+export interface DL3021Load extends ElectronicLoad {
+  /** Access channel 1 (single channel load) */
+  channel(n: 1): DL3021Channel;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -169,7 +174,7 @@ async function stopList(
 /**
  * Rigol DL3021 driver specification.
  */
-const dl3021Spec: DriverSpec<DL3021Load, ElectronicLoadChannel> = {
+const dl3021Spec: DriverSpec<DL3021Load, DL3021Channel> = {
   type: 'electronic-load',
   manufacturer: 'Rigol',
   models: ['DL3021', 'DL3021A', 'DL3031', 'DL3031A'],
