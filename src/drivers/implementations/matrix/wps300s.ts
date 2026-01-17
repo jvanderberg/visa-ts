@@ -117,6 +117,7 @@ const wps300sSpec: DriverSpec<WPS300SPSU, PowerSupplyChannel> = {
 
   settings: {
     postCommandDelay: 50, // Device needs settling time between commands
+    postQueryDelay: 100, // Slow serial device needs delay after queries too
   },
 };
 

@@ -13,7 +13,7 @@ import { defineDriver } from '../../define-driver.js';
 import { parseScpiNumber, parseScpiBool, formatScpiBool } from '../../parsers.js';
 import type { DriverSpec, DriverContext } from '../../types.js';
 import type { Result } from '../../../result.js';
-import { Ok, Err } from '../../../result.js';
+import { Ok } from '../../../result.js';
 import type {
   Oscilloscope,
   OscilloscopeChannel,
@@ -22,7 +22,6 @@ import type {
   TriggerMode,
   WaveformData,
 } from '../../equipment/oscilloscope.js';
-import { parseDefiniteLengthBlock } from '../../../util/scpi-parser.js';
 
 // ─────────────────────────────────────────────────────────────────
 // Rigol Scope-specific interfaces
@@ -43,6 +42,48 @@ export interface RigolScopeChannel extends OscilloscopeChannel {
 
   /** Set bandwidth limit enabled state */
   setBandwidthLimit(enabled: boolean): Promise<Result<void, Error>>;
+
+  // Extended measurements
+  /** Measure top voltage (flat top of waveform) in V */
+  getMeasuredVtop(): Promise<Result<number, Error>>;
+
+  /** Measure base voltage (flat bottom of waveform) in V */
+  getMeasuredVbase(): Promise<Result<number, Error>>;
+
+  /** Measure amplitude (Vtop - Vbase) in V */
+  getMeasuredVamp(): Promise<Result<number, Error>>;
+
+  /** Measure overshoot as percentage */
+  getMeasuredOvershoot(): Promise<Result<number, Error>>;
+
+  /** Measure preshoot as percentage */
+  getMeasuredPreshoot(): Promise<Result<number, Error>>;
+
+  /** Measure rise time (10%-90%) in seconds */
+  getMeasuredRiseTime(): Promise<Result<number, Error>>;
+
+  /** Measure fall time (90%-10%) in seconds */
+  getMeasuredFallTime(): Promise<Result<number, Error>>;
+
+  /** Measure positive pulse width in seconds */
+  getMeasuredPositiveWidth(): Promise<Result<number, Error>>;
+
+  /** Measure negative pulse width in seconds */
+  getMeasuredNegativeWidth(): Promise<Result<number, Error>>;
+
+  /** Measure positive duty cycle as percentage */
+  getMeasuredPositiveDuty(): Promise<Result<number, Error>>;
+
+  /** Measure negative duty cycle as percentage */
+  getMeasuredNegativeDuty(): Promise<Result<number, Error>>;
+
+  // Model-dependent measurements (may timeout on some models)
+
+  /** Get phase measurement - requires signal on channel (not supported on all models) */
+  getMeasuredPhase(): Promise<Result<number, Error>>;
+
+  /** Get counter value - must be enabled on scope first (not supported on all models) */
+  getMeasuredCounter(): Promise<Result<number, Error>>;
 }
 
 /**
@@ -144,6 +185,16 @@ function parseCoupling(s: string): Coupling {
   return 'DC';
 }
 
+/**
+ * Parse a ratio value and convert to percentage.
+ * Rigol returns duty cycle, overshoot, etc. as ratios (0.5 = 50%).
+ */
+function parsePercentage(s: string): number {
+  const num = parseFloat(s.trim());
+  if (!Number.isFinite(num)) return NaN;
+  return num * 100;
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Waveform capture implementation
 // ─────────────────────────────────────────────────────────────────
@@ -187,20 +238,12 @@ async function captureWaveform(
   if (!yRefResult.ok) return yRefResult;
   const yReference = parseScpiNumber(yRefResult.value);
 
-  // Get waveform data (BYTE format with TMC block header)
+  // Get waveform data (BYTE format)
+  // queryBinary handles IEEE 488.2 block format and returns just the data
   const rawDataResult = await ctx.resource.queryBinary(':WAV:DATA?');
   if (!rawDataResult.ok) return rawDataResult;
 
-  // Parse definite-length block format (#NDDDD...data)
-  const blockResult = parseDefiniteLengthBlock(rawDataResult.value);
-  if (!blockResult.ok) {
-    return Err(blockResult.error);
-  }
-  // Extract data portion of the buffer using header info
-  const waveformBytes = rawDataResult.value.subarray(
-    blockResult.value.header,
-    blockResult.value.header + blockResult.value.length
-  );
+  const waveformBytes = rawDataResult.value;
 
   // Convert bytes to voltage values
   // Formula: voltage = (rawValue - yOrigin - yReference) * yIncrement
@@ -226,21 +269,10 @@ async function captureWaveform(
  */
 async function captureScreenshot(ctx: DriverContext): Promise<Result<Buffer, Error>> {
   // Screenshot capture can take several seconds on Rigol scopes
+  // queryBinary handles IEEE 488.2 block format and returns just the data
   const rawDataResult = await ctx.resource.queryBinary(':DISP:DATA? ON,OFF,PNG');
   if (!rawDataResult.ok) return rawDataResult;
 
-  // Try to parse as definite-length block, otherwise return raw
-  const blockResult = parseDefiniteLengthBlock(rawDataResult.value);
-  if (blockResult.ok) {
-    // Extract data portion of the buffer using header info
-    const data = rawDataResult.value.subarray(
-      blockResult.value.header,
-      blockResult.value.header + blockResult.value.length
-    );
-    return Ok(data);
-  }
-
-  // Not block format, return raw
   return Ok(rawDataResult.value);
 }
 
@@ -262,6 +294,7 @@ const rigolScopeSpec: DriverSpec<RigolScope, RigolScopeChannel> = {
     'DS1104Z',
     'DS1104Z-S',
     'DS1104Z-Plus',
+    'DS1202Z-E',
     // DS2000 series
     'DS2072A',
     'DS2102A',
@@ -444,6 +477,98 @@ const rigolScopeSpec: DriverSpec<RigolScope, RigolScopeChannel> = {
         parse: parseScpiNumber,
         readonly: true,
         unit: 'V',
+      },
+
+      // Extended measurements
+      measuredVtop: {
+        get: ':MEAS:ITEM? VTOP,CHAN{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 'V',
+      },
+
+      measuredVbase: {
+        get: ':MEAS:ITEM? VBAS,CHAN{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 'V',
+      },
+
+      measuredVamp: {
+        get: ':MEAS:ITEM? VAMP,CHAN{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 'V',
+      },
+
+      measuredOvershoot: {
+        get: ':MEAS:ITEM? OVER,CHAN{ch}',
+        parse: parsePercentage,
+        readonly: true,
+        unit: '%',
+      },
+
+      measuredPreshoot: {
+        get: ':MEAS:ITEM? PRES,CHAN{ch}',
+        parse: parsePercentage,
+        readonly: true,
+        unit: '%',
+      },
+
+      measuredRiseTime: {
+        get: ':MEAS:ITEM? RTIM,CHAN{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 's',
+      },
+
+      measuredFallTime: {
+        get: ':MEAS:ITEM? FTIM,CHAN{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 's',
+      },
+
+      measuredPositiveWidth: {
+        get: ':MEAS:ITEM? PWID,CHAN{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 's',
+      },
+
+      measuredNegativeWidth: {
+        get: ':MEAS:ITEM? NWID,CHAN{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: 's',
+      },
+
+      measuredPositiveDuty: {
+        get: ':MEAS:ITEM? PDUT,CHAN{ch}',
+        parse: parsePercentage,
+        readonly: true,
+        unit: '%',
+      },
+
+      measuredNegativeDuty: {
+        get: ':MEAS:ITEM? NDUT,CHAN{ch}',
+        parse: parsePercentage,
+        readonly: true,
+        unit: '%',
+      },
+
+      // Model-dependent measurements (may timeout on DS1202Z-E and others)
+      measuredPhase: {
+        get: ':MEASure:ITEM? RPHase,CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
+        unit: '°',
+      },
+
+      measuredCounter: {
+        get: ':MEASure:COUNter:VALue? CHANnel{ch}',
+        parse: parseScpiNumber,
+        readonly: true,
       },
     },
   },
