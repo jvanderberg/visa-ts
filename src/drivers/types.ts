@@ -304,6 +304,9 @@ export interface DriverSettings {
   /** Send *RST when connecting */
   resetOnConnect?: boolean;
 
+  /** Delay in milliseconds after reset command */
+  resetDelay?: number;
+
   /** Send *CLS when connecting */
   clearOnConnect?: boolean;
 
@@ -318,6 +321,9 @@ export interface DriverSettings {
 export interface DriverContext {
   /** The underlying message-based resource */
   readonly resource: MessageBasedResource;
+
+  /** Driver settings (timing, etc.) */
+  readonly settings: DriverSettings;
 
   /** Send a query and get the response */
   query(command: string): Promise<Result<string, Error>>;

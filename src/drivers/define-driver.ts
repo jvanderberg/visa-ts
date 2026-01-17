@@ -99,9 +99,13 @@ export interface DefinedDriver<T, TChannel = never> {
 /**
  * Create a driver context for hooks and custom methods.
  */
-function createDriverContext(resource: MessageBasedResource): DriverContext {
+function createDriverContext(
+  resource: MessageBasedResource,
+  settings: DriverSettings = {}
+): DriverContext {
   return {
     resource,
+    settings,
     query: (command: string) => resource.query(command),
     write: (command: string) => resource.write(command),
     delay,
@@ -294,10 +298,14 @@ export function defineDriver<T, TChannel = never>(
         return Err(new Error('Resource is not open'));
       }
 
-      // Apply quirks on connect
-      if (spec.quirks?.resetOnConnect) {
+      // Apply settings on connect
+      if (spec.settings?.resetOnConnect) {
         const result = await resource.write('*RST');
         if (!result.ok) return result;
+        // Wait for reset to complete if configured
+        if (spec.settings.resetDelay) {
+          await delay(spec.settings.resetDelay);
+        }
       }
 
       if (spec.settings?.clearOnConnect) {
@@ -305,8 +313,13 @@ export function defineDriver<T, TChannel = never>(
         if (!result.ok) return result;
       }
 
+      // Query device identity
+      const identityResult = await queryIdentity(resource, spec.identity);
+      if (!identityResult.ok) return identityResult;
+      const identity = identityResult.value;
+
       // Create driver context
-      const ctx = createDriverContext(resource);
+      const ctx = createDriverContext(resource, spec.settings);
 
       // Call onConnect hook if present
       if (spec.hooks?.onConnect) {
@@ -319,9 +332,11 @@ export function defineDriver<T, TChannel = never>(
         // Expose raw resource for escape hatch
         resource,
 
-        // Capability system
-        capabilities,
-        hasCapability: (cap: string) => capabilities.includes(cap),
+        // Identity fields
+        manufacturer: identity.manufacturer,
+        model: identity.model,
+        serialNumber: identity.serialNumber,
+        firmwareVersion: identity.firmwareVersion,
 
         // Close method
         close: async () => {
@@ -373,7 +388,7 @@ export function defineDriver<T, TChannel = never>(
 
         // Create channel accessor function
         instance.channel = (n: number) => {
-          return createChannelAccessor(resource, channels, n, spec.quirks, spec.hooks);
+          return createChannelAccessor(resource, channels, n, spec.settings, spec.hooks);
         };
       }
 

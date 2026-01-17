@@ -543,7 +543,7 @@ describe('Channel Accessor', () => {
     });
   });
 
-  describe('channel property hooks and quirks', () => {
+  describe('channel property hooks and settings', () => {
     it('applies transformCommand hook to channel getter', async () => {
       interface TestInstrument {
         readonly channelCount: number;
@@ -643,7 +643,7 @@ describe('Channel Accessor', () => {
             },
           },
         },
-        quirks: {
+        settings: {
           postQueryDelay: 50,
         },
       };
@@ -723,7 +723,7 @@ describe('Channel Accessor', () => {
             },
           },
         },
-        quirks: {
+        settings: {
           postCommandDelay: 50,
         },
       };
