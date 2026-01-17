@@ -16,7 +16,6 @@ import {
   type PropertyDef,
   type CommandDef,
   type DriverSettings,
-  type DriverHooks,
   type ChannelSpec,
   type IdentityConfig,
 } from './types.js';
@@ -118,8 +117,7 @@ function createDriverContext(
 function createGetter<T>(
   resource: MessageBasedResource,
   prop: PropertyDef<T>,
-  settings: DriverSettings | undefined,
-  hooks: DriverHooks | undefined
+  settings: DriverSettings | undefined
 ): () => Promise<Result<T, Error>> {
   // Handle unsupported properties
   if (!isSupported(prop)) {
@@ -128,12 +126,7 @@ function createGetter<T>(
   }
 
   return async () => {
-    let cmd = prop.get;
-
-    // Apply transform hook if present
-    if (hooks?.transformCommand) {
-      cmd = hooks.transformCommand(cmd, undefined);
-    }
+    const cmd = prop.get;
 
     const result = await resource.query(cmd);
     if (!result.ok) return result;
@@ -143,12 +136,7 @@ function createGetter<T>(
       await delay(settings.postQueryDelay);
     }
 
-    let response = result.value;
-
-    // Apply response transform hook if present
-    if (hooks?.transformResponse) {
-      response = hooks.transformResponse(cmd, response);
-    }
+    const response = result.value;
 
     // Parse the response
     if (prop.parse) {
@@ -169,8 +157,7 @@ function createGetter<T>(
 function createSetter<T>(
   resource: MessageBasedResource,
   prop: PropertyDef<T>,
-  settings: DriverSettings | undefined,
-  hooks: DriverHooks | undefined
+  settings: DriverSettings | undefined
 ): (value: T) => Promise<Result<void, Error>> {
   // Handle unsupported properties
   if (!isSupported(prop)) {
@@ -205,12 +192,7 @@ function createSetter<T>(
     }
 
     // Build the command
-    let cmd = setCmd.replace('{value}', formattedValue);
-
-    // Apply transform hook if present
-    if (hooks?.transformCommand) {
-      cmd = hooks.transformCommand(cmd, value);
-    }
+    const cmd = setCmd.replace('{value}', formattedValue);
 
     const result = await resource.write(cmd);
     if (!result.ok) return result;
@@ -229,8 +211,7 @@ function createSetter<T>(
  */
 function createCommand(
   resource: MessageBasedResource,
-  cmdDef: CommandDef,
-  hooks: DriverHooks | undefined
+  cmdDef: CommandDef
 ): () => Promise<Result<void, Error>> {
   // Handle unsupported commands
   if (!isCommandSupported(cmdDef)) {
@@ -239,12 +220,7 @@ function createCommand(
   }
 
   return async () => {
-    let cmd = cmdDef.command;
-
-    // Apply transform hook if present
-    if (hooks?.transformCommand) {
-      cmd = hooks.transformCommand(cmd, undefined);
-    }
+    const cmd = cmdDef.command;
 
     const result = await resource.write(cmd);
     if (!result.ok) return result;
@@ -354,12 +330,12 @@ export function defineDriver<T, TChannel = never>(
         const propDef = value as PropertyDef<unknown>;
         // Generate getter
         const getterName = toGetterName(propName);
-        instance[getterName] = createGetter(resource, propDef, spec.settings, spec.hooks);
+        instance[getterName] = createGetter(resource, propDef, spec.settings);
 
         // Generate setter if set command is defined and not readonly
         if (isSupported(propDef) && propDef.set && !propDef.readonly) {
           const setterName = toSetterName(propName);
-          instance[setterName] = createSetter(resource, propDef, spec.settings, spec.hooks);
+          instance[setterName] = createSetter(resource, propDef, spec.settings);
         }
       }
 
@@ -367,7 +343,7 @@ export function defineDriver<T, TChannel = never>(
       if (spec.commands) {
         for (const [cmdName, value] of Object.entries(spec.commands)) {
           const cmdDef = value as CommandDef;
-          instance[cmdName] = createCommand(resource, cmdDef, spec.hooks);
+          instance[cmdName] = createCommand(resource, cmdDef);
         }
       }
 
@@ -388,7 +364,7 @@ export function defineDriver<T, TChannel = never>(
 
         // Create channel accessor function
         instance.channel = (n: number) => {
-          return createChannelAccessor(resource, channels, n, spec.settings, spec.hooks);
+          return createChannelAccessor(resource, channels, n, spec.settings);
         };
       }
 

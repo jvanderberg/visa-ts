@@ -543,87 +543,8 @@ describe('Channel Accessor', () => {
     });
   });
 
-  describe('channel property hooks and settings', () => {
-    it('applies transformCommand hook to channel getter', async () => {
-      interface TestInstrument {
-        readonly channelCount: number;
-        channel(n: number): {
-          readonly channelNumber: number;
-          getValue(): Promise<Result<number, Error>>;
-        };
-      }
-
-      const spec: DriverSpec<TestInstrument> = {
-        properties: {},
-        channels: {
-          count: 2,
-          properties: {
-            value: {
-              get: ':CH{ch}:VAL?',
-              parse: (s) => parseFloat(s),
-            },
-          },
-        },
-        hooks: {
-          transformCommand: (cmd) => cmd.toLowerCase(),
-        },
-      };
-
-      const query = vi.fn().mockResolvedValue(Ok('10.0'));
-      const resource = createMockResource({ query });
-
-      const driver = defineDriver(spec);
-      const result = await driver.connect(resource);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        await result.value.channel(1).getValue();
-        expect(query).toHaveBeenCalledWith(':ch1:val?');
-      }
-    });
-
-    it('applies transformResponse hook to channel getter', async () => {
-      interface TestInstrument {
-        readonly channelCount: number;
-        channel(n: number): {
-          readonly channelNumber: number;
-          getValue(): Promise<Result<number, Error>>;
-        };
-      }
-
-      const spec: DriverSpec<TestInstrument> = {
-        properties: {},
-        channels: {
-          count: 2,
-          properties: {
-            value: {
-              get: ':CH{ch}:VAL?',
-              parse: (s) => parseFloat(s),
-            },
-          },
-        },
-        hooks: {
-          transformResponse: (_, response) => response.replace('V', ''),
-        },
-      };
-
-      const query = vi.fn().mockResolvedValue(Ok('12.5V'));
-      const resource = createMockResource({ query });
-
-      const driver = defineDriver(spec);
-      const result = await driver.connect(resource);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        const val = await result.value.channel(1).getValue();
-        expect(val.ok).toBe(true);
-        if (val.ok) {
-          expect(val.value).toBe(12.5);
-        }
-      }
-    });
-
-    it('applies postQueryDelay quirk to channel getter', async () => {
+  describe('channel property settings', () => {
+    it('applies postQueryDelay setting to channel getter', async () => {
       interface TestInstrument {
         readonly channelCount: number;
         channel(n: number): {
@@ -663,46 +584,7 @@ describe('Channel Accessor', () => {
       }
     });
 
-    it('applies transformCommand hook to channel setter', async () => {
-      interface TestInstrument {
-        readonly channelCount: number;
-        channel(n: number): {
-          readonly channelNumber: number;
-          getValue(): Promise<Result<number, Error>>;
-          setValue(v: number): Promise<Result<void, Error>>;
-        };
-      }
-
-      const spec: DriverSpec<TestInstrument> = {
-        properties: {},
-        channels: {
-          count: 2,
-          properties: {
-            value: {
-              get: ':CH{ch}:VAL?',
-              set: ':CH{ch}:VAL {value}',
-            },
-          },
-        },
-        hooks: {
-          transformCommand: (cmd) => cmd.toLowerCase(),
-        },
-      };
-
-      const write = vi.fn().mockResolvedValue(Ok(undefined));
-      const resource = createMockResource({ write });
-
-      const driver = defineDriver(spec);
-      const result = await driver.connect(resource);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        await result.value.channel(1).setValue(5.0);
-        expect(write).toHaveBeenCalledWith(':ch1:val 5');
-      }
-    });
-
-    it('applies postCommandDelay quirk to channel setter', async () => {
+    it('applies postCommandDelay setting to channel setter', async () => {
       interface TestInstrument {
         readonly channelCount: number;
         channel(n: number): {
@@ -740,45 +622,6 @@ describe('Channel Accessor', () => {
         await result.value.channel(1).setValue(5.0);
         const elapsed = Date.now() - start;
         expect(elapsed).toBeGreaterThanOrEqual(40);
-      }
-    });
-
-    it('applies transformCommand hook to channel command', async () => {
-      interface TestInstrument {
-        readonly channelCount: number;
-        channel(n: number): {
-          readonly channelNumber: number;
-          getValue(): Promise<Result<number, Error>>;
-          enable(): Promise<Result<void, Error>>;
-        };
-      }
-
-      const spec: DriverSpec<TestInstrument> = {
-        properties: {},
-        channels: {
-          count: 2,
-          properties: {
-            value: { get: ':CH{ch}:VAL?' },
-          },
-          commands: {
-            enable: { command: ':OUTP{ch} ON' },
-          },
-        },
-        hooks: {
-          transformCommand: (cmd) => cmd.toLowerCase(),
-        },
-      };
-
-      const write = vi.fn().mockResolvedValue(Ok(undefined));
-      const resource = createMockResource({ write });
-
-      const driver = defineDriver(spec);
-      const result = await driver.connect(resource);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        await result.value.channel(1).enable();
-        expect(write).toHaveBeenCalledWith(':outp1 on');
       }
     });
 

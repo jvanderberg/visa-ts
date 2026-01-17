@@ -144,3 +144,13 @@ export type {
   DmmTriggerSource,
   DmmStatistics,
 } from './drivers/index.js';
+
+// Middleware
+export {
+  withMiddleware,
+  loggingMiddleware,
+  retryMiddleware,
+  responseTransformMiddleware,
+  commandTransformMiddleware,
+} from './middleware.js';
+export type { Middleware, LoggingMiddlewareOptions, RetryMiddlewareOptions } from './middleware.js';

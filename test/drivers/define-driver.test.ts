@@ -618,36 +618,6 @@ describe('defineDriver', () => {
     });
   });
 
-  describe('command transform hooks', () => {
-    it('transforms command before sending', async () => {
-      interface TestInstrument {
-        reset(): Promise<Result<void, Error>>;
-      }
-
-      const spec: DriverSpec<TestInstrument> = {
-        properties: {},
-        commands: {
-          reset: { command: '*RST' },
-        },
-        hooks: {
-          transformCommand: (cmd) => cmd.toLowerCase(),
-        },
-      };
-
-      const write = vi.fn().mockResolvedValue(Ok(undefined));
-      const resource = createMockResource({ write });
-
-      const driver = defineDriver(spec);
-      const result = await driver.connect(resource);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        await result.value.reset();
-        expect(write).toHaveBeenCalledWith('*rst');
-      }
-    });
-  });
-
   describe('unsupported commands', () => {
     it('returns Err for unsupported command with description', async () => {
       interface TestInstrument {
@@ -874,71 +844,6 @@ describe('defineDriver', () => {
         const elapsed = Date.now() - start;
 
         expect(elapsed).toBeGreaterThanOrEqual(40);
-      }
-    });
-  });
-
-  describe('transform hooks', () => {
-    it('transforms command before sending', async () => {
-      interface TestInstrument {
-        setVoltage(v: number): Promise<Result<void, Error>>;
-      }
-
-      const spec: DriverSpec<TestInstrument> = {
-        properties: {
-          voltage: {
-            get: ':VOLT?',
-            set: ':VOLT {value}',
-          },
-        },
-        hooks: {
-          transformCommand: (cmd) => cmd.toLowerCase(),
-        },
-      };
-
-      const write = vi.fn().mockResolvedValue(Ok(undefined));
-      const resource = createMockResource({ write });
-
-      const driver = defineDriver(spec);
-      const result = await driver.connect(resource);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        await result.value.setVoltage(5.0);
-        expect(write).toHaveBeenCalledWith(':volt 5');
-      }
-    });
-
-    it('transforms response after receiving', async () => {
-      interface TestInstrument {
-        getVoltage(): Promise<Result<number, Error>>;
-      }
-
-      const spec: DriverSpec<TestInstrument> = {
-        properties: {
-          voltage: {
-            get: ':VOLT?',
-            parse: (s) => parseFloat(s),
-          },
-        },
-        hooks: {
-          transformResponse: (_, response) => response.replace('V', ''),
-        },
-      };
-
-      const query = vi.fn().mockResolvedValue(Ok('12.5V'));
-      const resource = createMockResource({ query });
-
-      const driver = defineDriver(spec);
-      const result = await driver.connect(resource);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        const volts = await result.value.getVoltage();
-        expect(volts.ok).toBe(true);
-        if (volts.ok) {
-          expect(volts.value).toBe(12.5);
-        }
       }
     });
   });

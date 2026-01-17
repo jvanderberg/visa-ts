@@ -1792,18 +1792,21 @@ const spec: DriverSpec = {
       await ctx.write(':SYST:LOC');  // Return to local mode
       return Ok(undefined);
     },
-
-    // Transform commands before sending (for quirky devices)
-    transformCommand: (cmd, value) => {
-      return cmd.toUpperCase();
-    },
-
-    // Transform responses after receiving
-    transformResponse: (cmd, response) => {
-      return response.trim();
-    },
   },
 };
+```
+
+For command/response transformations (e.g., for quirky devices), use middleware instead:
+
+```typescript
+import { withMiddleware, commandTransformMiddleware, responseTransformMiddleware } from 'visa-ts';
+
+const wrappedResource = withMiddleware(resource, [
+  commandTransformMiddleware((cmd) => cmd.toUpperCase()),
+  responseTransformMiddleware((response) => response.trim()),
+]);
+
+const psu = await myDriver.connect(wrappedResource);
 ```
 
 ### Using defineDriver()

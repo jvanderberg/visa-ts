@@ -337,6 +337,10 @@ export interface DriverContext {
 
 /**
  * Hooks for customizing driver behavior.
+ *
+ * Note: For command/response transformations, use middleware instead:
+ * - `commandTransformMiddleware()` - transform commands before sending
+ * - `responseTransformMiddleware()` - transform responses after receiving
  */
 export interface DriverHooks {
   /** Called after connecting to the instrument */
@@ -344,12 +348,6 @@ export interface DriverHooks {
 
   /** Called before disconnecting from the instrument */
   onDisconnect?(ctx: DriverContext): Promise<Result<void, Error>>;
-
-  /** Transform a command before sending */
-  transformCommand?(cmd: string, value: unknown): string;
-
-  /** Transform a response after receiving */
-  transformResponse?(cmd: string, response: string): string;
 }
 
 /**

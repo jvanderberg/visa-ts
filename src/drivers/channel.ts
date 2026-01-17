@@ -10,7 +10,6 @@ import {
   isSupported,
   isCommandSupported,
   type DriverSettings,
-  type DriverHooks,
   type PropertyDef,
   type CommandDef,
   type ChannelSpec,
@@ -61,7 +60,6 @@ export function createChannelGetter<T>(
   channelNum: number,
   scpiIndex: number,
   settings: DriverSettings | undefined,
-  hooks: DriverHooks | undefined,
   channelCount: number
 ): () => Promise<Result<T, Error>> {
   // Handle unsupported properties
@@ -76,12 +74,7 @@ export function createChannelGetter<T>(
     if (!boundsResult.ok) return boundsResult;
 
     // Substitute {ch} placeholder with channel index
-    let cmd = prop.get.replace(/\{ch\}/g, String(scpiIndex));
-
-    // Apply transform hook if present
-    if (hooks?.transformCommand) {
-      cmd = hooks.transformCommand(cmd, undefined);
-    }
+    const cmd = prop.get.replace(/\{ch\}/g, String(scpiIndex));
 
     const result = await resource.query(cmd);
     if (!result.ok) return result;
@@ -91,12 +84,7 @@ export function createChannelGetter<T>(
       await delay(settings.postQueryDelay);
     }
 
-    let response = result.value;
-
-    // Apply response transform hook if present
-    if (hooks?.transformResponse) {
-      response = hooks.transformResponse(cmd, response);
-    }
+    const response = result.value;
 
     // Parse the response
     if (prop.parse) {
@@ -120,7 +108,6 @@ export function createChannelSetter<T>(
   channelNum: number,
   scpiIndex: number,
   settings: DriverSettings | undefined,
-  hooks: DriverHooks | undefined,
   channelCount: number
 ): (value: T) => Promise<Result<void, Error>> {
   // Handle unsupported properties
@@ -160,12 +147,7 @@ export function createChannelSetter<T>(
     }
 
     // Substitute {ch} placeholder with channel index, then {value} with formatted value
-    let cmd = setCmd.replace(/\{ch\}/g, String(scpiIndex)).replace('{value}', formattedValue);
-
-    // Apply transform hook if present
-    if (hooks?.transformCommand) {
-      cmd = hooks.transformCommand(cmd, value);
-    }
+    const cmd = setCmd.replace(/\{ch\}/g, String(scpiIndex)).replace('{value}', formattedValue);
 
     const result = await resource.write(cmd);
     if (!result.ok) return result;
@@ -187,7 +169,6 @@ export function createChannelCommand(
   cmdDef: CommandDef,
   channelNum: number,
   scpiIndex: number,
-  hooks: DriverHooks | undefined,
   channelCount: number
 ): () => Promise<Result<void, Error>> {
   // Handle unsupported commands
@@ -202,12 +183,7 @@ export function createChannelCommand(
     if (!boundsResult.ok) return boundsResult;
 
     // Substitute {ch} placeholder with channel index
-    let cmd = cmdDef.command.replace(/\{ch\}/g, String(scpiIndex));
-
-    // Apply transform hook if present
-    if (hooks?.transformCommand) {
-      cmd = hooks.transformCommand(cmd, undefined);
-    }
+    const cmd = cmdDef.command.replace(/\{ch\}/g, String(scpiIndex));
 
     const result = await resource.write(cmd);
     if (!result.ok) return result;
@@ -231,8 +207,7 @@ export function createChannelAccessor<TChannel>(
   resource: MessageBasedResource,
   channelSpec: ChannelSpec<TChannel>,
   channelNum: number,
-  settings: DriverSettings | undefined,
-  hooks: DriverHooks | undefined
+  settings: DriverSettings | undefined
 ): Record<string, unknown> {
   // Calculate SCPI index from channel number:
   // - channelNum is always 1-based from user's perspective
@@ -257,7 +232,6 @@ export function createChannelAccessor<TChannel>(
       channelNum,
       scpiIndex,
       settings,
-      hooks,
       channelSpec.count
     );
 
@@ -270,7 +244,6 @@ export function createChannelAccessor<TChannel>(
         channelNum,
         scpiIndex,
         settings,
-        hooks,
         channelSpec.count
       );
     }
@@ -285,7 +258,6 @@ export function createChannelAccessor<TChannel>(
         cmdDef,
         channelNum,
         scpiIndex,
-        hooks,
         channelSpec.count
       );
     }
