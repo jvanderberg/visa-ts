@@ -9,15 +9,80 @@ import type { MessageBasedResource } from '../resources/message-based-resource.j
 import {
   isSupported,
   isCommandSupported,
+  isStaticIdentity,
+  isCustomIdentity,
   type DriverSpec,
   type DriverContext,
   type PropertyDef,
   type CommandDef,
-  type QuirkConfig,
-  type DriverHooks,
+  type DriverSettings,
   type ChannelSpec,
+  type IdentityConfig,
 } from './types.js';
 import { delay, toGetterName, toSetterName, createChannelAccessor } from './channel.js';
+
+/**
+ * Identity information returned from device.
+ */
+interface DeviceIdentity {
+  manufacturer: string;
+  model: string;
+  serialNumber: string;
+  firmwareVersion: string;
+}
+
+/**
+ * Query device identity based on configuration.
+ */
+async function queryIdentity(
+  resource: MessageBasedResource,
+  config?: IdentityConfig
+): Promise<Result<DeviceIdentity, Error>> {
+  // Static identity - no query needed
+  if (config && isStaticIdentity(config)) {
+    // Optionally probe to verify device is responding
+    if (config.probeCommand) {
+      const probeResult = await resource.query(config.probeCommand);
+      if (!probeResult.ok) {
+        return Err(new Error(`Device probe failed: ${probeResult.error.message}`));
+      }
+    }
+
+    return Ok({
+      manufacturer: config.manufacturer,
+      model: config.model,
+      serialNumber: config.serialNumber ?? '',
+      firmwareVersion: config.firmwareVersion ?? '',
+    });
+  }
+
+  // Custom identity query
+  if (config && isCustomIdentity(config)) {
+    const result = await resource.query(config.query);
+    if (!result.ok) return result;
+
+    const parsed = config.parse(result.value);
+    return Ok({
+      manufacturer: parsed.manufacturer,
+      model: parsed.model,
+      serialNumber: parsed.serialNumber ?? '',
+      firmwareVersion: parsed.firmwareVersion ?? '',
+    });
+  }
+
+  // Standard *IDN? query (default)
+  const idnResult = await resource.query('*IDN?');
+  if (!idnResult.ok) return idnResult;
+
+  // Parse identity: manufacturer,model,serial,firmware
+  const idnParts = idnResult.value.trim().split(',');
+  return Ok({
+    manufacturer: idnParts[0] ?? '',
+    model: idnParts[1] ?? '',
+    serialNumber: idnParts[2] ?? '',
+    firmwareVersion: idnParts[3] ?? '',
+  });
+}
 
 /**
  * Extended driver interface with spec access.
@@ -33,9 +98,13 @@ export interface DefinedDriver<T, TChannel = never> {
 /**
  * Create a driver context for hooks and custom methods.
  */
-function createDriverContext(resource: MessageBasedResource): DriverContext {
+function createDriverContext(
+  resource: MessageBasedResource,
+  settings: DriverSettings = {}
+): DriverContext {
   return {
     resource,
+    settings,
     query: (command: string) => resource.query(command),
     write: (command: string) => resource.write(command),
     delay,
@@ -48,8 +117,7 @@ function createDriverContext(resource: MessageBasedResource): DriverContext {
 function createGetter<T>(
   resource: MessageBasedResource,
   prop: PropertyDef<T>,
-  quirks: QuirkConfig | undefined,
-  hooks: DriverHooks | undefined
+  settings: DriverSettings | undefined
 ): () => Promise<Result<T, Error>> {
   // Handle unsupported properties
   if (!isSupported(prop)) {
@@ -58,27 +126,17 @@ function createGetter<T>(
   }
 
   return async () => {
-    let cmd = prop.get;
-
-    // Apply transform hook if present
-    if (hooks?.transformCommand) {
-      cmd = hooks.transformCommand(cmd, undefined);
-    }
+    const cmd = prop.get;
 
     const result = await resource.query(cmd);
     if (!result.ok) return result;
 
     // Apply post-query delay if configured
-    if (quirks?.postQueryDelay) {
-      await delay(quirks.postQueryDelay);
+    if (settings?.postQueryDelay) {
+      await delay(settings.postQueryDelay);
     }
 
-    let response = result.value;
-
-    // Apply response transform hook if present
-    if (hooks?.transformResponse) {
-      response = hooks.transformResponse(cmd, response);
-    }
+    const response = result.value;
 
     // Parse the response
     if (prop.parse) {
@@ -99,8 +157,7 @@ function createGetter<T>(
 function createSetter<T>(
   resource: MessageBasedResource,
   prop: PropertyDef<T>,
-  quirks: QuirkConfig | undefined,
-  hooks: DriverHooks | undefined
+  settings: DriverSettings | undefined
 ): (value: T) => Promise<Result<void, Error>> {
   // Handle unsupported properties
   if (!isSupported(prop)) {
@@ -135,19 +192,14 @@ function createSetter<T>(
     }
 
     // Build the command
-    let cmd = setCmd.replace('{value}', formattedValue);
-
-    // Apply transform hook if present
-    if (hooks?.transformCommand) {
-      cmd = hooks.transformCommand(cmd, value);
-    }
+    const cmd = setCmd.replace('{value}', formattedValue);
 
     const result = await resource.write(cmd);
     if (!result.ok) return result;
 
     // Apply post-command delay if configured
-    if (quirks?.postCommandDelay) {
-      await delay(quirks.postCommandDelay);
+    if (settings?.postCommandDelay) {
+      await delay(settings.postCommandDelay);
     }
 
     return Ok(undefined);
@@ -159,8 +211,7 @@ function createSetter<T>(
  */
 function createCommand(
   resource: MessageBasedResource,
-  cmdDef: CommandDef,
-  hooks: DriverHooks | undefined
+  cmdDef: CommandDef
 ): () => Promise<Result<void, Error>> {
   // Handle unsupported commands
   if (!isCommandSupported(cmdDef)) {
@@ -169,12 +220,7 @@ function createCommand(
   }
 
   return async () => {
-    let cmd = cmdDef.command;
-
-    // Apply transform hook if present
-    if (hooks?.transformCommand) {
-      cmd = hooks.transformCommand(cmd, undefined);
-    }
+    const cmd = cmdDef.command;
 
     const result = await resource.write(cmd);
     if (!result.ok) return result;
@@ -228,19 +274,28 @@ export function defineDriver<T, TChannel = never>(
         return Err(new Error('Resource is not open'));
       }
 
-      // Apply quirks on connect
-      if (spec.quirks?.resetOnConnect) {
+      // Apply settings on connect
+      if (spec.settings?.resetOnConnect) {
         const result = await resource.write('*RST');
         if (!result.ok) return result;
+        // Wait for reset to complete if configured
+        if (spec.settings.resetDelay) {
+          await delay(spec.settings.resetDelay);
+        }
       }
 
-      if (spec.quirks?.clearOnConnect) {
+      if (spec.settings?.clearOnConnect) {
         const result = await resource.write('*CLS');
         if (!result.ok) return result;
       }
 
+      // Query device identity
+      const identityResult = await queryIdentity(resource, spec.identity);
+      if (!identityResult.ok) return identityResult;
+      const identity = identityResult.value;
+
       // Create driver context
-      const ctx = createDriverContext(resource);
+      const ctx = createDriverContext(resource, spec.settings);
 
       // Call onConnect hook if present
       if (spec.hooks?.onConnect) {
@@ -249,15 +304,15 @@ export function defineDriver<T, TChannel = never>(
       }
 
       // Build the instrument instance
-      const capabilities = spec.capabilities ?? [];
-
       const instance: Record<string, unknown> = {
         // Expose raw resource for escape hatch
         resource,
 
-        // Capability system
-        capabilities,
-        hasCapability: (cap: string) => capabilities.includes(cap),
+        // Identity fields
+        manufacturer: identity.manufacturer,
+        model: identity.model,
+        serialNumber: identity.serialNumber,
+        firmwareVersion: identity.firmwareVersion,
 
         // Close method
         close: async () => {
@@ -275,12 +330,12 @@ export function defineDriver<T, TChannel = never>(
         const propDef = value as PropertyDef<unknown>;
         // Generate getter
         const getterName = toGetterName(propName);
-        instance[getterName] = createGetter(resource, propDef, spec.quirks, spec.hooks);
+        instance[getterName] = createGetter(resource, propDef, spec.settings);
 
         // Generate setter if set command is defined and not readonly
         if (isSupported(propDef) && propDef.set && !propDef.readonly) {
           const setterName = toSetterName(propName);
-          instance[setterName] = createSetter(resource, propDef, spec.quirks, spec.hooks);
+          instance[setterName] = createSetter(resource, propDef, spec.settings);
         }
       }
 
@@ -288,7 +343,7 @@ export function defineDriver<T, TChannel = never>(
       if (spec.commands) {
         for (const [cmdName, value] of Object.entries(spec.commands)) {
           const cmdDef = value as CommandDef;
-          instance[cmdName] = createCommand(resource, cmdDef, spec.hooks);
+          instance[cmdName] = createCommand(resource, cmdDef);
         }
       }
 
@@ -309,7 +364,7 @@ export function defineDriver<T, TChannel = never>(
 
         // Create channel accessor function
         instance.channel = (n: number) => {
-          return createChannelAccessor(resource, channels, n, spec.quirks, spec.hooks);
+          return createChannelAccessor(resource, channels, n, spec.settings);
         };
       }
 

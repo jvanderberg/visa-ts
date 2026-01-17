@@ -109,7 +109,7 @@ export type {
   PropertyDef,
   CommandDef,
   ChannelSpec,
-  QuirkConfig,
+  DriverSettings,
   DriverContext,
   DriverHooks,
   MethodMap,
@@ -131,7 +131,6 @@ export type {
   BandwidthLimit,
   MeasurementType,
   Protocol,
-  OscilloscopeCapability,
   WaveformData,
   PowerSupply,
   PowerSupplyChannel,
@@ -139,11 +138,19 @@ export type {
   TrackingMode,
   CombineMode,
   VoltageRange,
-  PowerSupplyCapability,
   Multimeter,
-  MultimeterDisplay,
   DmmFunction,
   AcBandwidth,
   DmmTriggerSource,
   DmmStatistics,
 } from './drivers/index.js';
+
+// Middleware
+export {
+  withMiddleware,
+  loggingMiddleware,
+  retryMiddleware,
+  responseTransformMiddleware,
+  commandTransformMiddleware,
+} from './middleware.js';
+export type { Middleware, LoggingMiddlewareOptions, RetryMiddlewareOptions } from './middleware.js';

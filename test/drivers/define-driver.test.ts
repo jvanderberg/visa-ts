@@ -199,7 +199,7 @@ describe('defineDriver', () => {
       }
     });
 
-    it('sends *RST when resetOnConnect quirk is enabled', async () => {
+    it('sends *RST when resetOnConnect setting is enabled', async () => {
       interface TestInstrument {
         getValue(): Promise<Result<number, Error>>;
       }
@@ -208,7 +208,7 @@ describe('defineDriver', () => {
         properties: {
           value: { get: ':VAL?' },
         },
-        quirks: {
+        settings: {
           resetOnConnect: true,
         },
       };
@@ -222,7 +222,7 @@ describe('defineDriver', () => {
       expect(write).toHaveBeenCalledWith('*RST');
     });
 
-    it('sends *CLS when clearOnConnect quirk is enabled', async () => {
+    it('sends *CLS when clearOnConnect setting is enabled', async () => {
       interface TestInstrument {
         getValue(): Promise<Result<number, Error>>;
       }
@@ -231,7 +231,7 @@ describe('defineDriver', () => {
         properties: {
           value: { get: ':VAL?' },
         },
-        quirks: {
+        settings: {
           clearOnConnect: true,
         },
       };
@@ -254,7 +254,7 @@ describe('defineDriver', () => {
         properties: {
           value: { get: ':VAL?' },
         },
-        quirks: {
+        settings: {
           resetOnConnect: true,
         },
       };
@@ -280,7 +280,7 @@ describe('defineDriver', () => {
         properties: {
           value: { get: ':VAL?' },
         },
-        quirks: {
+        settings: {
           clearOnConnect: true,
         },
       };
@@ -472,7 +472,11 @@ describe('defineDriver', () => {
         },
       };
 
-      const query = vi.fn().mockResolvedValue(Err(new Error('Timeout')));
+      // Mock *IDN? to succeed for connect, then fail subsequent queries
+      const query = vi.fn().mockImplementation(async (cmd: string) => {
+        if (cmd === '*IDN?') return Ok('Mfg,Model,Serial,1.0');
+        return Err(new Error('Timeout'));
+      });
       const resource = createMockResource({ query });
 
       const driver = defineDriver(spec);
@@ -610,84 +614,6 @@ describe('defineDriver', () => {
 
         // Allow some tolerance for timing
         expect(elapsed).toBeGreaterThanOrEqual(90);
-      }
-    });
-  });
-
-  describe('capabilities', () => {
-    it('exposes capabilities array on instrument', async () => {
-      interface TestInstrument {
-        readonly capabilities: readonly string[];
-        hasCapability(cap: string): boolean;
-      }
-
-      const spec: DriverSpec<TestInstrument> = {
-        properties: {},
-        capabilities: ['fft', 'protocol-decode', 'math'],
-      };
-
-      const resource = createMockResource();
-
-      const driver = defineDriver(spec);
-      const result = await driver.connect(resource);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.capabilities).toEqual(['fft', 'protocol-decode', 'math']);
-      }
-    });
-
-    it('hasCapability returns true for supported capabilities', async () => {
-      interface TestInstrument {
-        readonly capabilities: readonly string[];
-        hasCapability(cap: string): boolean;
-      }
-
-      const spec: DriverSpec<TestInstrument> = {
-        properties: {},
-        capabilities: ['fft', 'protocol-decode'],
-      };
-
-      const resource = createMockResource();
-
-      const driver = defineDriver(spec);
-      const result = await driver.connect(resource);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.hasCapability('fft')).toBe(true);
-        expect(result.value.hasCapability('protocol-decode')).toBe(true);
-        expect(result.value.hasCapability('nonexistent')).toBe(false);
-      }
-    });
-  });
-
-  describe('command transform hooks', () => {
-    it('transforms command before sending', async () => {
-      interface TestInstrument {
-        reset(): Promise<Result<void, Error>>;
-      }
-
-      const spec: DriverSpec<TestInstrument> = {
-        properties: {},
-        commands: {
-          reset: { command: '*RST' },
-        },
-        hooks: {
-          transformCommand: (cmd) => cmd.toLowerCase(),
-        },
-      };
-
-      const write = vi.fn().mockResolvedValue(Ok(undefined));
-      const resource = createMockResource({ write });
-
-      const driver = defineDriver(spec);
-      const result = await driver.connect(resource);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        await result.value.reset();
-        expect(write).toHaveBeenCalledWith('*rst');
       }
     });
   });
@@ -854,7 +780,7 @@ describe('defineDriver', () => {
     });
   });
 
-  describe('quirks', () => {
+  describe('settings', () => {
     it('applies postCommandDelay after writes', async () => {
       interface TestInstrument {
         setVoltage(v: number): Promise<Result<void, Error>>;
@@ -867,7 +793,7 @@ describe('defineDriver', () => {
             set: ':VOLT {value}',
           },
         },
-        quirks: {
+        settings: {
           postCommandDelay: 50,
         },
       };
@@ -900,7 +826,7 @@ describe('defineDriver', () => {
             parse: (s) => parseFloat(s),
           },
         },
-        quirks: {
+        settings: {
           postQueryDelay: 50,
         },
       };
@@ -918,71 +844,6 @@ describe('defineDriver', () => {
         const elapsed = Date.now() - start;
 
         expect(elapsed).toBeGreaterThanOrEqual(40);
-      }
-    });
-  });
-
-  describe('transform hooks', () => {
-    it('transforms command before sending', async () => {
-      interface TestInstrument {
-        setVoltage(v: number): Promise<Result<void, Error>>;
-      }
-
-      const spec: DriverSpec<TestInstrument> = {
-        properties: {
-          voltage: {
-            get: ':VOLT?',
-            set: ':VOLT {value}',
-          },
-        },
-        hooks: {
-          transformCommand: (cmd) => cmd.toLowerCase(),
-        },
-      };
-
-      const write = vi.fn().mockResolvedValue(Ok(undefined));
-      const resource = createMockResource({ write });
-
-      const driver = defineDriver(spec);
-      const result = await driver.connect(resource);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        await result.value.setVoltage(5.0);
-        expect(write).toHaveBeenCalledWith(':volt 5');
-      }
-    });
-
-    it('transforms response after receiving', async () => {
-      interface TestInstrument {
-        getVoltage(): Promise<Result<number, Error>>;
-      }
-
-      const spec: DriverSpec<TestInstrument> = {
-        properties: {
-          voltage: {
-            get: ':VOLT?',
-            parse: (s) => parseFloat(s),
-          },
-        },
-        hooks: {
-          transformResponse: (_, response) => response.replace('V', ''),
-        },
-      };
-
-      const query = vi.fn().mockResolvedValue(Ok('12.5V'));
-      const resource = createMockResource({ query });
-
-      const driver = defineDriver(spec);
-      const result = await driver.connect(resource);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        const volts = await result.value.getVoltage();
-        expect(volts.ok).toBe(true);
-        if (volts.ok) {
-          expect(volts.value).toBe(12.5);
-        }
       }
     });
   });

@@ -12,10 +12,46 @@ import type { MessageBasedResource } from '../resources/message-based-resource.j
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Extract property name from getter method name.
- * e.g., 'getVoltage' -> 'voltage'
+ * Base instrument property names to exclude from extraction.
+ * These are auto-provided by defineDriver.
  */
-type ExtractPropertyName<K> = K extends `get${infer Name}` ? Uncapitalize<Name> : never;
+type BaseInstrumentPropertyNames =
+  | 'manufacturer'
+  | 'model'
+  | 'serialNumber'
+  | 'firmwareVersion'
+  | 'resourceString'
+  | 'error';
+
+/**
+ * Base instrument command names to exclude from extraction.
+ * These are auto-provided by defineDriver.
+ */
+type BaseInstrumentCommandNames = 'reset' | 'clear' | 'selfTest' | 'close';
+
+/**
+ * Base channel property name to exclude - channelNumber is auto-provided.
+ */
+type BaseChannelPropertyNames = 'channelNumber';
+
+/**
+ * Extract property name from getter method name, excluding base properties.
+ * e.g., 'getVoltage' -> 'voltage', 'getError' -> never (excluded)
+ */
+type ExtractPropertyName<K> = K extends `get${infer Name}`
+  ? Uncapitalize<Name> extends BaseInstrumentPropertyNames
+    ? never
+    : Uncapitalize<Name>
+  : never;
+
+/**
+ * Extract property name for channels, excluding base channel properties.
+ */
+type ExtractChannelPropertyName<K> = K extends `get${infer Name}`
+  ? Uncapitalize<Name> extends BaseChannelPropertyNames
+    ? never
+    : Uncapitalize<Name>
+  : never;
 
 /**
  * Extract the return type from a getter method.
@@ -28,9 +64,17 @@ type ExtractPropertyType<T, K extends keyof T> = T[K] extends () => Promise<Resu
 /**
  * Extract all properties from an interface based on getter methods.
  * Maps getX() methods to property name 'x' with its return type.
+ * Excludes base instrument properties that are auto-provided.
  */
 type ExtractProperties<T> = {
   [K in keyof T as ExtractPropertyName<K & string>]: ExtractPropertyType<T, K>;
+};
+
+/**
+ * Extract channel properties, excluding base channel properties.
+ */
+type ExtractChannelProperties<T> = {
+  [K in keyof T as ExtractChannelPropertyName<K & string>]: ExtractPropertyType<T, K>;
 };
 
 /**
@@ -42,18 +86,28 @@ type TypedPropertyMap<T> = {
 };
 
 /**
+ * Typed property map for channels.
+ */
+type TypedChannelPropertyMap<T> = {
+  [K in keyof ExtractChannelProperties<T>]: PropertyDef<ExtractChannelProperties<T>[K]>;
+};
+
+/**
  * Check if a method is a command (not a getter/setter, returns Promise<Result<void, Error>>, no params).
+ * Excludes base instrument commands that are auto-provided.
  */
 type IsCommand<K, M> = K extends `get${string}` | `set${string}`
   ? never
-  : M extends () => Promise<Result<void, Error>>
-    ? K
-    : never;
+  : K extends BaseInstrumentCommandNames
+    ? never
+    : M extends () => Promise<Result<void, Error>>
+      ? K
+      : never;
 
 /**
  * Extract command names from an interface.
  * Commands are methods that return Promise<Result<void, Error>> with no parameters,
- * excluding getters and setters.
+ * excluding getters, setters, and base instrument commands.
  */
 type ExtractCommandNames<T> = {
   [K in keyof T as IsCommand<K & string, T[K]>]: true;
@@ -215,7 +269,7 @@ interface ChannelSpecBase<TChannel> {
   indexStart?: number;
 
   /** Properties available on each channel - must match TChannel interface */
-  properties: TypedPropertyMap<TChannel>;
+  properties: TypedChannelPropertyMap<TChannel>;
 }
 
 /**
@@ -238,9 +292,9 @@ export type ChannelSpec<TChannel> = ChannelSpecBase<TChannel> & ChannelCommands<
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Configuration for handling manufacturer-specific quirks.
+ * Driver settings for instrument-specific behavior.
  */
-export interface QuirkConfig {
+export interface DriverSettings {
   /** Delay in milliseconds after each command (for slow instruments) */
   postCommandDelay?: number;
 
@@ -249,6 +303,9 @@ export interface QuirkConfig {
 
   /** Send *RST when connecting */
   resetOnConnect?: boolean;
+
+  /** Delay in milliseconds after reset command */
+  resetDelay?: number;
 
   /** Send *CLS when connecting */
   clearOnConnect?: boolean;
@@ -265,6 +322,9 @@ export interface DriverContext {
   /** The underlying message-based resource */
   readonly resource: MessageBasedResource;
 
+  /** Driver settings (timing, etc.) */
+  readonly settings: DriverSettings;
+
   /** Send a query and get the response */
   query(command: string): Promise<Result<string, Error>>;
 
@@ -277,6 +337,10 @@ export interface DriverContext {
 
 /**
  * Hooks for customizing driver behavior.
+ *
+ * Note: For command/response transformations, use middleware instead:
+ * - `commandTransformMiddleware()` - transform commands before sending
+ * - `responseTransformMiddleware()` - transform responses after receiving
  */
 export interface DriverHooks {
   /** Called after connecting to the instrument */
@@ -284,12 +348,6 @@ export interface DriverHooks {
 
   /** Called before disconnecting from the instrument */
   onDisconnect?(ctx: DriverContext): Promise<Result<void, Error>>;
-
-  /** Transform a command before sending */
-  transformCommand?(cmd: string, value: unknown): string;
-
-  /** Transform a response after receiving */
-  transformResponse?(cmd: string, response: string): string;
 }
 
 /**
@@ -300,6 +358,80 @@ export type MethodMap<T> = {
     ? (ctx: DriverContext, ...args: A) => R
     : never;
 };
+
+// ─────────────────────────────────────────────────────────────────
+// Identity Configuration
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Standard *IDN? identity query (default behavior).
+ */
+export interface StandardIdentity {
+  /** Use standard *IDN? query (default) */
+  standard: true;
+}
+
+/**
+ * Custom identity query for devices with non-standard identity commands.
+ */
+export interface CustomIdentity {
+  /** Custom query command to send */
+  query: string;
+
+  /** Parse the response into identity fields */
+  parse: (response: string) => {
+    manufacturer: string;
+    model: string;
+    serialNumber?: string;
+    firmwareVersion?: string;
+  };
+}
+
+/**
+ * Static identity for devices that don't support identity queries (e.g., no *IDN?).
+ */
+export interface StaticIdentity {
+  /** Skip identity query, use these static values */
+  static: true;
+
+  /** Manufacturer name */
+  manufacturer: string;
+
+  /** Model number */
+  model: string;
+
+  /** Serial number (optional) */
+  serialNumber?: string;
+
+  /** Firmware version (optional) */
+  firmwareVersion?: string;
+
+  /**
+   * Optional probe command to verify device is responding.
+   * If provided, the device must respond successfully for connect() to succeed.
+   */
+  probeCommand?: string;
+}
+
+/**
+ * Identity configuration for a driver.
+ * Controls how the driver identifies the instrument on connect.
+ */
+export type IdentityConfig = StandardIdentity | CustomIdentity | StaticIdentity;
+
+/**
+ * Check if identity config uses static values (no query).
+ */
+export function isStaticIdentity(config: IdentityConfig): config is StaticIdentity {
+  return 'static' in config && config.static === true;
+}
+
+/**
+ * Check if identity config uses a custom query.
+ */
+export function isCustomIdentity(config: IdentityConfig): config is CustomIdentity {
+  return 'query' in config && typeof config.query === 'string';
+}
 
 // ─────────────────────────────────────────────────────────────────
 // Driver Specification
@@ -318,6 +450,14 @@ interface DriverSpecBase<T, TChannel> {
   /** Supported model numbers */
   models?: string[];
 
+  /**
+   * Identity configuration. Controls how the driver identifies the instrument.
+   * - undefined or { standard: true }: Use *IDN? query (default)
+   * - { query, parse }: Use custom query command
+   * - { static: true, ... }: Use static values (for devices without identity query)
+   */
+  identity?: IdentityConfig;
+
   /** Global properties - must define all properties from T */
   properties: TypedPropertyMap<T>;
 
@@ -330,11 +470,8 @@ interface DriverSpecBase<T, TChannel> {
   /** Custom method implementations */
   methods?: MethodMap<T>;
 
-  /** Hardware quirks configuration */
-  quirks?: QuirkConfig;
-
-  /** Declared capabilities */
-  capabilities?: string[];
+  /** Driver settings */
+  settings?: DriverSettings;
 }
 
 /**

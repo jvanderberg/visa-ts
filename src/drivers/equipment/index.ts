@@ -21,7 +21,6 @@ export type {
   BandwidthLimit,
   MeasurementType,
   Protocol,
-  OscilloscopeCapability,
   WaveformData,
 } from './oscilloscope.js';
 
@@ -33,15 +32,23 @@ export type {
   TrackingMode,
   CombineMode,
   VoltageRange,
-  PowerSupplyCapability,
 } from './power-supply.js';
 
 // Multimeter
 export type {
   Multimeter,
-  MultimeterDisplay,
   DmmFunction,
   AcBandwidth,
   DmmTriggerSource,
   DmmStatistics,
 } from './multimeter.js';
+
+// Electronic Load
+export type {
+  ElectronicLoad,
+  ElectronicLoadChannel,
+  ElectronicLoadWithListMode,
+  ListStep,
+  ListModeOptions,
+} from './electronic-load.js';
+export { LoadMode } from './electronic-load.js';

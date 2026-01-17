@@ -107,12 +107,10 @@ interface DriverSpec<T> {
   // Channel configuration
   channels?: ChannelSpec;           // Indexed channel definitions
 
-  // Imperative escape hatches
+  // Lifecycle hooks
   hooks?: {
     onConnect?(ctx: DriverContext): Promise<Result<void, Error>>;
     onDisconnect?(ctx: DriverContext): Promise<Result<void, Error>>;
-    transformCommand?(cmd: string, value: unknown): string;
-    transformResponse?(cmd: string, response: string): string;
   };
 
   // Custom methods when declarative doesn't fit
@@ -133,13 +131,88 @@ Users can always access the underlying resource:
 ```typescript
 const scope = await rigolDS1054Z.connect(resource);
 
-// Use typed 
+// Use typed
 await scope.setTimebase(1e-3);
 
 // Escape to raw SCPI when needed
 const raw = scope.resource;
 await raw.query(':CUSTOM:VENDOR:CMD?');
 ```
+
+### 6. Middleware for Logging, Debugging, and Runtime Patching
+
+Middleware provides a chainable way to intercept SCPI communication at the resource level.
+This is ideal for logging, debugging, retrying failed operations, and patching device quirks.
+
+```typescript
+import { withMiddleware, loggingMiddleware, retryMiddleware } from 'visa-ts';
+
+// Wrap resource with middleware before connecting
+const debugResource = withMiddleware(resource, [
+  loggingMiddleware({ timestamps: true }),
+  retryMiddleware({ maxRetries: 3, retryDelay: 100 }),
+]);
+
+// Driver uses the wrapped resource
+const psu = await rigolDP832.connect(debugResource);
+```
+
+**Built-in Middleware:**
+
+| Middleware | Purpose |
+|------------|---------|
+| `loggingMiddleware()` | Log all SCPI commands and responses |
+| `retryMiddleware()` | Retry failed operations with configurable attempts |
+| `responseTransformMiddleware()` | Transform responses (trim, fix line endings) |
+| `commandTransformMiddleware()` | Transform commands before sending |
+
+**Middleware Ordering:**
+
+Middleware executes in order. For logging to see all retry attempts, put retry before logging:
+
+```typescript
+// Retry → Logging → Device
+// Each retry will be logged
+const wrapped = withMiddleware(resource, [
+  retryMiddleware({ maxRetries: 3 }),
+  loggingMiddleware(),
+]);
+
+// Logging → Retry → Device
+// Only initial call is logged (retries happen after logging)
+const wrapped = withMiddleware(resource, [
+  loggingMiddleware(),
+  retryMiddleware({ maxRetries: 3 }),
+]);
+```
+
+**Custom Middleware:**
+
+```typescript
+import type { Middleware } from 'visa-ts';
+
+// Middleware that adds delay after each command
+const delayMiddleware: Middleware = async (cmd, next) => {
+  const result = await next(cmd);
+  await new Promise(resolve => setTimeout(resolve, 50));
+  return result;
+};
+
+// Middleware to patch device quirks
+const quirksMiddleware: Middleware = async (cmd, next) => {
+  // Fix command format for older firmware
+  const fixedCmd = cmd.replace(':TIM:', ':TIMEBASE:');
+  return next(fixedCmd);
+};
+```
+
+**Middleware vs Hooks:**
+
+- **Middleware** (resource-level): For runtime concerns like logging, debugging, retrying, and patching.
+  Applied when wrapping a resource before connecting. Use `commandTransformMiddleware()` and
+  `responseTransformMiddleware()` for command/response transformations.
+- **Hooks** (driver-level): For lifecycle events (`onConnect`/`onDisconnect`).
+  Defined in the DriverSpec by the driver author for device initialization.
 
 ---
 

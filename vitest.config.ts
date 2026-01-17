@@ -9,7 +9,12 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
       include: ['src/**/*.ts'],
-      exclude: ['src/**/*.d.ts', 'src/index.ts'],
+      exclude: [
+        'src/**/*.d.ts',
+        'src/index.ts',
+        // Driver implementations require real hardware to test
+        'src/drivers/implementations/**/*.ts',
+      ],
       thresholds: {
         lines: 90,
         functions: 90,

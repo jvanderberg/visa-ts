@@ -132,6 +132,47 @@ Available simulated devices: `createSimulatedPsu()`, `createSimulatedLoad()`, `c
 
 When multiple simulated devices are connected, circuit simulation makes them interact realistically (e.g., PSU current limiting affects Load measurements).
 
+## Middleware
+
+Add logging, retries, or custom transformations to SCPI communication:
+
+```typescript
+import { withMiddleware, loggingMiddleware, retryMiddleware } from 'visa-ts';
+
+// Wrap resource with middleware
+const debugResource = withMiddleware(resource, [
+  loggingMiddleware(),                    // Log all traffic
+  retryMiddleware({ maxRetries: 3 }),     // Auto-retry on failure
+]);
+
+// Use wrapped resource with drivers or directly
+const idn = await debugResource.query('*IDN?');
+// Console: > *IDN?
+// Console: < RIGOL TECHNOLOGIES,DS1054Z,...
+```
+
+**Built-in middleware:**
+
+| Function | Description |
+|----------|-------------|
+| `loggingMiddleware(options?)` | Log commands/responses with optional timestamps |
+| `retryMiddleware(options?)` | Retry failed operations with configurable attempts |
+| `responseTransformMiddleware(fn)` | Transform responses (e.g., trim whitespace) |
+| `commandTransformMiddleware(fn)` | Transform commands before sending |
+
+**Custom middleware:**
+
+```typescript
+import type { Middleware } from 'visa-ts';
+
+const myMiddleware: Middleware = async (cmd, next) => {
+  console.log('Sending:', cmd);
+  const result = await next(cmd);
+  if (result.ok) console.log('Received:', result.value);
+  return result;
+};
+```
+
 ## Comparison to PyVISA
 
 | PyVISA | visa-ts |
