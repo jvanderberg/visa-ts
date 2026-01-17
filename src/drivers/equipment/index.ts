@@ -47,7 +47,6 @@ export type {
 export type {
   ElectronicLoad,
   ElectronicLoadChannel,
-  ElectronicLoadWithListMode,
   ListStep,
   ListModeOptions,
 } from './electronic-load.js';

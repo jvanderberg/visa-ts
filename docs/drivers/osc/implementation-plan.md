@@ -1,321 +1,233 @@
 # Oscilloscope Driver Implementation Plan
 
-> Plan to close the gap between current driver model and comprehensive SCPI capabilities
+> Plan to complete oscilloscope drivers using the comprehensive base interface and granular feature system
+
+## Architecture Overview
+
+### Base Interface Philosophy
+
+The `Oscilloscope` and `OscilloscopeChannel` interfaces contain **all standard functionality** that every oscilloscope has. This includes:
+- Channel enable/disable, scale, offset, coupling
+- Probe attenuation, bandwidth limit, invert, label
+- All standard measurements (Vpp, Vmax, Vmin, Vavg, Vrms, Vtop, Vbase, Vamp, etc.)
+- Timebase (scale, offset, mode)
+- Sample rate, record length
+- Trigger (level, slope, mode, source)
+- Acquisition mode
+- Run/stop/single, force trigger, auto scale
+- Waveform capture, screenshot
+
+### Granular Feature System
+
+Features represent **optional capabilities that vary between models**. They are NOT in the base interface.
+
+**Oscilloscope Features** (from `src/drivers/features/osc-features.ts`):
+| Feature | Description | Example Models |
+|---------|-------------|----------------|
+| `decode` | Serial protocol decode (I2C, SPI, UART) | SDS1104X-U, DS1054Z (with option) |
+| `digital` | Digital/logic analyzer channels | MSO series |
+| `mask` | Mask/limit testing | Higher-end scopes |
+| `histogram` | Waveform histogram | Higher-end scopes |
+| `segmented` | Segmented memory acquisition | SDS, Keysight, R&S |
+| `wavegen` | Built-in waveform generator | DS1054Z (with option), SDS1104X-U |
+| `search` | Waveform search/navigation | Higher-end scopes |
+| `bode` | Bode plot analysis | SDS with wavegen |
+| `power` | Power analysis | Specialized options |
+| `jitter` | Jitter analysis | Higher-end scopes |
+
+### Type-Enforced Methods
+
+The `DriverSpec` type now enforces that all interface methods are implemented:
+- **Properties** → generates getters/setters automatically
+- **Commands** → generates no-arg void methods automatically
+- **Methods** → required for anything else (complex operations)
+
+If the interface declares a method that isn't a getter/setter/command, `methods` in the spec is **required**.
+
+---
 
 ## Current State
 
-- **Base interface** (`src/drivers/equipment/oscilloscope.ts`): Minimal - only covers enable, scale, offset, coupling, basic measurements, timebase, run/stop
-- **Rigol implementation** (`src/drivers/implementations/rigol/scope.ts`): Extended with trigger, waveform capture, screenshot, many measurements
-- **Documentation**: Comprehensive SCPI references for 5 vendors created
-
-## Target State
-
-A comprehensive `Oscilloscope` interface that covers common functionality across vendors, with unsupported features returning `Err("not supported")`.
-
----
-
-## Vendor Feature Matrix
-
-| Feature | Rigol DS1000Z | Siglent SDS | Keysight | Tektronix | R&S RTx |
-|---------|---------------|-------------|----------|-----------|---------|
-| **Channel** |
-| Enable/Scale/Offset | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Coupling (AC/DC/GND) | ✓ | ✓ | AC/DC only | ✓ | ACLimit/DCLimit/GND |
-| Probe attenuation | ✓ | ✓ | ✓ | ✓ (gain) | ✓ |
-| Bandwidth limit | ✓ (20M) | ✓ (20/200M) | ✓ (25M) | ✓ (any) | ✓ (20/200M) |
-| Input impedance | — | ✓ | ✓ | ✓ | ✓ |
-| Invert | ✓ | ✓ | ✓ | ✓ | ✓ (polarity) |
-| Label | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Skew/Deskew | — | ✓ | — | ✓ | ✓ |
-| **Timebase** |
-| Scale (s/div) | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Position/Offset | ✓ | ✓ | ✓ | ✓ (% or sec) | ✓ |
-| Mode (MAIN/XY/ROLL) | ✓ | ✓ | ✓ | via settings | ✓ |
-| Reference position | — | ✓ | ✓ | ✓ | ✓ |
-| **Acquisition** |
-| Mode (Normal/Avg/Peak/HiRes) | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Average count | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Memory depth | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Sample rate (query) | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Running state | ✓ | ✓ | via register | ✓ | ✓ |
-| Segmented memory | — | ✓ | ✓ | — | ✓ |
-| **Trigger** |
-| Edge source/level/slope | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Mode (Auto/Normal/Single) | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Coupling | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Holdoff | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Force trigger | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Status query | ✓ | ✓ | via register | ✓ | ✓ |
-| Pulse/Width trigger | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Measurements** |
-| Frequency/Period | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Vpp/Vmax/Vmin/Vavg/Vrms | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Vtop/Vbase/Vamp | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Rise/Fall time | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Pulse width (+/-) | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Duty cycle (+/-) | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Overshoot/Preshoot | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Phase/Delay | ✓ | ✓ | — | — | — |
-| Counter | ✓ | — | ✓ | — | — |
-| **Data Transfer** |
-| Waveform data | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Screenshot | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Commands** |
-| Run/Stop | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Single | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Auto scale | ✓ | ✓ | — | — | — |
-| **Display** |
-| Persistence | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Grid/Graticule | ✓ | ✓ | ✓ | ✓ | — |
-| **Math** |
-| Basic math (+/-/×/÷) | ✓ | ✓ | ✓ | ✓ | ✓ |
-| FFT | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Serial Decode** |
-| I2C/SPI/UART | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **TCP Port** | 5555 | 5025 | 5025 | 4000 | 5025 |
-
----
-
-## Gap Analysis
-
-### Current vs Missing Features
-
-**Base `OscilloscopeChannel` - Currently Has:**
-- ✓ enable, scale, offset, coupling
-- ✓ frequency, period, vpp, vmax, vmin, vavg, vrms measurements
-
-**Base `OscilloscopeChannel` - Missing:**
-- ✗ Probe attenuation
-- ✗ Bandwidth limit
-- ✗ Input impedance
-- ✗ Invert
-- ✗ Label
-- ✗ Rise/fall time measurements
-- ✗ Pulse width measurements
-- ✗ Duty cycle measurements
-- ✗ Overshoot/preshoot measurements
-- ✗ Vtop/Vbase/Vamp measurements
-
-**Base `Oscilloscope` - Currently Has:**
-- ✓ channelCount, channel(n)
-- ✓ timebase (scale only)
-- ✓ run, stop
-
-**Base `Oscilloscope` - Missing:**
-- ✗ Timebase offset/position
-- ✗ Timebase mode
-- ✗ Sample rate query
-- ✗ Memory depth query/set
-- ✗ Acquisition mode (Normal/Average/Peak/HiRes)
-- ✗ Average count
-- ✗ Running state query
-- ✗ Single acquisition
-- ✗ Force trigger
-- ✗ Trigger configuration (source, level, slope, mode, coupling, holdoff)
-- ✗ Waveform capture
-- ✗ Screenshot capture
-- ✗ Auto scale
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Base interface | Complete | All standard methods in base |
+| Rigol scope driver | Complete | Implements base interface |
+| DS1054Z driver | Complete | Uses base interface |
+| Feature types | Complete | `src/drivers/features/osc-features.ts` |
 
 ---
 
 ## Implementation Phases
 
-### Phase 1: Update Base Interface Types
+### Phase 1: Verify Base Interface Completeness
 
 **File:** `src/drivers/equipment/oscilloscope.ts`
 
-**Changes:**
+The base interface should already include (verify these are present):
 
-1. Add constants with runtime values:
-   ```typescript
-   export const AcquisitionMode = {
-     Normal: 'NORMAL',
-     Average: 'AVERAGE',
-     Peak: 'PEAK',
-     HighRes: 'HIGHRES',
-   } as const;
-
-   export const TriggerSweep = {
-     Auto: 'AUTO',
-     Normal: 'NORMAL',
-     Single: 'SINGLE',
-   } as const;
-
-   export const TimebaseMode = {
-     Main: 'MAIN',
-     XY: 'XY',
-     Roll: 'ROLL',
-     Window: 'WINDOW',
-   } as const;
-
-   export const TriggerCoupling = {
-     AC: 'AC',
-     DC: 'DC',
-     LFReject: 'LFREJECT',
-     HFReject: 'HFREJECT',
-   } as const;
-
-   export const InputImpedance = {
-     OneMeg: 'ONEMEG',
-     Fifty: 'FIFTY',
-   } as const;
-   ```
-
-2. `WaveformData` is already well-defined - keep as is.
-
----
-
-### Phase 2: Expand OscilloscopeChannel Interface
-
-**File:** `src/drivers/equipment/oscilloscope.ts`
-
-**Add to `OscilloscopeChannel`:**
-
+**OscilloscopeChannel:**
 ```typescript
-export interface OscilloscopeChannel {
-  // Existing...
-  readonly channelNumber: number;
-  getEnabled(): Promise<Result<boolean, Error>>;
-  setEnabled(on: boolean): Promise<Result<void, Error>>;
-  getScale(): Promise<Result<number, Error>>;
-  setScale(voltsPerDiv: number): Promise<Result<void, Error>>;
-  getOffset(): Promise<Result<number, Error>>;
-  setOffset(volts: number): Promise<Result<void, Error>>;
-  getCoupling(): Promise<Result<Coupling, Error>>;
-  setCoupling(coupling: Coupling): Promise<Result<void, Error>>;
+// Identity
+readonly channelNumber: number;
 
-  // NEW: Probe settings
-  getProbeAttenuation(): Promise<Result<number, Error>>;
-  setProbeAttenuation(ratio: number): Promise<Result<void, Error>>;
+// Display
+getEnabled(): Promise<Result<boolean, Error>>;
+setEnabled(on: boolean): Promise<Result<void, Error>>;
+getScale(): Promise<Result<number, Error>>;
+setScale(voltsPerDiv: number): Promise<Result<void, Error>>;
+getOffset(): Promise<Result<number, Error>>;
+setOffset(volts: number): Promise<Result<void, Error>>;
+getCoupling(): Promise<Result<Coupling, Error>>;
+setCoupling(coupling: Coupling): Promise<Result<void, Error>>;
 
-  // NEW: Bandwidth limit
-  getBandwidthLimit(): Promise<Result<BandwidthLimit, Error>>;
-  setBandwidthLimit(limit: BandwidthLimit): Promise<Result<void, Error>>;
+// Probe settings
+getProbeAttenuation(): Promise<Result<number, Error>>;
+setProbeAttenuation(ratio: number): Promise<Result<void, Error>>;
+getBandwidthLimit(): Promise<Result<BandwidthLimit, Error>>;
+setBandwidthLimit(limit: BandwidthLimit): Promise<Result<void, Error>>;
+getInverted(): Promise<Result<boolean, Error>>;
+setInverted(inverted: boolean): Promise<Result<void, Error>>;
+getLabel(): Promise<Result<string, Error>>;
+setLabel(label: string): Promise<Result<void, Error>>;
 
-  // NEW: Input impedance (returns notSupported on scopes without 50Ω)
-  getInputImpedance(): Promise<Result<InputImpedance, Error>>;
-  setInputImpedance(impedance: InputImpedance): Promise<Result<void, Error>>;
+// Measurements (all standard)
+getMeasuredFrequency(): Promise<Result<number, Error>>;
+getMeasuredPeriod(): Promise<Result<number, Error>>;
+getMeasuredVpp(): Promise<Result<number, Error>>;
+getMeasuredVmax(): Promise<Result<number, Error>>;
+getMeasuredVmin(): Promise<Result<number, Error>>;
+getMeasuredVavg(): Promise<Result<number, Error>>;
+getMeasuredVrms(): Promise<Result<number, Error>>;
+getMeasuredVtop(): Promise<Result<number, Error>>;
+getMeasuredVbase(): Promise<Result<number, Error>>;
+getMeasuredVamp(): Promise<Result<number, Error>>;
+getMeasuredRiseTime(): Promise<Result<number, Error>>;
+getMeasuredFallTime(): Promise<Result<number, Error>>;
+getMeasuredPositiveWidth(): Promise<Result<number, Error>>;
+getMeasuredNegativeWidth(): Promise<Result<number, Error>>;
+getMeasuredPositiveDuty(): Promise<Result<number, Error>>;
+getMeasuredNegativeDuty(): Promise<Result<number, Error>>;
+getMeasuredOvershoot(): Promise<Result<number, Error>>;
+getMeasuredPreshoot(): Promise<Result<number, Error>>;
+getMeasuredCounter(): Promise<Result<number, Error>>;
+```
 
-  // NEW: Invert
-  getInverted(): Promise<Result<boolean, Error>>;
-  setInverted(inverted: boolean): Promise<Result<void, Error>>;
+**Oscilloscope:**
+```typescript
+// Channels
+readonly channelCount: number;
+channel(n: number): OscilloscopeChannel;
 
-  // NEW: Label
-  getLabel(): Promise<Result<string, Error>>;
-  setLabel(label: string): Promise<Result<void, Error>>;
+// Timebase
+getTimebase(): Promise<Result<number, Error>>;
+setTimebase(secPerDiv: number): Promise<Result<void, Error>>;
+getTimebaseOffset(): Promise<Result<number, Error>>;
+setTimebaseOffset(seconds: number): Promise<Result<void, Error>>;
+getTimebaseMode(): Promise<Result<TimebaseMode, Error>>;
+setTimebaseMode(mode: TimebaseMode): Promise<Result<void, Error>>;
 
-  // Existing measurements...
-  getMeasuredFrequency(): Promise<Result<number, Error>>;
-  getMeasuredPeriod(): Promise<Result<number, Error>>;
-  getMeasuredVpp(): Promise<Result<number, Error>>;
-  getMeasuredVmax(): Promise<Result<number, Error>>;
-  getMeasuredVmin(): Promise<Result<number, Error>>;
-  getMeasuredVavg(): Promise<Result<number, Error>>;
-  getMeasuredVrms(): Promise<Result<number, Error>>;
+// Acquisition
+getSampleRate(): Promise<Result<number, Error>>;
+getRecordLength(): Promise<Result<number, Error>>;
+setRecordLength(points: number | 'AUTO'): Promise<Result<void, Error>>;
+getAcquisitionMode(): Promise<Result<AcquisitionMode, Error>>;
+setAcquisitionMode(mode: AcquisitionMode): Promise<Result<void, Error>>;
+getRunning(): Promise<Result<boolean, Error>>;
 
-  // NEW: Additional voltage measurements
-  getMeasuredVtop(): Promise<Result<number, Error>>;
-  getMeasuredVbase(): Promise<Result<number, Error>>;
-  getMeasuredVamp(): Promise<Result<number, Error>>;
+// Trigger
+getTriggerLevel(): Promise<Result<number, Error>>;
+setTriggerLevel(volts: number): Promise<Result<void, Error>>;
+getTriggerSlope(): Promise<Result<TriggerSlope, Error>>;
+setTriggerSlope(slope: TriggerSlope): Promise<Result<void, Error>>;
+getTriggerMode(): Promise<Result<TriggerMode, Error>>;
+setTriggerMode(mode: TriggerMode): Promise<Result<void, Error>>;
+getTriggerSource(): Promise<Result<TriggerSource, Error>>;
+setTriggerSource(source: TriggerSource): Promise<Result<void, Error>>;
 
-  // NEW: Timing measurements
-  getMeasuredRiseTime(): Promise<Result<number, Error>>;
-  getMeasuredFallTime(): Promise<Result<number, Error>>;
-  getMeasuredPositiveWidth(): Promise<Result<number, Error>>;
-  getMeasuredNegativeWidth(): Promise<Result<number, Error>>;
-  getMeasuredPositiveDuty(): Promise<Result<number, Error>>;
-  getMeasuredNegativeDuty(): Promise<Result<number, Error>>;
+// Commands
+run(): Promise<Result<void, Error>>;
+stop(): Promise<Result<void, Error>>;
+single(): Promise<Result<void, Error>>;
+autoScale(): Promise<Result<void, Error>>;
+forceTrigger(): Promise<Result<void, Error>>;
 
-  // NEW: Overshoot/preshoot (as percentage)
-  getMeasuredOvershoot(): Promise<Result<number, Error>>;
-  getMeasuredPreshoot(): Promise<Result<number, Error>>;
-}
+// Data capture (methods - require custom implementation)
+captureWaveform(channel: number | string): Promise<Result<WaveformData, Error>>;
+captureScreenshot(format?: 'PNG' | 'BMP'): Promise<Result<Buffer, Error>>;
 ```
 
 ---
 
-### Phase 3: Expand Oscilloscope Interface
-
-**File:** `src/drivers/equipment/oscilloscope.ts`
-
-**Add to `Oscilloscope`:**
-
-```typescript
-export interface Oscilloscope extends BaseInstrument {
-  // Existing...
-  readonly channelCount: number;
-  channel(n: number): OscilloscopeChannel;
-  getTimebase(): Promise<Result<number, Error>>;
-  setTimebase(secPerDiv: number): Promise<Result<void, Error>>;
-  run(): Promise<Result<void, Error>>;
-  stop(): Promise<Result<void, Error>>;
-
-  // NEW: Timebase extended
-  getTimebaseOffset(): Promise<Result<number, Error>>;
-  setTimebaseOffset(seconds: number): Promise<Result<void, Error>>;
-  getTimebaseMode(): Promise<Result<TimebaseMode, Error>>;
-  setTimebaseMode(mode: TimebaseMode): Promise<Result<void, Error>>;
-
-  // NEW: Acquisition settings
-  getSampleRate(): Promise<Result<number, Error>>;
-  getMemoryDepth(): Promise<Result<number, Error>>;
-  setMemoryDepth(points: number | 'AUTO'): Promise<Result<void, Error>>;
-  getAcquisitionMode(): Promise<Result<AcquisitionMode, Error>>;
-  setAcquisitionMode(mode: AcquisitionMode): Promise<Result<void, Error>>;
-  getAverageCount(): Promise<Result<number, Error>>;
-  setAverageCount(count: number): Promise<Result<void, Error>>;
-
-  // NEW: Acquisition state
-  getRunning(): Promise<Result<boolean, Error>>;
-  single(): Promise<Result<void, Error>>;
-
-  // NEW: Trigger configuration
-  getTriggerSource(): Promise<Result<TriggerSource, Error>>;
-  setTriggerSource(source: TriggerSource): Promise<Result<void, Error>>;
-  getTriggerLevel(): Promise<Result<number, Error>>;
-  setTriggerLevel(volts: number): Promise<Result<void, Error>>;
-  getTriggerSlope(): Promise<Result<TriggerSlope, Error>>;
-  setTriggerSlope(slope: TriggerSlope): Promise<Result<void, Error>>;
-  getTriggerMode(): Promise<Result<TriggerSweep, Error>>;
-  setTriggerMode(mode: TriggerSweep): Promise<Result<void, Error>>;
-  getTriggerCoupling(): Promise<Result<TriggerCoupling, Error>>;
-  setTriggerCoupling(coupling: TriggerCoupling): Promise<Result<void, Error>>;
-  getTriggerHoldoff(): Promise<Result<number, Error>>;
-  setTriggerHoldoff(seconds: number): Promise<Result<void, Error>>;
-  forceTrigger(): Promise<Result<void, Error>>;
-
-  // NEW: Waveform capture
-  captureWaveform(channel: number | string): Promise<Result<WaveformData, Error>>;
-
-  // NEW: Screenshot
-  captureScreenshot(format?: 'PNG' | 'BMP'): Promise<Result<Buffer, Error>>;
-
-  // NEW: Auto scale (returns notSupported on some scopes)
-  autoScale(): Promise<Result<void, Error>>;
-
-  // NEW: Save/recall
-  saveSetup(slot: number): Promise<Result<void, Error>>;
-  recallSetup(slot: number): Promise<Result<void, Error>>;
-}
-```
-
----
-
-### Phase 4: Update Rigol Scope Driver
+### Phase 2: Update Rigol Scope Driver
 
 **File:** `src/drivers/implementations/rigol/scope.ts`
 
-**Changes:**
+The driver should already implement all base interface methods. Verify:
 
-1. Remove extended interface - all features now in base
-2. Implement all base interface methods
-3. For unsupported features (e.g., input impedance), return `notSupported()`
+```typescript
+const rigolScopeSpec: DriverSpec<RigolScope, RigolScopeChannel> = {
+  type: 'oscilloscope',
+  manufacturer: 'Rigol',
+  models: ['DS1054Z', 'DS1074Z', 'DS1104Z', 'DS1104Z-S', 'MSO1104Z-S'],
+  features: [],  // Entry-level scope, no optional features
+
+  properties: {
+    timebase: { get: ':TIM:SCAL?', set: ':TIM:SCAL {value}', parse: parseScpiNumber },
+    timebaseOffset: { get: ':TIM:OFFS?', set: ':TIM:OFFS {value}', parse: parseScpiNumber },
+    timebaseMode: { get: ':TIM:MODE?', set: ':TIM:MODE {value}', parse: parseTimebaseMode },
+    sampleRate: { get: ':ACQ:SRAT?', parse: parseScpiNumber, readonly: true },
+    recordLength: { get: ':ACQ:MDEP?', set: ':ACQ:MDEP {value}', parse: parseScpiNumber },
+    acquisitionMode: { get: ':ACQ:TYPE?', set: ':ACQ:TYPE {value}', parse: parseAcquisitionMode },
+    running: { get: ':TRIG:STAT?', parse: (s) => s.includes('RUN'), readonly: true },
+    triggerLevel: { get: ':TRIG:EDG:LEV?', set: ':TRIG:EDG:LEV {value}', parse: parseScpiNumber },
+    triggerSlope: { get: ':TRIG:EDG:SLOP?', set: ':TRIG:EDG:SLOP {value}', parse: parseTriggerSlope, format: formatTriggerSlope },
+    triggerMode: { get: ':TRIG:SWE?', set: ':TRIG:SWE {value}' },
+    triggerSource: { get: ':TRIG:EDG:SOUR?', set: ':TRIG:EDG:SOUR {value}', parse: parseTriggerSource },
+  },
+
+  commands: {
+    run: ':RUN',
+    stop: ':STOP',
+    single: ':SINGle',
+    autoScale: ':AUT',
+    forceTrigger: ':TFORce',
+  },
+
+  methods: {
+    captureWaveform: async (ctx, channel) => { /* ... */ },
+    captureScreenshot: async (ctx, format) => { /* ... */ },
+  },
+
+  channels: {
+    count: 4,
+    indexStart: 1,
+    properties: {
+      enabled: { get: ':CHAN{ch}:DISP?', set: ':CHAN{ch}:DISP {value}', parse: parseScpiBool, format: formatScpiBool },
+      scale: { get: ':CHAN{ch}:SCAL?', set: ':CHAN{ch}:SCAL {value}', parse: parseScpiNumber },
+      offset: { get: ':CHAN{ch}:OFFS?', set: ':CHAN{ch}:OFFS {value}', parse: parseScpiNumber },
+      coupling: { get: ':CHAN{ch}:COUP?', set: ':CHAN{ch}:COUP {value}' },
+      probeAttenuation: { get: ':CHAN{ch}:PROB?', set: ':CHAN{ch}:PROB {value}', parse: parseScpiNumber },
+      bandwidthLimit: { get: ':CHAN{ch}:BWL?', set: ':CHAN{ch}:BWL {value}', parse: parseBandwidthLimit, format: formatBandwidthLimit },
+      inverted: { get: ':CHAN{ch}:INV?', set: ':CHAN{ch}:INV {value}', parse: parseScpiBool, format: formatScpiBool },
+      label: { get: ':CHAN{ch}:LAB?', set: ':CHAN{ch}:LAB {value}' },
+
+      // Measurements
+      measuredFrequency: { get: ':MEAS:ITEM? FREQ,CHAN{ch}', parse: parseScpiNumber, readonly: true },
+      measuredPeriod: { get: ':MEAS:ITEM? PER,CHAN{ch}', parse: parseScpiNumber, readonly: true },
+      measuredVpp: { get: ':MEAS:ITEM? VPP,CHAN{ch}', parse: parseScpiNumber, readonly: true },
+      // ... all other measurements
+    },
+  },
+};
+```
 
 ---
 
-### Phase 5: Implement Siglent SDS Driver
+### Phase 3: Implement Siglent SDS Driver
 
-**File:** `src/drivers/implementations/siglent/sds.ts` (new)
+**File:** `src/drivers/implementations/siglent/sds.ts`
+
+**Features:** `['segmented', 'wavegen', 'bode']` (SDS1104X-U example)
 
 **Key differences from Rigol:**
 - Different command syntax: `C1:TRA ON` vs `:CHAN1:DISP ON`
@@ -324,28 +236,68 @@ export interface Oscilloscope extends BaseInstrument {
 - Supports input impedance (50Ω/1MΩ)
 - Different trigger commands: `:TRIGger:RUN` vs `:RUN`
 
+```typescript
+const sdsFeatures = ['segmented', 'wavegen', 'bode'] as const satisfies readonly OscFeatureId[];
+
+const sdsSpec: DriverSpec<SiglentSDS, SiglentSDSChannel, typeof sdsFeatures> = {
+  features: sdsFeatures,
+  // ...
+
+  // Input impedance requires notSupported on Rigol but works on Siglent
+  channels: {
+    properties: {
+      inputImpedance: {
+        get: ':CHAN{ch}:IMP?',
+        set: ':CHAN{ch}:IMP {value}',
+        parse: parseInputImpedance,
+      },
+    },
+  },
+};
+```
+
 **Reference:** `docs/drivers/osc/siglent_sds_scpi_reference.md`
 
 ---
 
-### Phase 6: Implement Keysight InfiniiVision Driver
+### Phase 4: Implement Keysight InfiniiVision Driver
 
-**File:** `src/drivers/implementations/keysight/infiniivision.ts` (new)
+**File:** `src/drivers/implementations/keysight/infiniivision.ts`
+
+**Features:** `['segmented']` (varies by model/option)
 
 **Key differences:**
 - Standard SCPI syntax, closest to Rigol
 - Uses `:DIGitize` for reliable single acquisition
 - Supports HiSLIP (port 4880) for high speed
 - No GND coupling (only AC/DC)
-- Different measurement query format
+
+```typescript
+const infiniivisionSpec: DriverSpec<KeysightInfiniivision, KeysightInfiniivisionChannel> = {
+  // ...
+
+  channels: {
+    properties: {
+      // GND coupling not supported
+      coupling: {
+        get: ':CHAN{ch}:COUP?',
+        set: ':CHAN{ch}:COUP {value}',
+        // Only AC/DC valid - GND returns error
+      },
+    },
+  },
+};
+```
 
 **Reference:** `docs/drivers/osc/keysight_infiniivision_scpi_reference.md`
 
 ---
 
-### Phase 7: Implement Tektronix MSO Driver
+### Phase 5: Implement Tektronix MSO Driver
 
-**File:** `src/drivers/implementations/tektronix/mso.ts` (new)
+**File:** `src/drivers/implementations/tektronix/mso.ts`
+
+**Features:** `['digital']` (MSO series has logic analyzer)
 
 **Key differences:**
 - No leading colon in commands
@@ -355,13 +307,53 @@ export interface Oscilloscope extends BaseInstrument {
 - Probe uses GAIN (reciprocal of attenuation)
 - Port 4000
 
+```typescript
+const msoSpec: DriverSpec<TektronixMSO, TektronixMSOChannel> = {
+  // ...
+
+  properties: {
+    // No leading colons
+    timebase: { get: 'HOR:SCAle?', set: 'HOR:SCAle {value}', parse: parseScpiNumber },
+    running: { get: 'ACQ:STATE?', parse: (s) => s.includes('1'), readonly: true },
+  },
+
+  commands: {
+    run: 'ACQ:STATE RUN',
+    stop: 'ACQ:STATE STOP',
+    // single is complex - needs method implementation
+  },
+
+  methods: {
+    single: async (ctx) => {
+      let result = await ctx.write('ACQ:STOPA SEQ');
+      if (!result.ok) return result;
+      return ctx.write('ACQ:STATE RUN');
+    },
+  },
+
+  channels: {
+    properties: {
+      // Tektronix uses gain (reciprocal of attenuation)
+      probeAttenuation: {
+        get: 'CH{ch}:PRO:GAIN?',
+        set: 'CH{ch}:PRO:GAIN {value}',
+        parse: (s) => 1 / parseScpiNumber(s),  // Convert gain to attenuation
+        format: (v) => (1 / v).toString(),     // Convert attenuation to gain
+      },
+    },
+  },
+};
+```
+
 **Reference:** `docs/drivers/osc/tektronix_mso_scpi_reference.md`
 
 ---
 
-### Phase 8: Implement R&S RTx Driver (Optional)
+### Phase 6: Implement R&S RTx Driver (Optional)
 
-**File:** `src/drivers/implementations/rohde-schwarz/rtx.ts` (new)
+**File:** `src/drivers/implementations/rohde-schwarz/rtx.ts`
+
+**Features:** `['segmented', 'mask']`
 
 **Key differences:**
 - Uses `ACLimit`/`DCLimit` instead of AC/DC for coupling
@@ -373,11 +365,30 @@ export interface Oscilloscope extends BaseInstrument {
 
 ---
 
-## Helper Updates
+## Feature Detection Pattern
 
-**File:** `src/drivers/helpers.ts`
+Users can check for features at runtime:
 
-Ensure `notSupported()` helper exists (should already from PSU/Load plans).
+```typescript
+import { hasDecode, hasWavegen, hasSegmented } from 'visa-ts/drivers/features';
+
+const scope = await driver.connect(resource);
+if (scope.ok) {
+  // Compile-time: features array is typed
+  console.log(scope.value.features); // readonly ['segmented', 'wavegen', 'bode']
+
+  // Runtime: type guards narrow the type
+  if (hasDecode(scope.value)) {
+    // Serial decode methods available
+    await scope.value.configureI2CDecode(/* ... */);
+  }
+
+  if (hasWavegen(scope.value)) {
+    // Built-in wavegen available
+    await scope.value.setWavegenFrequency(1000);
+  }
+}
+```
 
 ---
 
@@ -413,86 +424,27 @@ export type BandwidthLimit = 'OFF' | '20MHZ' | '100MHZ' | '200MHZ' | 'FULL';
 
 ---
 
-## Test Strategy
-
-### Unit Tests
-- Each driver has mock-based tests
-- Test both supported and unsupported feature paths
-- Verify `notSupported()` returns correct error format
-
-### Integration Tests (optional, requires hardware)
-- Real device communication
-- Tagged with `@hardware` for skip in CI
-
-### Type Tests
-- Ensure interfaces compile correctly
-- Verify driver implementations satisfy interface
-
----
-
-## File Structure After Implementation
+## File Structure
 
 ```
 src/drivers/
 ├── equipment/
-│   ├── oscilloscope.ts          # Updated comprehensive interface
-│   └── oscilloscope.test.ts     # Interface tests
-├── helpers.ts                    # notSupported, supportsFeature
-├── helpers.test.ts
+│   └── oscilloscope.ts             # Comprehensive base interface
+├── features/
+│   └── osc-features.ts             # Feature brands and type guards
 └── implementations/
     ├── rigol/
-    │   ├── scope.ts             # Updated (implements base interface)
-    │   └── scope.test.ts
+    │   ├── scope.ts                # features: [] (entry-level)
+    │   └── ds1054z.ts              # features: [] (specific model)
     ├── siglent/
-    │   ├── sds.ts               # New
-    │   └── sds.test.ts
+    │   └── sds.ts                  # features: ['segmented', 'wavegen', 'bode']
     ├── keysight/
-    │   ├── infiniivision.ts     # New
-    │   └── infiniivision.test.ts
+    │   └── infiniivision.ts        # features: ['segmented']
     ├── tektronix/
-    │   ├── mso.ts               # New
-    │   └── mso.test.ts
+    │   └── mso.ts                  # features: ['digital']
     └── rohde-schwarz/
-        ├── rtx.ts               # New (optional)
-        └── rtx.test.ts
+        └── rtx.ts                  # features: ['segmented', 'mask']
 ```
-
----
-
-## Priority Order
-
-1. **Phase 1-3** - Update base interface (unblocks everything else)
-2. **Phase 4** - Rigol scope update (validates interface design, we have hardware)
-3. **Phase 5** - Siglent SDS (validates different SCPI dialect)
-4. **Phase 6** - Keysight (validates professional scope, standard SCPI)
-5. **Phase 7** - Tektronix (validates unique command structure)
-6. **Phase 8** - R&S (optional, lowest priority)
-
----
-
-## Open Questions
-
-1. **TriggerSource type**: Should it be a union of strings or an enum-like const? Current uses string union which is verbose. Consider:
-   ```typescript
-   export const TriggerSource = {
-     CH1: 'CH1', CH2: 'CH2', CH3: 'CH3', CH4: 'CH4',
-     EXT: 'EXT', EXT5: 'EXT5', LINE: 'LINE',
-   } as const;
-   ```
-
-2. **Waveform channel parameter**: Should `captureWaveform(channel)` take a number or string? Rigol uses `'CHAN1'`, `'MATH'`. Recommend number for analog channels, keep string for math/digital.
-
-3. **Measurement methods vs generic measure()**: Current approach has individual methods (`getMeasuredFrequency()`). Alternative:
-   ```typescript
-   measure(type: MeasurementType): Promise<Result<number, Error>>;
-   ```
-   Pro: Fewer methods. Con: Less discoverable, no per-measurement documentation.
-
-4. **Segmented memory**: Support now or defer? Only Siglent, Keysight, and R&S have it.
-
-5. **Math/FFT**: Include in base interface or as optional extended interface?
-
-6. **Serial decode**: Definitely defer - model-specific and complex.
 
 ---
 
@@ -509,3 +461,30 @@ src/drivers/
 | Measure | `:MEAS:ITEM? FREQ,CH1` | `:MEAS:ITEM? FREQ,C1` | `:MEAS:FREQ? CHAN1` | `MEAS:MEAS1:VAL?` | `MEAS1:RES?` |
 | Waveform | `:WAV:DATA?` | `:WAV:DATA?` | `:WAV:DATA?` | `CURV?` | `CHAN1:DATA?` |
 | Screenshot | `:DISP:DATA? ON,OFF,PNG` | `:PRINt? PNG` | `:DISP:DATA? PNG` | `SAV:IMAG` | `HCOP:DATA?` |
+
+---
+
+## Open Questions (Resolved)
+
+1. ~~TriggerSource type~~ → Use string union with canonical forms, drivers translate.
+
+2. ~~Waveform channel parameter~~ → Use `number | string` - number for analog channels, string for math/digital.
+
+3. ~~Measurement methods vs generic measure()~~ → Keep individual methods for discoverability and documentation.
+
+4. ~~Segmented memory~~ → Feature (`segmented`), not standard.
+
+5. ~~Math/FFT~~ → Defer to features, complex and varies significantly.
+
+6. ~~Serial decode~~ → Feature (`decode`), model-specific and complex.
+
+---
+
+## Priority
+
+1. **Phase 1** - Verify base interface (should be complete)
+2. **Phase 2** - Verify Rigol driver (should be complete)
+3. **Phase 3** - Siglent SDS (validates different SCPI dialect)
+4. **Phase 4** - Keysight (validates professional scope, standard SCPI)
+5. **Phase 5** - Tektronix (validates unique command structure)
+6. **Phase 6** - R&S (optional, lowest priority)

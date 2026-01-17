@@ -351,7 +351,63 @@ export interface DriverHooks {
 }
 
 /**
- * Map of custom method implementations.
+ * Base instrument method names to exclude from method extraction.
+ * These are auto-provided by defineDriver.
+ */
+type BaseInstrumentMethodNames = 'close' | 'channel' | 'channelCount';
+
+/**
+ * All base instrument members to exclude from method extraction.
+ */
+type AllBaseMembers =
+  | BaseInstrumentPropertyNames
+  | BaseInstrumentCommandNames
+  | BaseInstrumentMethodNames
+  | 'resource'
+  | 'features';
+
+/**
+ * Check if a member is a function type.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type IsFunction<M> = M extends (...args: any[]) => any ? true : false;
+
+/**
+ * Check if a method is a "custom method" - not a getter, setter, command, or base member.
+ * Custom methods are functions with parameters or non-void return types.
+ */
+type IsCustomMethod<K, M> =
+  IsFunction<M> extends false
+    ? never // Exclude non-functions (properties)
+    : K extends `get${string}` | `set${string}`
+      ? never // Exclude getters/setters
+      : K extends AllBaseMembers
+        ? never // Exclude all base members
+        : M extends () => Promise<Result<void, Error>>
+          ? never // Exclude no-arg void commands
+          : K; // Include everything else
+
+/**
+ * Extract custom method names from an interface.
+ * These are methods that need implementations in the `methods` spec.
+ */
+type ExtractMethodNames<T> = {
+  [K in keyof T as IsCustomMethod<K & string, T[K]>]: T[K];
+};
+
+/**
+ * Required method map - all custom methods from T must be implemented.
+ * Each method receives DriverContext as first argument.
+ */
+export type TypedMethodMap<T> = {
+  [K in keyof ExtractMethodNames<T>]: ExtractMethodNames<T>[K] extends (...args: infer A) => infer R
+    ? (ctx: DriverContext, ...args: A) => R
+    : never;
+};
+
+/**
+ * Optional method map for backwards compatibility.
+ * @deprecated Use TypedMethodMap for type-safe method enforcement.
  */
 export type MethodMap<T> = {
   [K in keyof T]?: T[K] extends (...args: infer A) => infer R
@@ -440,7 +496,7 @@ export function isCustomIdentity(config: IdentityConfig): config is CustomIdenti
 /**
  * Base driver specification fields.
  */
-interface DriverSpecBase<T, TChannel> {
+interface DriverSpecBase<T, TChannel, TFeatures extends readonly string[] = readonly string[]> {
   /** Equipment category (e.g., 'oscilloscope', 'power-supply') */
   type?: string;
 
@@ -449,6 +505,17 @@ interface DriverSpecBase<T, TChannel> {
 
   /** Supported model numbers */
   models?: string[];
+
+  /**
+   * Features supported by this driver.
+   * Use `as const` to preserve literal types for compile-time checking.
+   *
+   * @example
+   * ```typescript
+   * features: ['ovp', 'ocp'] as const,
+   * ```
+   */
+  features?: TFeatures;
 
   /**
    * Identity configuration. Controls how the driver identifies the instrument.
@@ -467,9 +534,6 @@ interface DriverSpecBase<T, TChannel> {
   /** Lifecycle hooks */
   hooks?: DriverHooks;
 
-  /** Custom method implementations */
-  methods?: MethodMap<T>;
-
   /** Driver settings */
   settings?: DriverSettings;
 }
@@ -482,11 +546,19 @@ type DriverCommands<T> = [keyof ExtractCommandNames<T>] extends [never]
   : { commands: TypedCommandMap<T> };
 
 /**
+ * Conditional methods for driver - required if interface has custom methods.
+ */
+type DriverMethods<T> = [keyof ExtractMethodNames<T>] extends [never]
+  ? { methods?: never }
+  : { methods: TypedMethodMap<T> };
+
+/**
  * Full driver specification with compile-time property and command enforcement.
  * TypeScript enforces all properties and commands from T (and TChannel) are defined.
  *
  * @typeParam T - The instrument interface type
  * @typeParam TChannel - The channel interface type (optional)
+ * @typeParam TFeatures - The features tuple type (optional, use `as const` to preserve literals)
  *
  * @example
  * ```typescript
@@ -503,6 +575,7 @@ type DriverCommands<T> = [keyof ExtractCommandNames<T>] extends [never]
  *
  * // TypeScript enforces 'timebase' property and 'autoScale' command are defined
  * const spec: DriverSpec<MyScope, MyScopeChannel> = {
+ *   features: ['decode'] as const,  // Optional features
  *   properties: {
  *     timebase: { get: ':TIM:SCAL?', set: ':TIM:SCAL {value}' },
  *   },
@@ -518,7 +591,11 @@ type DriverCommands<T> = [keyof ExtractCommandNames<T>] extends [never]
  * };
  * ```
  */
-export type DriverSpec<T, TChannel = never> = DriverSpecBase<T, TChannel> & DriverCommands<T>;
+export type DriverSpec<
+  T,
+  TChannel = never,
+  TFeatures extends readonly string[] = readonly string[],
+> = DriverSpecBase<T, TChannel, TFeatures> & DriverCommands<T> & DriverMethods<T>;
 
 /**
  * A connected driver instance that can be used to control an instrument.

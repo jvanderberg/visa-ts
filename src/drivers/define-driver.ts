@@ -87,12 +87,18 @@ async function queryIdentity(
 /**
  * Extended driver interface with spec access.
  */
-export interface DefinedDriver<T, TChannel = never> {
+export interface DefinedDriver<
+  T,
+  TChannel = never,
+  TFeatures extends readonly string[] = readonly string[],
+> {
   /** The driver specification */
-  readonly spec: DriverSpec<T, TChannel>;
+  readonly spec: DriverSpec<T, TChannel, TFeatures>;
 
   /** Connect to an instrument and return a typed instance */
-  connect(resource: MessageBasedResource): Promise<Result<T, Error>>;
+  connect(
+    resource: MessageBasedResource
+  ): Promise<Result<T & { readonly features: TFeatures }, Error>>;
 }
 
 /**
@@ -262,13 +268,17 @@ function createCommand(
  * const psu = await myDriver.connect(resource);
  * ```
  */
-export function defineDriver<T, TChannel = never>(
-  spec: DriverSpec<T, TChannel>
-): DefinedDriver<T, TChannel> {
+export function defineDriver<
+  T,
+  TChannel = never,
+  const TFeatures extends readonly string[] = readonly string[],
+>(spec: DriverSpec<T, TChannel, TFeatures>): DefinedDriver<T, TChannel, TFeatures> {
   return {
     spec,
 
-    async connect(resource: MessageBasedResource): Promise<Result<T, Error>> {
+    async connect(
+      resource: MessageBasedResource
+    ): Promise<Result<T & { readonly features: TFeatures }, Error>> {
       // Check if resource is open
       if (!resource.isOpen) {
         return Err(new Error('Resource is not open'));
@@ -307,6 +317,9 @@ export function defineDriver<T, TChannel = never>(
       const instance: Record<string, unknown> = {
         // Expose raw resource for escape hatch
         resource,
+
+        // Features array for runtime introspection
+        features: spec.features ?? ([] as unknown as TFeatures),
 
         // Identity fields
         manufacturer: identity.manufacturer,
@@ -368,7 +381,7 @@ export function defineDriver<T, TChannel = never>(
         };
       }
 
-      return Ok(instance as T);
+      return Ok(instance as T & { readonly features: TFeatures });
     },
   };
 }

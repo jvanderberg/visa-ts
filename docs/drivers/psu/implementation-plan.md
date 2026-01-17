@@ -1,16 +1,55 @@
 # PSU Driver Implementation Plan
 
-> Plan to close the gap between current driver model and comprehensive SCPI capabilities
+> Plan to complete PSU drivers using the comprehensive base interface and granular feature system
+
+## Architecture Overview
+
+### Base Interface Philosophy
+
+The `PowerSupply` and `PowerSupplyChannel` interfaces contain **all standard functionality** that every PSU has. This includes:
+- Output enable/disable
+- Voltage/current setpoints and measurements
+- OVP/OCP (level, enable, trip status, clear)
+- Regulation mode query
+- Tracking mode (for multi-channel)
+
+### Granular Feature System
+
+Features represent **optional capabilities that vary between models**. They are NOT in the base interface.
+
+**PSU Features** (from `src/drivers/features/psu-features.ts`):
+| Feature | Description | Example Models |
+|---------|-------------|----------------|
+| `ovp` | Over-voltage protection | DP832, E36312A |
+| `ocp` | Over-current protection | DP832, E36312A |
+| `opp` | Over-power protection | E36312A, HMP4040 |
+| `slew` | Voltage/current slew rate | E36312A, HMP4040 |
+| `sense` | Remote sensing mode | E36312A, HMP4040 |
+| `sequence` | Timer/list sequence | DP832, E36312A |
+| `tracking` | Channel tracking modes | DP832, HMP4040 |
+| `trigger` | External trigger support | E36312A |
+| `datalog` | Internal data logging | E36312A |
+| `analyzer` | Output analyzer | Keysight only |
+
+### Type-Enforced Methods
+
+The `DriverSpec` type now enforces that all interface methods are implemented:
+- **Properties** → generates getters/setters automatically
+- **Commands** → generates no-arg void methods automatically
+- **Methods** → required for anything else (complex operations)
+
+If the interface declares a method that isn't a getter/setter/command, `methods` in the spec is **required**.
+
+---
 
 ## Current State
 
-- **Base interface** (`src/drivers/equipment/power-supply.ts`): Minimal - only covers output, setpoints, measurements
-- **DP832 implementation** (`src/drivers/implementations/rigol/dp832.ts`): Extended with OVP/OCP/mode, but missing tripped/clear
-- **Documentation**: Comprehensive SCPI references for 7 vendors created
-
-## Target State
-
-A comprehensive `PowerSupply` interface that covers common functionality across vendors, with unsupported features returning `Err("not supported")`.
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Base interface | Needs update | Add OVP/OCP/tracking to base |
+| DP832 driver | Partial | Has OVP/OCP, missing trip/clear |
+| WPS300S driver | Complete | Basic PSU, no features |
+| Feature types | Complete | `src/drivers/features/psu-features.ts` |
 
 ---
 
@@ -20,311 +59,208 @@ A comprehensive `PowerSupply` interface that covers common functionality across 
 
 **File:** `src/drivers/equipment/power-supply.ts`
 
-**Changes:**
-
-1. Add constants with runtime values (like `LoadMode` pattern):
-   ```typescript
-   export const RegulationMode = {
-     CV: 'CV',
-     CC: 'CC',
-     Unregulated: 'UR',
-   } as const;
-
-   export const TrackingMode = {
-     Independent: 'INDEPENDENT',
-     Series: 'SERIES',
-     Parallel: 'PARALLEL',
-   } as const;
-
-   export const SenseMode = {
-     Internal: 'INTERNAL',
-     External: 'EXTERNAL',
-   } as const;
-   ```
-
-2. Add `SequenceStep` interface:
-   ```typescript
-   export interface SequenceStep {
-     voltage: number;
-     current: number;
-     durationSeconds: number;
-   }
-   ```
-
-3. Expand `PowerSupplyChannel`:
-   - `getRegulationMode()` - required
-   - `getMeasuredPower()` - required (remove optional `?`)
-   - OVP: `getOvpLevel`, `setOvpLevel`, `getOvpEnabled`, `setOvpEnabled`, `isOvpTripped`, `clearOvp`
-   - OCP: `getOcpLevel`, `setOcpLevel`, `getOcpEnabled`, `setOcpEnabled`, `isOcpTripped`, `clearOcp`
-   - Slew: `getVoltageSlewRate`, `setVoltageSlewRate`, `getCurrentSlewRate`, `setCurrentSlewRate`
-   - Sense: `getSenseMode`, `setSenseMode`
-
-4. Expand `PowerSupply`:
-   - `enableAllOutputs()`, `disableAllOutputs()`
-   - `getTrackingMode()`, `setTrackingMode()`
-   - `saveState(slot)`, `recallState(slot)`
-   - `loadSequence()`, `startSequence()`, `stopSequence()`, `isSequenceRunning()`
-
-**Tests to add:** `src/drivers/equipment/power-supply.test.ts`
-- Type tests for new interfaces
-- Mock implementation tests
-
----
-
-### Phase 2: Add Helper Utilities
-
-**File:** `src/drivers/helpers.ts` (new)
-
+Add to `PowerSupplyChannel`:
 ```typescript
-import { Err, type Result } from '../result.js';
+// Regulation mode (all PSUs can report this)
+getMode(): Promise<Result<RegulationMode, Error>>;
 
-/**
- * Standard error for unsupported features.
- */
-export function notSupported(feature: string): Result<never, Error> {
-  return Err(new Error(`${feature} not supported on this device`));
-}
+// Measurements
+getMeasuredPower(): Promise<Result<number, Error>>;  // Remove optional
 
-/**
- * Check if a feature is supported by testing for "not supported" error.
- */
-export async function supportsFeature(
-  fn: () => Promise<Result<unknown, Error>>
-): Promise<boolean> {
-  const result = await fn();
-  if (result.ok) return true;
-  return !result.error.message.includes('not supported');
-}
+// OVP (standard on all programmable PSUs)
+getOvpLevel(): Promise<Result<number, Error>>;
+setOvpLevel(volts: number): Promise<Result<void, Error>>;
+getOvpEnabled(): Promise<Result<boolean, Error>>;
+setOvpEnabled(enabled: boolean): Promise<Result<void, Error>>;
+isOvpTripped(): Promise<Result<boolean, Error>>;
+clearOvp(): Promise<Result<void, Error>>;
+
+// OCP (standard on all programmable PSUs)
+getOcpLevel(): Promise<Result<number, Error>>;
+setOcpLevel(amps: number): Promise<Result<void, Error>>;
+getOcpEnabled(): Promise<Result<boolean, Error>>;
+setOcpEnabled(enabled: boolean): Promise<Result<void, Error>>;
+isOcpTripped(): Promise<Result<boolean, Error>>;
+clearOcp(): Promise<Result<void, Error>>;
 ```
 
-**Tests:** `src/drivers/helpers.test.ts`
+Add to `PowerSupply`:
+```typescript
+// Global output control (all multi-channel PSUs)
+getAllOutputEnabled(): Promise<Result<boolean, Error>>;
+setAllOutputEnabled(enabled: boolean): Promise<Result<void, Error>>;
+
+// Tracking mode (all multi-channel PSUs)
+getTrackingMode(): Promise<Result<TrackingMode, Error>>;
+setTrackingMode(mode: TrackingMode): Promise<Result<void, Error>>;
+```
+
+**Note:** Methods like `clearOvp()` and `clearOcp()` will require the `methods` block in driver specs since they take channel parameters.
 
 ---
 
-### Phase 3: Update DP832 Driver
+### Phase 2: Update DP832 Driver
 
 **File:** `src/drivers/implementations/rigol/dp832.ts`
 
-**Changes:**
+Add missing channel properties:
+```typescript
+channels: {
+  properties: {
+    // ... existing ...
 
-1. Add missing channel properties to spec:
-   ```typescript
-   // Protection trip/clear
-   ovpTripped: {
-     get: ':OUTPut:OVP:ALAR? CH{ch}',
-     parse: parseScpiBool,
-     readonly: true,
-   },
-   // Clear uses command, not property - add to methods
+    ovpTripped: {
+      get: ':OUTPut:OVP:ALAR? CH{ch}',
+      parse: parseScpiBool,
+      readonly: true,
+    },
 
-   // Slew rate - Rigol doesn't support, return notSupported
-   voltageSlewRate: null,  // or handle in custom method
-   currentSlewRate: null,
+    ocpTripped: {
+      get: ':OUTPut:OCP:ALAR? CH{ch}',
+      parse: parseScpiBool,
+      readonly: true,
+    },
+  },
+},
 
-   // Sense mode - Rigol doesn't support
-   senseMode: null,
-   ```
+// clearOvp/clearOcp require methods since they're channel-specific actions
+methods: {
+  clearOvp: async (ctx, channel: number) => {
+    return ctx.write(`:OUTPut:OVP:CLEar CH${channel}`);
+  },
+  clearOcp: async (ctx, channel: number) => {
+    return ctx.write(`:OUTPut:OCP:CLEar CH${channel}`);
+  },
+},
+```
 
-2. Add instrument-level properties:
-   ```typescript
-   properties: {
-     // existing allOutputEnabled...
+Update features (already has `['ovp', 'ocp']`).
 
-     trackingMode: {
-       get: ':OUTPut:TRACK?',
-       set: ':OUTPut:TRACK {value}',
-       parse: parseTrackingMode,
-       format: formatTrackingMode,
-     },
-   },
-   ```
+---
 
-3. Add sequence/timer support:
-   - Map to Rigol's `:TIMEr:` commands
-   - `loadSequence()` → `:TIMEr:PARameters`
-   - `startSequence()` → `:TIMEr ON`
-   - `stopSequence()` → `:TIMEr OFF`
+### Phase 3: Handle WPS300S (No OVP/OCP)
 
-4. Implement `clearOvp()` / `clearOcp()` as custom methods (not properties):
-   ```typescript
-   methods: {
-     clearOvp: ':OUTPut:OVP:CLEar CH{ch}',
-     clearOcp: ':OUTPut:OCP:CLEar CH{ch}',
-   },
-   ```
+**File:** `src/drivers/implementations/matrix/wps300s.ts`
 
-5. For unsupported features, return `notSupported()`:
-   - `getVoltageSlewRate()` → `notSupported('Voltage slew rate')`
-   - `getSenseMode()` → `notSupported('Remote sensing')`
+The WPS300S is a basic PSU without OVP/OCP via SCPI. Use `notSupported`:
 
-**Tests:** Update `src/drivers/implementations/rigol/dp832.test.ts`
+```typescript
+channels: {
+  properties: {
+    // ... existing ...
+
+    ovpLevel: { notSupported: true, description: 'OVP not available via SCPI' },
+    ovpEnabled: { notSupported: true },
+    ovpTripped: { notSupported: true },
+    ocpLevel: { notSupported: true, description: 'OCP not available via SCPI' },
+    ocpEnabled: { notSupported: true },
+    ocpTripped: { notSupported: true },
+  },
+},
+
+methods: {
+  clearOvp: async () => Err(new Error('OVP not available via SCPI')),
+  clearOcp: async () => Err(new Error('OCP not available via SCPI')),
+},
+```
 
 ---
 
 ### Phase 4: Implement Siglent SPD Driver
 
-**File:** `src/drivers/implementations/siglent/spd3303x.ts` (new)
+**File:** `src/drivers/implementations/siglent/spd3303x.ts`
 
-This driver demonstrates the "not supported" pattern since Siglent lacks many features via SCPI.
+Demonstrates "not supported" pattern for features not available via SCPI.
 
-**Supported:**
-- Output enable/disable
-- Voltage/current setpoints
-- Measurements (V, I, P)
-- Regulation mode (via status register parsing)
-- Tracking mode (0/1/2 mapping)
-- Timer sequence
+**Supported:** Output, setpoints, measurements, tracking, timer
+**Not Supported:** OVP/OCP (front panel only), slew, sense
 
-**Not supported (return errors):**
-- OVP/OCP (front panel only)
-- Slew rate
-- Remote sensing
+```typescript
+const spdFeatures = ['tracking', 'sequence'] as const satisfies readonly PsuFeatureId[];
 
-**Reference:** `docs/drivers/psu/siglent_spd3303x_scpi_reference.md`
+const spdSpec: DriverSpec<SiglentSPD, SiglentSPDChannel, typeof spdFeatures> = {
+  features: spdFeatures,
+  // ...
+};
+```
 
 ---
 
 ### Phase 5: Implement Keysight E36xx Driver
 
-**File:** `src/drivers/implementations/keysight/e36312a.ts` (new)
+**File:** `src/drivers/implementations/keysight/e36312a.ts`
 
-Full-featured driver demonstrating professional PSU capabilities.
+Full-featured driver with all optional features.
 
-**Supported:**
-- All basic features
-- OVP/OCP with trip/clear
-- Slew rate
-- Remote sensing
+```typescript
+const e36Features = ['ovp', 'ocp', 'opp', 'slew', 'sense', 'sequence', 'trigger', 'datalog'] as const satisfies readonly PsuFeatureId[];
+```
+
+This driver demonstrates:
+- Channel list syntax `(@1,2,3)`
 - List mode sequences
-- Channel lists `(@1,2,3)` syntax
-
-**Reference:** `docs/drivers/psu/keysight_e36xx_scpi_reference.md`
-
----
-
-### Phase 6: Implement R&S HMP Driver
-
-**File:** `src/drivers/implementations/rohde-schwarz/hmp4040.ts` (new)
-
-**Supported:**
-- All basic features
-- OVP/OCP
-- Fuse linking (device-specific extension)
-- Ramp mode (maps to slew rate interface)
-- EasyArb (maps to sequence interface)
-
-**Reference:** `docs/drivers/psu/rohde_schwarz_hmp_nge_scpi_reference.md`
+- All protection features
+- Slew rate control
+- Remote sensing
 
 ---
 
-## Driver Specification Updates
+## Feature Detection Pattern
 
-The `defineDriver` system may need updates to support:
+Users can check for features at runtime:
 
-1. **Command-only methods** (not properties):
-   ```typescript
-   methods: {
-     clearOvp: {
-       command: ':VOLT:PROT:CLE',
-       channelTemplate: 'CH{ch}',
-     },
-   },
-   ```
+```typescript
+import { hasOvp, hasSlew } from 'visa-ts/drivers/features';
 
-2. **Conditional features** (return notSupported):
-   ```typescript
-   channels: {
-     properties: {
-       voltageSlewRate: null,  // null = not supported
-     },
-   },
-   ```
+const psu = await driver.connect(resource);
+if (psu.ok) {
+  // Compile-time: features array is typed
+  console.log(psu.value.features); // readonly ['ovp', 'ocp']
 
-3. **Computed properties** (power = V × I):
-   ```typescript
-   channels: {
-     computed: {
-       measuredPower: async (ch) => {
-         const v = await ch.getMeasuredVoltage();
-         const i = await ch.getMeasuredCurrent();
-         if (!v.ok || !i.ok) return Err(...);
-         return Ok(v.value * i.value);
-       },
-     },
-   },
-   ```
+  // Runtime: type guards narrow the type
+  if (hasOvp(psu.value)) {
+    // TypeScript knows OVP methods are available
+    await psu.value.channel(1).setOvpLevel(33);
+  }
+}
+```
 
 ---
 
-## Test Strategy
-
-### Unit Tests
-- Each driver has mock-based tests
-- Test both supported and unsupported feature paths
-- Verify `notSupported()` returns correct error format
-
-### Integration Tests (optional, requires hardware)
-- Real device communication
-- Tagged with `@hardware` for skip in CI
-
-### Type Tests
-- Ensure interfaces compile correctly
-- Verify driver implementations satisfy interface
-
----
-
-## File Structure After Implementation
+## File Structure
 
 ```
 src/drivers/
 ├── equipment/
-│   ├── power-supply.ts          # Updated comprehensive interface
-│   └── power-supply.test.ts     # Interface tests
-├── helpers.ts                    # notSupported, supportsFeature
-├── helpers.test.ts
+│   └── power-supply.ts          # Comprehensive base interface
+├── features/
+│   └── psu-features.ts          # Feature brands and type guards
 └── implementations/
     ├── rigol/
-    │   ├── dp832.ts             # Updated
-    │   └── dp832.test.ts
+    │   └── dp832.ts             # features: ['ovp', 'ocp']
+    ├── matrix/
+    │   └── wps300s.ts           # features: [] (basic)
     ├── siglent/
-    │   ├── spd3303x.ts          # New
-    │   └── spd3303x.test.ts
-    ├── keysight/
-    │   ├── e36312a.ts           # New
-    │   └── e36312a.test.ts
-    └── rohde-schwarz/
-        ├── hmp4040.ts           # New
-        └── hmp4040.test.ts
+    │   └── spd3303x.ts          # features: ['tracking', 'sequence']
+    └── keysight/
+        └── e36312a.ts           # features: ['ovp', 'ocp', 'opp', 'slew', ...]
 ```
 
 ---
 
-## Priority Order
+## Open Questions (Resolved)
 
-1. **Phase 1** - Base interface (unblocks everything else)
-2. **Phase 2** - Helpers (small, useful immediately)
-3. **Phase 3** - DP832 update (validates interface design)
-4. **Phase 4** - Siglent (validates "not supported" pattern)
-5. **Phase 5-6** - Keysight/R&S (validates full-featured drivers)
+1. ~~Should `supportsFeature()` be on the interface?~~ → **No.** Use type guards from feature system.
+
+2. ~~Sequence step units?~~ → Use seconds, drivers normalize.
+
+3. ~~Protection clear scope?~~ → Channel-level via `methods`, matches most devices.
 
 ---
 
-## Open Questions
+## Priority
 
-1. **Sequence step units**: Should `durationSeconds` be `duration` with explicit units type?
-
-2. **Protection clear scope**: Per-channel or global? Varies by vendor.
-
-3. **Tracking mode channels**: Which channels participate? Rigol uses CH1+CH2, some use all.
-
-4. **Slew rate units**: V/s is standard but some vendors use V/ms. Normalize in driver?
-
-5. **Should `supportsFeature()` be on the interface?** Could add:
-   ```typescript
-   interface PowerSupply {
-     supportsOvp(): boolean;
-     supportsSlew(): boolean;
-     // etc.
-   }
-   ```
-   Pro: Explicit. Con: Duplicates info available from trying the method.
+1. **Phase 1** - Base interface update (unblocks drivers)
+2. **Phase 2** - DP832 completion (validates design)
+3. **Phase 3** - WPS300S update (validates notSupported pattern)
+4. **Phase 4-5** - New drivers (validates full feature system)

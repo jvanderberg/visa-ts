@@ -9,7 +9,6 @@
 import { defineDriver } from '../../define-driver.js';
 import { parseScpiNumber, parseScpiBool, formatScpiBool } from '../../parsers.js';
 import type { DriverSpec } from '../../types.js';
-import type { Result } from '../../../result.js';
 import type {
   Oscilloscope,
   OscilloscopeChannel,
@@ -21,107 +20,19 @@ import type {
   AcquisitionMode,
   Coupling,
 } from '../../equipment/oscilloscope.js';
+import type { OscFeatureId } from '../../features/index.js';
 
 // ─────────────────────────────────────────────────────────────────
-// DS1054Z-specific interfaces (extend base)
+// DS1054Z type aliases for 4-channel scope
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * DS1054Z channel interface - extends base with probe/bandwidth/invert/label and measurements.
- */
-export interface DS1054ZChannel extends OscilloscopeChannel {
-  // Bandwidth limit
-  getBandwidthLimit(): Promise<Result<BandwidthLimit, Error>>;
-  setBandwidthLimit(v: BandwidthLimit): Promise<Result<void, Error>>;
-
-  // Probe attenuation
-  getProbeAttenuation(): Promise<Result<number, Error>>;
-  setProbeAttenuation(v: number): Promise<Result<void, Error>>;
-
-  // Inversion
-  getInverted(): Promise<Result<boolean, Error>>;
-  setInverted(v: boolean): Promise<Result<void, Error>>;
-
-  // Label
-  getLabel(): Promise<Result<string, Error>>;
-  setLabel(v: string): Promise<Result<void, Error>>;
-
-  // ─────────────────────────────────────────────────────────────────
-  // DS1054Z-specific measurements
-  // ─────────────────────────────────────────────────────────────────
-
-  /** Measure top voltage (flat top of waveform) in V */
-  getMeasuredVtop(): Promise<Result<number, Error>>;
-
-  /** Measure base voltage (flat bottom of waveform) in V */
-  getMeasuredVbase(): Promise<Result<number, Error>>;
-
-  /** Measure amplitude (Vtop - Vbase) in V */
-  getMeasuredVamp(): Promise<Result<number, Error>>;
-
-  /** Measure overshoot as percentage */
-  getMeasuredOvershoot(): Promise<Result<number, Error>>;
-
-  /** Measure preshoot as percentage */
-  getMeasuredPreshoot(): Promise<Result<number, Error>>;
-
-  /** Measure rise time (10%-90%) in seconds */
-  getMeasuredRiseTime(): Promise<Result<number, Error>>;
-
-  /** Measure fall time (90%-10%) in seconds */
-  getMeasuredFallTime(): Promise<Result<number, Error>>;
-
-  /** Measure positive pulse width in seconds */
-  getMeasuredPositiveWidth(): Promise<Result<number, Error>>;
-
-  /** Measure negative pulse width in seconds */
-  getMeasuredNegativeWidth(): Promise<Result<number, Error>>;
-
-  /** Measure positive duty cycle as percentage */
-  getMeasuredPositiveDuty(): Promise<Result<number, Error>>;
-
-  /** Measure negative duty cycle as percentage */
-  getMeasuredNegativeDuty(): Promise<Result<number, Error>>;
-
-  /** Get counter value (edge count) */
-  getMeasuredCounter(): Promise<Result<number, Error>>;
-}
-
-/**
- * DS1054Z oscilloscope interface - extends base with trigger/acquisition features.
+ * DS1054Z oscilloscope interface.
+ * Uses the base Oscilloscope interface - all standard functionality is covered.
  */
 export interface DS1054ZScope extends Oscilloscope {
-  /** Access a specific channel with DS1054Z-specific features. */
-  channel(n: 1 | 2 | 3 | 4): DS1054ZChannel;
-
-  // Extended timebase
-  getTimebaseOffset(): Promise<Result<number, Error>>;
-  setTimebaseOffset(v: number): Promise<Result<void, Error>>;
-  getTimebaseMode(): Promise<Result<TimebaseMode, Error>>;
-  setTimebaseMode(v: TimebaseMode): Promise<Result<void, Error>>;
-  getSampleRate(): Promise<Result<number, Error>>;
-  getRecordLength(): Promise<Result<number, Error>>;
-  setRecordLength(v: number): Promise<Result<void, Error>>;
-
-  // Trigger
-  getTriggerLevel(): Promise<Result<number, Error>>;
-  setTriggerLevel(v: number): Promise<Result<void, Error>>;
-  getTriggerSlope(): Promise<Result<TriggerSlope, Error>>;
-  setTriggerSlope(v: TriggerSlope): Promise<Result<void, Error>>;
-  getTriggerMode(): Promise<Result<TriggerMode, Error>>;
-  setTriggerMode(v: TriggerMode): Promise<Result<void, Error>>;
-  getTriggerSource(): Promise<Result<TriggerSource, Error>>;
-  setTriggerSource(v: TriggerSource): Promise<Result<void, Error>>;
-
-  // Acquisition
-  getAcquisitionMode(): Promise<Result<AcquisitionMode, Error>>;
-  setAcquisitionMode(v: AcquisitionMode): Promise<Result<void, Error>>;
-  getRunning(): Promise<Result<boolean, Error>>;
-
-  // Commands
-  single(): Promise<Result<void, Error>>;
-  autoScale(): Promise<Result<void, Error>>;
-  forceTrigger(): Promise<Result<void, Error>>;
+  /** Access a specific channel (1-4). */
+  channel(n: 1 | 2 | 3 | 4): OscilloscopeChannel;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -158,15 +69,6 @@ function parseTriggerMode(s: string): TriggerMode {
   if (val === 'NORM' || val === 'NORMAL') return 'NORMAL';
   if (val === 'AUTO') return 'AUTO';
   return 'AUTO'; // Default
-}
-
-/**
- * Format trigger mode for command.
- */
-function formatTriggerMode(mode: TriggerMode): string {
-  if (mode === 'SINGLE') return 'SINGle';
-  if (mode === 'NORMAL') return 'NORMal';
-  return mode;
 }
 
 /**
@@ -243,12 +145,20 @@ function formatBandwidthLimit(v: BandwidthLimit): string {
 // ─────────────────────────────────────────────────────────────────
 
 /**
+ * DS1054Z supported features.
+ * This is an entry-level scope - no optional features implemented.
+ * (Decode is available via license but not implemented in this driver.)
+ */
+const ds1054zFeatures = [] as const satisfies readonly OscFeatureId[];
+
+/**
  * Rigol DS1000Z series driver specification.
  */
-const ds1054zSpec: DriverSpec<DS1054ZScope, DS1054ZChannel> = {
+const ds1054zSpec: DriverSpec<DS1054ZScope, OscilloscopeChannel, typeof ds1054zFeatures> = {
   type: 'oscilloscope',
   manufacturer: 'Rigol',
   models: ['DS1054Z', 'DS1104Z-Plus', 'DS1074Z', 'DS1074Z-Plus'],
+  features: ds1054zFeatures,
 
   properties: {
     // Timebase
@@ -309,7 +219,6 @@ const ds1054zSpec: DriverSpec<DS1054ZScope, DS1054ZChannel> = {
       get: ':TRIGger:SWEep?',
       set: ':TRIGger:SWEep {value}',
       parse: parseTriggerMode,
-      format: formatTriggerMode,
     },
 
     triggerSource: {
@@ -454,7 +363,7 @@ const ds1054zSpec: DriverSpec<DS1054ZScope, DS1054ZChannel> = {
       },
 
       // ─────────────────────────────────────────────────────────────────
-      // DS1054Z-specific measurements
+      // Additional voltage and pulse measurements
       // ─────────────────────────────────────────────────────────────────
 
       measuredVtop: {

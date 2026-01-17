@@ -133,18 +133,20 @@ export interface WaveformData {
 /**
  * Base oscilloscope channel interface.
  *
- * Defines the minimum functionality all scope channels have:
+ * Defines the standard functionality all scope channels have:
  * - Enable/disable display
- * - Vertical scale
- * - Vertical offset
- * - Input coupling
- * - Basic measurements
- *
- * Device-specific drivers extend this to add probe settings, bandwidth limit, etc.
+ * - Vertical scale and offset
+ * - Input coupling and bandwidth limit
+ * - Probe settings
+ * - Standard measurements (voltage, timing, pulse)
  */
 export interface OscilloscopeChannel {
   /** Channel number (1-based) */
   readonly channelNumber: number;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Display settings
+  // ─────────────────────────────────────────────────────────────────
 
   /** Get channel display enabled state */
   getEnabled(): Promise<Result<boolean, Error>>;
@@ -164,14 +166,42 @@ export interface OscilloscopeChannel {
   /** Set vertical offset in V */
   setOffset(volts: number): Promise<Result<void, Error>>;
 
+  // ─────────────────────────────────────────────────────────────────
+  // Input settings
+  // ─────────────────────────────────────────────────────────────────
+
   /** Get input coupling mode */
   getCoupling(): Promise<Result<Coupling, Error>>;
 
   /** Set input coupling mode */
   setCoupling(coupling: Coupling): Promise<Result<void, Error>>;
 
+  /** Get bandwidth limit setting */
+  getBandwidthLimit(): Promise<Result<BandwidthLimit, Error>>;
+
+  /** Set bandwidth limit setting */
+  setBandwidthLimit(limit: BandwidthLimit): Promise<Result<void, Error>>;
+
+  /** Get probe attenuation ratio (1x, 10x, 100x, etc.) */
+  getProbeAttenuation(): Promise<Result<number, Error>>;
+
+  /** Set probe attenuation ratio */
+  setProbeAttenuation(ratio: number): Promise<Result<void, Error>>;
+
+  /** Get channel inversion state */
+  getInverted(): Promise<Result<boolean, Error>>;
+
+  /** Set channel inversion state */
+  setInverted(inverted: boolean): Promise<Result<void, Error>>;
+
+  /** Get channel label string */
+  getLabel(): Promise<Result<string, Error>>;
+
+  /** Set channel label string */
+  setLabel(label: string): Promise<Result<void, Error>>;
+
   // ─────────────────────────────────────────────────────────────────
-  // Measurements (common to all oscilloscopes)
+  // Frequency/Timing measurements
   // ─────────────────────────────────────────────────────────────────
 
   /** Measure signal frequency in Hz */
@@ -179,6 +209,13 @@ export interface OscilloscopeChannel {
 
   /** Measure signal period in seconds */
   getMeasuredPeriod(): Promise<Result<number, Error>>;
+
+  /** Get counter value (edge count) */
+  getMeasuredCounter(): Promise<Result<number, Error>>;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Voltage measurements
+  // ─────────────────────────────────────────────────────────────────
 
   /** Measure peak-to-peak voltage in V */
   getMeasuredVpp(): Promise<Result<number, Error>>;
@@ -194,6 +231,43 @@ export interface OscilloscopeChannel {
 
   /** Measure RMS voltage in V */
   getMeasuredVrms(): Promise<Result<number, Error>>;
+
+  /** Measure top voltage (flat top of waveform) in V */
+  getMeasuredVtop(): Promise<Result<number, Error>>;
+
+  /** Measure base voltage (flat bottom of waveform) in V */
+  getMeasuredVbase(): Promise<Result<number, Error>>;
+
+  /** Measure amplitude (Vtop - Vbase) in V */
+  getMeasuredVamp(): Promise<Result<number, Error>>;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Pulse measurements
+  // ─────────────────────────────────────────────────────────────────
+
+  /** Measure overshoot as percentage */
+  getMeasuredOvershoot(): Promise<Result<number, Error>>;
+
+  /** Measure preshoot as percentage */
+  getMeasuredPreshoot(): Promise<Result<number, Error>>;
+
+  /** Measure rise time (10%-90%) in seconds */
+  getMeasuredRiseTime(): Promise<Result<number, Error>>;
+
+  /** Measure fall time (90%-10%) in seconds */
+  getMeasuredFallTime(): Promise<Result<number, Error>>;
+
+  /** Measure positive pulse width in seconds */
+  getMeasuredPositiveWidth(): Promise<Result<number, Error>>;
+
+  /** Measure negative pulse width in seconds */
+  getMeasuredNegativeWidth(): Promise<Result<number, Error>>;
+
+  /** Measure positive duty cycle as percentage */
+  getMeasuredPositiveDuty(): Promise<Result<number, Error>>;
+
+  /** Measure negative duty cycle as percentage */
+  getMeasuredNegativeDuty(): Promise<Result<number, Error>>;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -203,13 +277,11 @@ export interface OscilloscopeChannel {
 /**
  * Base oscilloscope instrument interface.
  *
- * Defines the minimum functionality all oscilloscopes have:
+ * Defines the standard functionality all oscilloscopes have:
  * - Channel access
- * - Timebase control
- * - Run/stop
- *
- * Device-specific drivers extend this to add trigger settings,
- * waveform capture, measurements, etc.
+ * - Timebase control (scale, offset, mode)
+ * - Trigger settings (level, slope, mode, source)
+ * - Acquisition control (mode, run/stop/single)
  *
  * @example
  * ```typescript
@@ -217,6 +289,8 @@ export interface OscilloscopeChannel {
  * await scope.setTimebase(1e-3);  // 1ms/div
  * await scope.channel(1).setEnabled(true);
  * await scope.channel(1).setScale(1.0);  // 1V/div
+ * await scope.setTriggerSource('CH1');
+ * await scope.setTriggerLevel(0.5);
  * await scope.run();
  * ```
  */
@@ -227,15 +301,90 @@ export interface Oscilloscope extends BaseInstrument {
   /** Access a specific analog channel (1-indexed). Throws if channel out of range. */
   channel(n: number): OscilloscopeChannel;
 
+  // ─────────────────────────────────────────────────────────────────
+  // Timebase settings
+  // ─────────────────────────────────────────────────────────────────
+
   /** Get horizontal scale in s/div */
   getTimebase(): Promise<Result<number, Error>>;
 
   /** Set horizontal scale in s/div */
   setTimebase(secPerDiv: number): Promise<Result<void, Error>>;
 
-  /** Start acquisition (run) */
+  /** Get timebase offset in seconds */
+  getTimebaseOffset(): Promise<Result<number, Error>>;
+
+  /** Set timebase offset in seconds */
+  setTimebaseOffset(seconds: number): Promise<Result<void, Error>>;
+
+  /** Get timebase mode */
+  getTimebaseMode(): Promise<Result<TimebaseMode, Error>>;
+
+  /** Set timebase mode */
+  setTimebaseMode(mode: TimebaseMode): Promise<Result<void, Error>>;
+
+  /** Get current sample rate in Sa/s (read-only) */
+  getSampleRate(): Promise<Result<number, Error>>;
+
+  /** Get memory depth / record length in points */
+  getRecordLength(): Promise<Result<number, Error>>;
+
+  /** Set memory depth / record length in points */
+  setRecordLength(points: number): Promise<Result<void, Error>>;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Trigger settings
+  // ─────────────────────────────────────────────────────────────────
+
+  /** Get trigger level in V */
+  getTriggerLevel(): Promise<Result<number, Error>>;
+
+  /** Set trigger level in V */
+  setTriggerLevel(volts: number): Promise<Result<void, Error>>;
+
+  /** Get trigger edge slope */
+  getTriggerSlope(): Promise<Result<TriggerSlope, Error>>;
+
+  /** Set trigger edge slope */
+  setTriggerSlope(slope: TriggerSlope): Promise<Result<void, Error>>;
+
+  /** Get trigger mode (auto/normal/single) */
+  getTriggerMode(): Promise<Result<TriggerMode, Error>>;
+
+  /** Set trigger mode (auto/normal/single) */
+  setTriggerMode(mode: TriggerMode): Promise<Result<void, Error>>;
+
+  /** Get trigger source */
+  getTriggerSource(): Promise<Result<TriggerSource, Error>>;
+
+  /** Set trigger source */
+  setTriggerSource(source: TriggerSource): Promise<Result<void, Error>>;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Acquisition control
+  // ─────────────────────────────────────────────────────────────────
+
+  /** Get acquisition mode */
+  getAcquisitionMode(): Promise<Result<AcquisitionMode, Error>>;
+
+  /** Set acquisition mode */
+  setAcquisitionMode(mode: AcquisitionMode): Promise<Result<void, Error>>;
+
+  /** Get running state (true if acquiring) */
+  getRunning(): Promise<Result<boolean, Error>>;
+
+  /** Start continuous acquisition */
   run(): Promise<Result<void, Error>>;
 
   /** Stop acquisition */
   stop(): Promise<Result<void, Error>>;
+
+  /** Start single acquisition (one trigger capture) */
+  single(): Promise<Result<void, Error>>;
+
+  /** Run auto-scale (auto-configure channels and timebase) */
+  autoScale(): Promise<Result<void, Error>>;
+
+  /** Force a trigger event */
+  forceTrigger(): Promise<Result<void, Error>>;
 }
