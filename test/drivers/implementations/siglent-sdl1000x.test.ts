@@ -1,15 +1,15 @@
 /**
- * Tests for Siglent SDL1030X Electronic Load Driver.
+ * Tests for Siglent SDL1000X Series Electronic Load Driver.
  *
  * @packageDocumentation
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { siglentSDL1030X } from '../../../src/drivers/implementations/siglent/sdl1030x.js';
+import { siglentSDL1000X } from '../../../src/drivers/implementations/siglent/sdl1000x.js';
 import type { MessageBasedResource } from '../../../src/resources/message-based-resource.js';
 import { Ok, Err } from '../../../src/result.js';
 
-describe('Siglent SDL1030X Driver', () => {
+describe('Siglent SDL1000X Series Driver', () => {
   let mockResource: MessageBasedResource;
   let queryResponses: Map<string, string>;
 
@@ -86,7 +86,7 @@ describe('Siglent SDL1030X Driver', () => {
 
   describe('driver metadata', () => {
     it('has features array with cp, short, led, opp', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.features).toEqual(['cp', 'short', 'led', 'opp']);
@@ -94,7 +94,7 @@ describe('Siglent SDL1030X Driver', () => {
     });
 
     it('identifies as Siglent SDL1030X', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.manufacturer).toBe('Siglent Technologies');
@@ -105,7 +105,7 @@ describe('Siglent SDL1030X Driver', () => {
 
   describe('channel properties', () => {
     it('gets and sets mode', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         const ch = result.value.channel(1);
@@ -122,7 +122,7 @@ describe('Siglent SDL1030X Driver', () => {
     });
 
     it('gets and sets current', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         const ch = result.value.channel(1);
@@ -139,7 +139,7 @@ describe('Siglent SDL1030X Driver', () => {
     });
 
     it('gets measurements', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         const ch = result.value.channel(1);
@@ -159,7 +159,7 @@ describe('Siglent SDL1030X Driver', () => {
     });
 
     it('converts slew rate from A/µs to A/s', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         const ch = result.value.channel(1);
@@ -180,7 +180,7 @@ describe('Siglent SDL1030X Driver', () => {
 
   describe('protection features', () => {
     it('gets and sets OVP level and enable', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         const ch = result.value.channel(1);
@@ -195,7 +195,7 @@ describe('Siglent SDL1030X Driver', () => {
     });
 
     it('gets and sets OCP level and enable', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         const ch = result.value.channel(1);
@@ -212,7 +212,7 @@ describe('Siglent SDL1030X Driver', () => {
 
   describe('short circuit feature', () => {
     it('gets and sets short enabled state', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         const ch = result.value.channel(1);
@@ -229,7 +229,7 @@ describe('Siglent SDL1030X Driver', () => {
 
   describe('LED test feature', () => {
     it('gets and sets LED Vf', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         const ch = result.value.channel(1);
@@ -244,7 +244,7 @@ describe('Siglent SDL1030X Driver', () => {
     });
 
     it('gets and sets LED Rd', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         const ch = result.value.channel(1);
@@ -261,7 +261,7 @@ describe('Siglent SDL1030X Driver', () => {
 
   describe('OPP feature', () => {
     it('gets and sets OPP level', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         const oppResult = await result.value.getOppLevel();
@@ -274,7 +274,7 @@ describe('Siglent SDL1030X Driver', () => {
     });
 
     it('gets and sets OPP enabled', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         const enabledResult = await result.value.getOppEnabled();
@@ -289,7 +289,7 @@ describe('Siglent SDL1030X Driver', () => {
 
   describe('Von/Voff thresholds', () => {
     it('gets and sets Von threshold', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         const ch = result.value.channel(1);
@@ -300,7 +300,7 @@ describe('Siglent SDL1030X Driver', () => {
     });
 
     it('gets and sets Voff threshold', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         const ch = result.value.channel(1);
@@ -313,7 +313,7 @@ describe('Siglent SDL1030X Driver', () => {
 
   describe('list mode', () => {
     it('uploads list sequence', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         const uploadResult = await result.value.uploadList(
@@ -337,7 +337,7 @@ describe('Siglent SDL1030X Driver', () => {
     });
 
     it('starts list execution', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         await result.value.startList();
@@ -347,7 +347,7 @@ describe('Siglent SDL1030X Driver', () => {
     });
 
     it('stops list execution', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         await result.value.stopList();
@@ -358,7 +358,7 @@ describe('Siglent SDL1030X Driver', () => {
 
   describe('global commands', () => {
     it('enables all inputs', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         await result.value.enableAllInputs();
@@ -367,7 +367,7 @@ describe('Siglent SDL1030X Driver', () => {
     });
 
     it('disables all inputs', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         await result.value.disableAllInputs();
@@ -376,7 +376,7 @@ describe('Siglent SDL1030X Driver', () => {
     });
 
     it('saves state', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         await result.value.saveState(3);
@@ -385,7 +385,7 @@ describe('Siglent SDL1030X Driver', () => {
     });
 
     it('recalls state', async () => {
-      const result = await siglentSDL1030X.connect(mockResource);
+      const result = await siglentSDL1000X.connect(mockResource);
       expect(result.ok).toBe(true);
       if (result.ok) {
         await result.value.recallState(3);

@@ -1,5 +1,5 @@
 /**
- * Keysight N3300A Electronic Load Driver.
+ * Keysight N3300 Series Electronic Load Driver.
  *
  * Supports N3300A mainframe with modules (N3302A-N3307A) and EL34243A bench load.
  * Features CC, CV, CR modes, multi-channel, and programmable list mode.
@@ -28,21 +28,21 @@ import type { LoadFeatureId } from '../../features/load-features.js';
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Features supported by N3300A (none - no CP, short, or LED modes).
+ * Features supported by N3300 series (none - no CP, short, or LED modes).
  */
 const n3300Features = [] as const satisfies readonly LoadFeatureId[];
 
 /**
- * N3300A channel type - base interface only, no extra feature methods.
+ * N3300 channel type - base interface only, no extra feature methods.
  */
-export type N3300AChannel = ElectronicLoadChannel;
+export type N3300Channel = ElectronicLoadChannel;
 
 /**
- * N3300A electronic load type with multi-channel selection.
+ * N3300 electronic load type with multi-channel selection.
  * Note: Can have 1-6 channels depending on installed modules.
  */
-export type N3300ALoad = LoadWithFeatures<typeof n3300Features> & {
-  /** Select a channel for subsequent commands (N3300A multi-channel) */
+export type N3300Load = LoadWithFeatures<typeof n3300Features> & {
+  /** Select a channel for subsequent commands (N3300 multi-channel) */
   selectChannel(channel: number): Promise<Result<void, Error>>;
 };
 
@@ -169,9 +169,9 @@ async function stopList(
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Keysight N3300A driver specification.
+ * Keysight N3300 series driver specification.
  */
-const n3300aSpec: DriverSpec<N3300ALoad, N3300AChannel, typeof n3300Features> = {
+const n3300Spec: DriverSpec<N3300Load, N3300Channel, typeof n3300Features> = {
   type: 'electronic-load',
   manufacturer: 'Keysight',
   models: ['N3300A', 'N3302A', 'N3303A', 'N3304A', 'N3305A', 'N3306A', 'N3307A', 'EL34243A'],
@@ -381,7 +381,7 @@ const n3300aSpec: DriverSpec<N3300ALoad, N3300AChannel, typeof n3300Features> = 
 };
 
 /**
- * Keysight N3300A electronic load driver.
+ * Keysight N3300 series electronic load driver.
  *
  * Supports N3300A mainframe with modules and EL34243A bench load.
  *
@@ -389,9 +389,9 @@ const n3300aSpec: DriverSpec<N3300ALoad, N3300AChannel, typeof n3300Features> = 
  *
  * @example
  * ```typescript
- * import { keysightN3300A } from 'visa-ts/drivers/implementations/keysight/n3300a';
+ * import { keysightN3300 } from 'visa-ts/drivers/implementations/keysight/n3300';
  *
- * const load = await keysightN3300A.connect(resource);
+ * const load = await keysightN3300.connect(resource);
  * if (load.ok) {
  *   const ch = load.value.channel(1);
  *
@@ -401,10 +401,10 @@ const n3300aSpec: DriverSpec<N3300ALoad, N3300AChannel, typeof n3300Features> = 
  *   await ch.setSlewRate(1000); // 1000 A/s (native units)
  *   await ch.setInputEnabled(true);
  *
- *   // For multi-channel N3300A
+ *   // For multi-channel N3300
  *   await load.value.selectChannel(2);
  *   await ch.setCurrent(3.0);
  * }
  * ```
  */
-export const keysightN3300A = defineDriver(n3300aSpec);
+export const keysightN3300 = defineDriver(n3300Spec);

@@ -1,7 +1,7 @@
 /**
- * ITECH IT8812 Electronic Load Driver.
+ * ITECH IT8800 Series Electronic Load Driver.
  *
- * Supports IT8800 series electronic loads (IT8811, IT8812, IT8812B, IT8813, etc.).
+ * Supports IT8800 series electronic loads (IT8811, IT8800, IT8800B, IT8813, etc.).
  * Features CC, CV, CR, CP, LED modes, short circuit, and programmable list mode.
  *
  * **Note:** ITECH uses A/s for slew rate (not A/µs like other manufacturers).
@@ -28,19 +28,19 @@ import type { LoadFeatureId } from '../../features/load-features.js';
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Features supported by IT8812.
+ * Features supported by IT8800.
  */
 const itechFeatures = ['cp', 'short', 'led'] as const satisfies readonly LoadFeatureId[];
 
 /**
- * IT8812 channel type - automatically includes ShortMethods and LedMethods.
+ * IT8800 channel type - automatically includes ShortMethods and LedMethods.
  */
-export type IT8812Channel = LoadChannelWithFeatures<typeof itechFeatures>;
+export type IT8800Channel = LoadChannelWithFeatures<typeof itechFeatures>;
 
 /**
- * IT8812 electronic load type - automatically includes feature methods.
+ * IT8800 electronic load type - automatically includes feature methods.
  */
-export type IT8812Load = LoadWithFeatures<typeof itechFeatures>;
+export type IT8800Load = LoadWithFeatures<typeof itechFeatures>;
 
 // ─────────────────────────────────────────────────────────────────
 // Helper functions
@@ -177,9 +177,9 @@ async function stopList(
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * ITECH IT8812 driver specification.
+ * ITECH IT8800 driver specification.
  */
-const it8812Spec: DriverSpec<IT8812Load, IT8812Channel, typeof itechFeatures> = {
+const it8800Spec: DriverSpec<IT8800Load, IT8800Channel, typeof itechFeatures> = {
   type: 'electronic-load',
   manufacturer: 'ITECH',
   models: [
@@ -418,7 +418,7 @@ const it8812Spec: DriverSpec<IT8812Load, IT8812Channel, typeof itechFeatures> = 
 };
 
 /**
- * ITECH IT8812 electronic load driver.
+ * ITECH IT8800 electronic load driver.
  *
  * Supports IT8800 series (IT8811, IT8812, IT8812B, IT8813, IT8814, IT8815, IT8816, IT8817, IT8818).
  *
@@ -428,9 +428,9 @@ const it8812Spec: DriverSpec<IT8812Load, IT8812Channel, typeof itechFeatures> = 
  *
  * @example
  * ```typescript
- * import { itechIT8812 } from 'visa-ts/drivers/implementations/itech/it8812';
+ * import { itechIT8800 } from 'visa-ts/drivers/implementations/itech/it8800';
  *
- * const load = await itechIT8812.connect(resource);
+ * const load = await itechIT8800.connect(resource);
  * if (load.ok) {
  *   const ch = load.value.channel(1);
  *
@@ -442,4 +442,4 @@ const it8812Spec: DriverSpec<IT8812Load, IT8812Channel, typeof itechFeatures> = 
  * }
  * ```
  */
-export const itechIT8812 = defineDriver(it8812Spec);
+export const itechIT8800 = defineDriver(it8800Spec);

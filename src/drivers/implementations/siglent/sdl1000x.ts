@@ -1,5 +1,5 @@
 /**
- * Siglent SDL1030X Electronic Load Driver.
+ * Siglent SDL1000X Series Electronic Load Driver.
  *
  * Supports SDL1020X, SDL1020X-E, SDL1030X, SDL1030X-E series electronic loads.
  * Features CC, CV, CR, CP, LED modes, short circuit, and programmable list mode.
@@ -33,20 +33,20 @@ const SLEW_RATE_FACTOR = 1_000_000;
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Features supported by SDL1030X.
+ * Features supported by SDL1000X series.
  */
 const sdlFeatures = ['cp', 'short', 'led', 'opp'] as const satisfies readonly LoadFeatureId[];
 
 /**
- * SDL1030X channel type - automatically includes ShortMethods and LedMethods.
+ * SDL1000X channel type - automatically includes ShortMethods and LedMethods.
  */
-export type SDL1030XChannel = LoadChannelWithFeatures<typeof sdlFeatures>;
+export type SDL1000XChannel = LoadChannelWithFeatures<typeof sdlFeatures>;
 
 /**
- * SDL1030X electronic load type - includes feature methods plus instrument-level OPP.
+ * SDL1000X electronic load type - includes feature methods plus instrument-level OPP.
  * Note: OPP is an instrument-level feature (not per-channel).
  */
-export type SDL1030XLoad = LoadWithFeatures<typeof sdlFeatures> & OppMethods;
+export type SDL1000XLoad = LoadWithFeatures<typeof sdlFeatures> & OppMethods;
 
 // ─────────────────────────────────────────────────────────────────
 // Helper functions
@@ -189,9 +189,9 @@ async function stopList(
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Siglent SDL1030X driver specification.
+ * Siglent SDL1000X series driver specification.
  */
-const sdl1030xSpec: DriverSpec<SDL1030XLoad, SDL1030XChannel, typeof sdlFeatures> = {
+const sdl1000xSpec: DriverSpec<SDL1000XLoad, SDL1000XChannel, typeof sdlFeatures> = {
   type: 'electronic-load',
   manufacturer: 'Siglent',
   models: ['SDL1020X', 'SDL1020X-E', 'SDL1030X', 'SDL1030X-E'],
@@ -446,17 +446,17 @@ const sdl1030xSpec: DriverSpec<SDL1030XLoad, SDL1030XChannel, typeof sdlFeatures
 };
 
 /**
- * Siglent SDL1030X electronic load driver.
+ * Siglent SDL1000X series electronic load driver.
  *
- * Supports SDL1020X, SDL1020X-E, SDL1030X, SDL1030X-E series.
+ * Supports SDL1020X, SDL1020X-E, SDL1030X, SDL1030X-E models.
  *
  * **Features:** CP mode, Short circuit, LED test mode, OPP protection
  *
  * @example
  * ```typescript
- * import { siglentSDL1030X } from 'visa-ts/drivers/implementations/siglent/sdl1030x';
+ * import { siglentSDL1000X } from 'visa-ts/drivers/implementations/siglent/sdl1000x';
  *
- * const load = await siglentSDL1030X.connect(resource);
+ * const load = await siglentSDL1000X.connect(resource);
  * if (load.ok) {
  *   const ch = load.value.channel(1);
  *
@@ -478,4 +478,4 @@ const sdl1030xSpec: DriverSpec<SDL1030XLoad, SDL1030XChannel, typeof sdlFeatures
  * }
  * ```
  */
-export const siglentSDL1030X = defineDriver(sdl1030xSpec);
+export const siglentSDL1000X = defineDriver(sdl1000xSpec);
