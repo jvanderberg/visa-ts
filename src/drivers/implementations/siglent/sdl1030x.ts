@@ -1,8 +1,8 @@
 /**
- * Rigol DL3021 Electronic Load Driver.
+ * Siglent SDL1030X Electronic Load Driver.
  *
- * Supports DL3021 and similar DL3000 series electronic loads.
- * Features CC, CV, CR, CP modes and programmable list mode.
+ * Supports SDL1020X, SDL1020X-E, SDL1030X, SDL1030X-E series electronic loads.
+ * Features CC, CV, CR, CP, LED modes, short circuit, and programmable list mode.
  *
  * @packageDocumentation
  */
@@ -19,6 +19,12 @@ import {
   type ListStep,
   type ListModeOptions,
 } from '../../equipment/electronic-load.js';
+import type {
+  LoadFeatureId,
+  ShortMethods,
+  LedMethods,
+  OppMethods,
+} from '../../features/load-features.js';
 
 // ─────────────────────────────────────────────────────────────────
 // Constants
@@ -28,20 +34,23 @@ import {
 const SLEW_RATE_FACTOR = 1_000_000;
 
 // ─────────────────────────────────────────────────────────────────
-// DL3021-specific interfaces
+// SDL1030X-specific interfaces
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * DL3021 channel interface.
+ * SDL1030X channel interface with feature methods.
  */
-export type DL3021Channel = ElectronicLoadChannel;
+export interface SDL1030XChannel extends ElectronicLoadChannel, ShortMethods, LedMethods {}
 
 /**
- * DL3021 electronic load interface.
+ * SDL1030X electronic load interface with features.
  */
-export interface DL3021Load extends ElectronicLoad {
+export interface SDL1030XLoad extends ElectronicLoad, OppMethods {
   /** Access channel 1 (single channel load) */
-  channel(n: 1): DL3021Channel;
+  channel(n: 1): SDL1030XChannel;
+
+  /** Features supported by this driver */
+  readonly features: typeof sdlFeatures;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -106,10 +115,6 @@ async function uploadList(
   let result = await ctx.write(`:SOUR:LIST:MODE ${scpiMode}`);
   if (!result.ok) return result;
 
-  // Set current range (4A range for currents up to 4A, 40 for up to 40A)
-  result = await ctx.write(':SOUR:LIST:RANG 4');
-  if (!result.ok) return result;
-
   // Set step count
   result = await ctx.write(`:SOUR:LIST:STEP ${steps.length}`);
   if (!result.ok) return result;
@@ -118,16 +123,34 @@ async function uploadList(
   result = await ctx.write(`:SOUR:LIST:COUN ${repeat}`);
   if (!result.ok) return result;
 
-  // Upload each step (0-indexed for SCPI)
+  // Upload each step (1-indexed for Siglent)
   for (const [i, step] of steps.entries()) {
-    result = await ctx.write(`:SOUR:LIST:LEV ${i},${step.value}`);
+    const stepNum = i + 1;
+
+    // Use the appropriate command based on mode
+    switch (mode) {
+      case LoadMode.ConstantCurrent:
+        result = await ctx.write(`:SOUR:LIST:CURR ${stepNum},${step.value}`);
+        break;
+      case LoadMode.ConstantVoltage:
+        result = await ctx.write(`:SOUR:LIST:VOLT ${stepNum},${step.value}`);
+        break;
+      case LoadMode.ConstantResistance:
+        result = await ctx.write(`:SOUR:LIST:RES ${stepNum},${step.value}`);
+        break;
+      case LoadMode.ConstantPower:
+        result = await ctx.write(`:SOUR:LIST:POW ${stepNum},${step.value}`);
+        break;
+    }
     if (!result.ok) return result;
 
-    result = await ctx.write(`:SOUR:LIST:WID ${i},${step.duration}`);
+    result = await ctx.write(`:SOUR:LIST:WID ${stepNum},${step.duration}`);
     if (!result.ok) return result;
 
     if (step.slew !== undefined) {
-      result = await ctx.write(`:SOUR:LIST:SLEW ${i},${step.slew}`);
+      // Convert A/s to A/µs for Siglent
+      const slewMicro = step.slew / SLEW_RATE_FACTOR;
+      result = await ctx.write(`:SOUR:LIST:SLEW ${stepNum},${slewMicro}`);
       if (!result.ok) return result;
     }
   }
@@ -142,20 +165,12 @@ async function startList(
   ctx: DriverContext,
   _options?: ListModeOptions
 ): Promise<Result<boolean, Error>> {
-  // Switch to list mode
-  let result = await ctx.write(':SOUR:FUNC:MODE LIST');
-  if (!result.ok) return result;
-
-  // Set trigger source to BUS
-  result = await ctx.write(':TRIG:SOUR BUS');
+  // Enable list mode
+  let result = await ctx.write(':SOUR:LIST ON');
   if (!result.ok) return result;
 
   // Enable input
-  result = await ctx.write(':SOUR:INP ON');
-  if (!result.ok) return result;
-
-  // Trigger
-  result = await ctx.write(':TRIG');
+  result = await ctx.write(':INP ON');
   if (!result.ok) return result;
 
   return Ok(true);
@@ -168,8 +183,8 @@ async function stopList(
   ctx: DriverContext,
   _options?: ListModeOptions
 ): Promise<Result<boolean, Error>> {
-  // Switch back to fixed mode
-  const result = await ctx.write(':SOUR:FUNC:MODE FIX');
+  // Disable list mode
+  const result = await ctx.write(':SOUR:LIST OFF');
   if (!result.ok) return result;
   return Ok(true);
 }
@@ -179,25 +194,44 @@ async function stopList(
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Rigol DL3021 driver specification.
+ * Features supported by SDL1030X.
  */
-const dl3021Spec: DriverSpec<DL3021Load, DL3021Channel> = {
+const sdlFeatures = ['cp', 'short', 'led', 'opp'] as const satisfies readonly LoadFeatureId[];
+
+/**
+ * Siglent SDL1030X driver specification.
+ */
+const sdl1030xSpec: DriverSpec<SDL1030XLoad, SDL1030XChannel, typeof sdlFeatures> = {
   type: 'electronic-load',
-  manufacturer: 'Rigol',
-  models: ['DL3021', 'DL3021A', 'DL3031', 'DL3031A'],
+  manufacturer: 'Siglent',
+  models: ['SDL1020X', 'SDL1020X-E', 'SDL1030X', 'SDL1030X-E'],
+  features: sdlFeatures,
 
   properties: {
-    // List mode methods are implemented via custom methods
+    // OPP feature properties (on instrument level)
+    oppLevel: {
+      get: ':SOUR:POW:PROT?',
+      set: ':SOUR:POW:PROT {value}',
+      parse: parseScpiNumber,
+      unit: 'W',
+    },
+
+    oppEnabled: {
+      get: ':SOUR:POW:PROT:STAT?',
+      set: ':SOUR:POW:PROT:STAT {value}',
+      parse: parseScpiBool,
+      format: formatScpiBool,
+    },
   },
 
   // Commands (no-arg void methods)
   commands: {
     enableAllInputs: {
-      command: ':SOUR:INP:STAT ON',
+      command: ':INP ON',
       description: 'Enable all inputs',
     },
     disableAllInputs: {
-      command: ':SOUR:INP:STAT OFF',
+      command: ':INP OFF',
       description: 'Disable all inputs',
     },
     clearAllProtection: {
@@ -235,36 +269,36 @@ const dl3021Spec: DriverSpec<DL3021Load, DL3021Channel> = {
       },
 
       current: {
-        get: ':SOUR:CURR:LEV?',
-        set: ':SOUR:CURR:LEV {value}',
+        get: ':SOUR:CURR?',
+        set: ':SOUR:CURR {value}',
         parse: parseScpiNumber,
         unit: 'A',
       },
 
       voltage: {
-        get: ':SOUR:VOLT:LEV?',
-        set: ':SOUR:VOLT:LEV {value}',
+        get: ':SOUR:VOLT?',
+        set: ':SOUR:VOLT {value}',
         parse: parseScpiNumber,
         unit: 'V',
       },
 
       resistance: {
-        get: ':SOUR:RES:LEV?',
-        set: ':SOUR:RES:LEV {value}',
+        get: ':SOUR:RES?',
+        set: ':SOUR:RES {value}',
         parse: parseScpiNumber,
         unit: 'Ω',
       },
 
       power: {
-        get: ':SOUR:POW:LEV?',
-        set: ':SOUR:POW:LEV {value}',
+        get: ':SOUR:POW?',
+        set: ':SOUR:POW {value}',
         parse: parseScpiNumber,
         unit: 'W',
       },
 
       inputEnabled: {
-        get: ':SOUR:INP:STAT?',
-        set: ':SOUR:INP:STAT {value}',
+        get: ':INP?',
+        set: ':INP {value}',
         parse: parseInputState,
         format: formatScpiBool,
       },
@@ -312,7 +346,7 @@ const dl3021Spec: DriverSpec<DL3021Load, DL3021Channel> = {
         unit: 'V',
       },
 
-      // Slew rate (DL3021 uses A/µs, interface uses A/s)
+      // Slew rate (SDL uses A/µs, interface uses A/s)
       slewRate: {
         get: ':SOUR:CURR:SLEW?',
         set: ':SOUR:CURR:SLEW {value}',
@@ -323,43 +357,43 @@ const dl3021Spec: DriverSpec<DL3021Load, DL3021Channel> = {
 
       // Over-voltage protection (OVP)
       ovpLevel: {
-        get: ':SOUR:VOLT:PROT:LEV?',
-        set: ':SOUR:VOLT:PROT:LEV {value}',
+        get: ':SOUR:VOLT:PROT?',
+        set: ':SOUR:VOLT:PROT {value}',
         parse: parseScpiNumber,
         unit: 'V',
       },
 
       ovpEnabled: {
-        get: ':SOUR:VOLT:PROT?',
-        set: ':SOUR:VOLT:PROT {value}',
+        get: ':SOUR:VOLT:PROT:STAT?',
+        set: ':SOUR:VOLT:PROT:STAT {value}',
         parse: parseScpiBool,
         format: formatScpiBool,
       },
 
       ovpTripped: {
-        get: ':SOUR:VOLT:PROT:TRIP?',
-        parse: parseScpiBool,
+        get: ':STAT:QUES:COND?',
+        parse: (s: string) => (parseInt(s.trim(), 10) & 1) !== 0, // Bit 0 = OVP
         readonly: true,
       },
 
       // Over-current protection (OCP)
       ocpLevel: {
-        get: ':SOUR:CURR:PROT:LEV?',
-        set: ':SOUR:CURR:PROT:LEV {value}',
+        get: ':SOUR:CURR:PROT?',
+        set: ':SOUR:CURR:PROT {value}',
         parse: parseScpiNumber,
         unit: 'A',
       },
 
       ocpEnabled: {
-        get: ':SOUR:CURR:PROT?',
-        set: ':SOUR:CURR:PROT {value}',
+        get: ':SOUR:CURR:PROT:STAT?',
+        set: ':SOUR:CURR:PROT:STAT {value}',
         parse: parseScpiBool,
         format: formatScpiBool,
       },
 
       ocpTripped: {
-        get: ':SOUR:CURR:PROT:TRIP?',
-        parse: parseScpiBool,
+        get: ':STAT:QUES:COND?',
+        parse: (s: string) => (parseInt(s.trim(), 10) & 2) !== 0, // Bit 1 = OCP
         readonly: true,
       },
 
@@ -377,9 +411,32 @@ const dl3021Spec: DriverSpec<DL3021Load, DL3021Channel> = {
         parse: parseScpiNumber,
         unit: 'V',
       },
+
+      // Short circuit feature
+      shortEnabled: {
+        get: ':SOUR:SHOR?',
+        set: ':SOUR:SHOR {value}',
+        parse: parseScpiBool,
+        format: formatScpiBool,
+      },
+
+      // LED feature
+      ledVf: {
+        get: ':SOUR:LED:VD?',
+        set: ':SOUR:LED:VD {value}',
+        parse: parseScpiNumber,
+        unit: 'V',
+      },
+
+      ledRd: {
+        get: ':SOUR:LED:RD?',
+        set: ':SOUR:LED:RD {value}',
+        parse: parseScpiNumber,
+        unit: 'Ω',
+      },
     },
 
-    // Channel commands - clearOvp and clearOcp
+    // Channel commands
     commands: {
       clearOvp: {
         command: ':SOUR:VOLT:PROT:CLE',
@@ -399,13 +456,17 @@ const dl3021Spec: DriverSpec<DL3021Load, DL3021Channel> = {
 };
 
 /**
- * Rigol DL3021 electronic load driver.
+ * Siglent SDL1030X electronic load driver.
+ *
+ * Supports SDL1020X, SDL1020X-E, SDL1030X, SDL1030X-E series.
+ *
+ * **Features:** CP mode, Short circuit, LED test mode, OPP protection
  *
  * @example
  * ```typescript
- * import { rigolDL3021 } from 'visa-ts/drivers/implementations/rigol/dl3021';
+ * import { siglentSDL1030X } from 'visa-ts/drivers/implementations/siglent/sdl1030x';
  *
- * const load = await rigolDL3021.connect(resource);
+ * const load = await siglentSDL1030X.connect(resource);
  * if (load.ok) {
  *   const ch = load.value.channel(1);
  *
@@ -414,19 +475,17 @@ const dl3021Spec: DriverSpec<DL3021Load, DL3021Channel> = {
  *   await ch.setCurrent(2.0);
  *   await ch.setInputEnabled(true);
  *
+ *   // Use short circuit feature
+ *   await ch.setShortEnabled(true);
+ *
+ *   // Use LED test mode
+ *   await ch.setLedVf(3.0);
+ *   await ch.setLedRd(1.5);
+ *
  *   // Measure
  *   const v = await ch.getMeasuredVoltage();
  *   const i = await ch.getMeasuredCurrent();
- *   const p = await ch.getMeasuredPower();
- *
- *   // List mode example
- *   await load.value.uploadList('CC', [
- *     { value: 1.0, duration: 1.0 },
- *     { value: 2.0, duration: 0.5 },
- *     { value: 0.5, duration: 2.0 },
- *   ], 10);  // Repeat 10 times
- *   await load.value.startList();
  * }
  * ```
  */
-export const rigolDL3021 = defineDriver(dl3021Spec);
+export const siglentSDL1030X = defineDriver(sdl1030xSpec);
