@@ -1,8 +1,10 @@
 /**
- * Rigol DL3021 Electronic Load Driver.
+ * ITECH IT8800 Series Electronic Load Driver.
  *
- * Supports DL3021 and similar DL3000 series electronic loads.
- * Features CC, CV, CR, CP modes and programmable list mode.
+ * Supports IT8800 series electronic loads (IT8811, IT8800, IT8800B, IT8813, etc.).
+ * Features CC, CV, CR, CP, LED modes, short circuit, and programmable list mode.
+ *
+ * **Note:** ITECH uses A/s for slew rate (not A/µs like other manufacturers).
  *
  * @packageDocumentation
  */
@@ -14,35 +16,31 @@ import type { Result } from '../../../result.js';
 import { Ok, Err } from '../../../result.js';
 import {
   LoadMode,
-  type ElectronicLoad,
-  type ElectronicLoadChannel,
   type ListStep,
   type ListModeOptions,
+  type LoadChannelWithFeatures,
+  type LoadWithFeatures,
 } from '../../equipment/electronic-load.js';
+import type { LoadFeatureId } from '../../features/load-features.js';
 
 // ─────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────
-
-/** Conversion factor: A/µs to A/s */
-const SLEW_RATE_FACTOR = 1_000_000;
-
-// ─────────────────────────────────────────────────────────────────
-// DL3021-specific interfaces
+// Features and Auto-Composed Types
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * DL3021 channel interface.
+ * Features supported by IT8800.
  */
-export type DL3021Channel = ElectronicLoadChannel;
+const itechFeatures = ['cp', 'short', 'led'] as const satisfies readonly LoadFeatureId[];
 
 /**
- * DL3021 electronic load interface.
+ * IT8800 channel type - automatically includes ShortMethods and LedMethods.
  */
-export interface DL3021Load extends ElectronicLoad {
-  /** Access channel 1 (single channel load) */
-  channel(n: 1): DL3021Channel;
-}
+export type IT8800Channel = LoadChannelWithFeatures<typeof itechFeatures>;
+
+/**
+ * IT8800 electronic load type - automatically includes feature methods.
+ */
+export type IT8800Load = LoadWithFeatures<typeof itechFeatures>;
 
 // ─────────────────────────────────────────────────────────────────
 // Helper functions
@@ -66,7 +64,6 @@ function parseLoadMode(s: string): LoadMode {
   if (upper.includes('VOLT') || upper === 'CV') return LoadMode.ConstantVoltage;
   if (upper.includes('RES') || upper === 'CR') return LoadMode.ConstantResistance;
   if (upper.includes('POW') || upper === 'CP') return LoadMode.ConstantPower;
-  // Default to CC (matches CURR or CC)
   return LoadMode.ConstantCurrent;
 }
 
@@ -78,7 +75,7 @@ function formatLoadMode(mode: LoadMode): string {
 }
 
 /**
- * Parse input state (load uses "input" not "output").
+ * Parse input state.
  */
 function parseInputState(s: string): boolean {
   return s.includes('ON') || s.trim() === '1';
@@ -103,31 +100,43 @@ async function uploadList(
   }
 
   // Set list mode type
-  let result = await ctx.write(`:SOUR:LIST:MODE ${scpiMode}`);
-  if (!result.ok) return result;
-
-  // Set current range (4A range for currents up to 4A, 40 for up to 40A)
-  result = await ctx.write(':SOUR:LIST:RANG 4');
+  let result = await ctx.write(`LIST:MODE ${scpiMode}`);
   if (!result.ok) return result;
 
   // Set step count
-  result = await ctx.write(`:SOUR:LIST:STEP ${steps.length}`);
+  result = await ctx.write(`LIST:STEP ${steps.length}`);
   if (!result.ok) return result;
 
   // Set cycle count (0 = infinite)
-  result = await ctx.write(`:SOUR:LIST:COUN ${repeat}`);
+  result = await ctx.write(`LIST:COUN ${repeat}`);
   if (!result.ok) return result;
 
-  // Upload each step (0-indexed for SCPI)
+  // Upload each step (1-indexed)
   for (const [i, step] of steps.entries()) {
-    result = await ctx.write(`:SOUR:LIST:LEV ${i},${step.value}`);
+    const stepNum = i + 1;
+
+    switch (mode) {
+      case LoadMode.ConstantCurrent:
+        result = await ctx.write(`LIST:CURR ${stepNum},${step.value}`);
+        break;
+      case LoadMode.ConstantVoltage:
+        result = await ctx.write(`LIST:VOLT ${stepNum},${step.value}`);
+        break;
+      case LoadMode.ConstantResistance:
+        result = await ctx.write(`LIST:RES ${stepNum},${step.value}`);
+        break;
+      case LoadMode.ConstantPower:
+        result = await ctx.write(`LIST:POW ${stepNum},${step.value}`);
+        break;
+    }
     if (!result.ok) return result;
 
-    result = await ctx.write(`:SOUR:LIST:WID ${i},${step.duration}`);
+    result = await ctx.write(`LIST:WID ${stepNum},${step.duration}`);
     if (!result.ok) return result;
 
     if (step.slew !== undefined) {
-      result = await ctx.write(`:SOUR:LIST:SLEW ${i},${step.slew}`);
+      // ITECH uses A/s - no conversion needed!
+      result = await ctx.write(`LIST:SLEW ${stepNum},${step.slew}`);
       if (!result.ok) return result;
     }
   }
@@ -142,20 +151,10 @@ async function startList(
   ctx: DriverContext,
   _options?: ListModeOptions
 ): Promise<Result<boolean, Error>> {
-  // Switch to list mode
-  let result = await ctx.write(':SOUR:FUNC:MODE LIST');
+  let result = await ctx.write('LIST ON');
   if (!result.ok) return result;
 
-  // Set trigger source to BUS
-  result = await ctx.write(':TRIG:SOUR BUS');
-  if (!result.ok) return result;
-
-  // Enable input
-  result = await ctx.write(':SOUR:INP ON');
-  if (!result.ok) return result;
-
-  // Trigger
-  result = await ctx.write(':TRIG');
+  result = await ctx.write('INP ON');
   if (!result.ok) return result;
 
   return Ok(true);
@@ -168,8 +167,7 @@ async function stopList(
   ctx: DriverContext,
   _options?: ListModeOptions
 ): Promise<Result<boolean, Error>> {
-  // Switch back to fixed mode
-  const result = await ctx.write(':SOUR:FUNC:MODE FIX');
+  const result = await ctx.write('LIST OFF');
   if (!result.ok) return result;
   return Ok(true);
 }
@@ -179,42 +177,47 @@ async function stopList(
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Rigol DL3021 driver specification.
+ * ITECH IT8800 driver specification.
  */
-const dl3021Spec: DriverSpec<DL3021Load, DL3021Channel> = {
+const it8800Spec: DriverSpec<IT8800Load, IT8800Channel, typeof itechFeatures> = {
   type: 'electronic-load',
-  manufacturer: 'Rigol',
-  models: ['DL3021', 'DL3021A', 'DL3031', 'DL3031A'],
+  manufacturer: 'ITECH',
+  models: [
+    'IT8811',
+    'IT8812',
+    'IT8812B',
+    'IT8813',
+    'IT8814',
+    'IT8815',
+    'IT8816',
+    'IT8817',
+    'IT8818',
+  ],
+  features: itechFeatures,
 
-  properties: {
-    // List mode methods are implemented via custom methods
-  },
+  properties: {},
 
-  // Commands (no-arg void methods)
   commands: {
     enableAllInputs: {
-      command: ':SOUR:INP:STAT ON',
+      command: 'INP ON',
       description: 'Enable all inputs',
     },
     disableAllInputs: {
-      command: ':SOUR:INP:STAT OFF',
+      command: 'INP OFF',
       description: 'Disable all inputs',
     },
     clearAllProtection: {
-      command: ':SOUR:VOLT:PROT:CLE;:SOUR:CURR:PROT:CLE;:SOUR:POW:PROT:CLE',
+      command: 'VOLT:PROT:CLE;CURR:PROT:CLE;POW:PROT:CLE',
       description: 'Clear all protection trips',
     },
   },
 
-  // Custom method implementations (methods with parameters)
   methods: {
-    // List mode
     uploadList: (ctx, mode: LoadMode, steps: ListStep[], repeat?: number) =>
       uploadList(ctx, mode, steps, repeat),
     startList: (ctx, options?: ListModeOptions) => startList(ctx, options),
     stopList: (ctx, options?: ListModeOptions) => stopList(ctx, options),
 
-    // State save/recall (using standard IEEE 488.2 commands)
     saveState: async (ctx, slot: number): Promise<Result<void, Error>> => {
       return ctx.write(`*SAV ${slot}`);
     },
@@ -227,166 +230,182 @@ const dl3021Spec: DriverSpec<DL3021Load, DL3021Channel> = {
     count: 1,
     indexStart: 1,
     properties: {
+      // Mode uses FUNC command on ITECH
       mode: {
-        get: ':SOUR:FUNC?',
-        set: ':SOUR:FUNC {value}',
+        get: 'FUNC?',
+        set: 'FUNC {value}',
         parse: parseLoadMode,
         format: formatLoadMode,
       },
 
       current: {
-        get: ':SOUR:CURR:LEV?',
-        set: ':SOUR:CURR:LEV {value}',
+        get: 'CURR?',
+        set: 'CURR {value}',
         parse: parseScpiNumber,
         unit: 'A',
       },
 
       voltage: {
-        get: ':SOUR:VOLT:LEV?',
-        set: ':SOUR:VOLT:LEV {value}',
+        get: 'VOLT?',
+        set: 'VOLT {value}',
         parse: parseScpiNumber,
         unit: 'V',
       },
 
       resistance: {
-        get: ':SOUR:RES:LEV?',
-        set: ':SOUR:RES:LEV {value}',
+        get: 'RES?',
+        set: 'RES {value}',
         parse: parseScpiNumber,
         unit: 'Ω',
       },
 
       power: {
-        get: ':SOUR:POW:LEV?',
-        set: ':SOUR:POW:LEV {value}',
+        get: 'POW?',
+        set: 'POW {value}',
         parse: parseScpiNumber,
         unit: 'W',
       },
 
       inputEnabled: {
-        get: ':SOUR:INP:STAT?',
-        set: ':SOUR:INP:STAT {value}',
+        get: 'INP?',
+        set: 'INP {value}',
         parse: parseInputState,
         format: formatScpiBool,
       },
 
       measuredVoltage: {
-        get: ':MEAS:VOLT?',
+        get: 'MEAS:VOLT?',
         parse: parseScpiNumber,
         readonly: true,
         unit: 'V',
       },
 
       measuredCurrent: {
-        get: ':MEAS:CURR?',
+        get: 'MEAS:CURR?',
         parse: parseScpiNumber,
         readonly: true,
         unit: 'A',
       },
 
       measuredPower: {
-        get: ':MEAS:POW?',
+        get: 'MEAS:POW?',
         parse: parseScpiNumber,
         readonly: true,
         unit: 'W',
       },
 
       measuredResistance: {
-        get: ':MEAS:RES?',
+        get: 'MEAS:RES?',
         parse: parseScpiNumber,
         readonly: true,
         unit: 'Ω',
       },
 
-      // Ranges
       currentRange: {
-        get: ':SOUR:CURR:RANG?',
-        set: ':SOUR:CURR:RANG {value}',
+        get: 'CURR:RANG?',
+        set: 'CURR:RANG {value}',
         parse: parseScpiNumber,
         unit: 'A',
       },
 
       voltageRange: {
-        get: ':SOUR:VOLT:RANG?',
-        set: ':SOUR:VOLT:RANG {value}',
+        get: 'VOLT:RANG?',
+        set: 'VOLT:RANG {value}',
         parse: parseScpiNumber,
         unit: 'V',
       },
 
-      // Slew rate (DL3021 uses A/µs, interface uses A/s)
+      // ITECH uses A/s natively - no conversion needed!
       slewRate: {
-        get: ':SOUR:CURR:SLEW?',
-        set: ':SOUR:CURR:SLEW {value}',
-        parse: (s: string) => parseScpiNumber(s) * SLEW_RATE_FACTOR,
-        format: (v: number) => String(v / SLEW_RATE_FACTOR),
+        get: 'CURR:SLEW?',
+        set: 'CURR:SLEW {value}',
+        parse: parseScpiNumber,
         unit: 'A/s',
       },
 
-      // Over-voltage protection (OVP)
       ovpLevel: {
-        get: ':SOUR:VOLT:PROT:LEV?',
-        set: ':SOUR:VOLT:PROT:LEV {value}',
+        get: 'VOLT:PROT?',
+        set: 'VOLT:PROT {value}',
         parse: parseScpiNumber,
         unit: 'V',
       },
 
       ovpEnabled: {
-        get: ':SOUR:VOLT:PROT?',
-        set: ':SOUR:VOLT:PROT {value}',
+        get: 'VOLT:PROT:STAT?',
+        set: 'VOLT:PROT:STAT {value}',
         parse: parseScpiBool,
         format: formatScpiBool,
       },
 
       ovpTripped: {
-        get: ':SOUR:VOLT:PROT:TRIP?',
+        get: 'VOLT:PROT:TRIP?',
         parse: parseScpiBool,
         readonly: true,
       },
 
-      // Over-current protection (OCP)
       ocpLevel: {
-        get: ':SOUR:CURR:PROT:LEV?',
-        set: ':SOUR:CURR:PROT:LEV {value}',
+        get: 'CURR:PROT?',
+        set: 'CURR:PROT {value}',
         parse: parseScpiNumber,
         unit: 'A',
       },
 
       ocpEnabled: {
-        get: ':SOUR:CURR:PROT?',
-        set: ':SOUR:CURR:PROT {value}',
+        get: 'CURR:PROT:STAT?',
+        set: 'CURR:PROT:STAT {value}',
         parse: parseScpiBool,
         format: formatScpiBool,
       },
 
       ocpTripped: {
-        get: ':SOUR:CURR:PROT:TRIP?',
+        get: 'CURR:PROT:TRIP?',
         parse: parseScpiBool,
         readonly: true,
       },
 
-      // Von/Voff thresholds (operating voltage window)
       vonThreshold: {
-        get: ':SOUR:VOLT:ON?',
-        set: ':SOUR:VOLT:ON {value}',
+        get: 'VOLT:ON?',
+        set: 'VOLT:ON {value}',
         parse: parseScpiNumber,
         unit: 'V',
       },
 
       voffThreshold: {
-        get: ':SOUR:VOLT:OFF?',
-        set: ':SOUR:VOLT:OFF {value}',
+        get: 'VOLT:OFF?',
+        set: 'VOLT:OFF {value}',
         parse: parseScpiNumber,
         unit: 'V',
       },
+
+      shortEnabled: {
+        get: 'INP:SHOR?',
+        set: 'INP:SHOR {value}',
+        parse: parseScpiBool,
+        format: formatScpiBool,
+      },
+
+      ledVf: {
+        get: 'LED:VF?',
+        set: 'LED:VF {value}',
+        parse: parseScpiNumber,
+        unit: 'V',
+      },
+
+      ledRd: {
+        get: 'LED:RD?',
+        set: 'LED:RD {value}',
+        parse: parseScpiNumber,
+        unit: 'Ω',
+      },
     },
 
-    // Channel commands - clearOvp and clearOcp
     commands: {
       clearOvp: {
-        command: ':SOUR:VOLT:PROT:CLE',
+        command: 'VOLT:PROT:CLE',
         description: 'Clear OVP trip',
       },
       clearOcp: {
-        command: ':SOUR:CURR:PROT:CLE',
+        command: 'CURR:PROT:CLE',
         description: 'Clear OCP trip',
       },
     },
@@ -399,34 +418,28 @@ const dl3021Spec: DriverSpec<DL3021Load, DL3021Channel> = {
 };
 
 /**
- * Rigol DL3021 electronic load driver.
+ * ITECH IT8800 electronic load driver.
+ *
+ * Supports IT8800 series (IT8811, IT8812, IT8812B, IT8813, IT8814, IT8815, IT8816, IT8817, IT8818).
+ *
+ * **Features:** CP mode, Short circuit, LED test mode
+ *
+ * **Note:** ITECH uses A/s for slew rate (not A/µs like other manufacturers).
  *
  * @example
  * ```typescript
- * import { rigolDL3021 } from 'visa-ts/drivers/implementations/rigol/dl3021';
+ * import { itechIT8800 } from 'visa-ts/drivers/implementations/itech/it8800';
  *
- * const load = await rigolDL3021.connect(resource);
+ * const load = await itechIT8800.connect(resource);
  * if (load.ok) {
  *   const ch = load.value.channel(1);
  *
  *   // Set CC mode at 2A
  *   await ch.setMode('CC');
  *   await ch.setCurrent(2.0);
+ *   await ch.setSlewRate(1000); // 1000 A/s (native units!)
  *   await ch.setInputEnabled(true);
- *
- *   // Measure
- *   const v = await ch.getMeasuredVoltage();
- *   const i = await ch.getMeasuredCurrent();
- *   const p = await ch.getMeasuredPower();
- *
- *   // List mode example
- *   await load.value.uploadList('CC', [
- *     { value: 1.0, duration: 1.0 },
- *     { value: 2.0, duration: 0.5 },
- *     { value: 0.5, duration: 2.0 },
- *   ], 10);  // Repeat 10 times
- *   await load.value.startList();
  * }
  * ```
  */
-export const rigolDL3021 = defineDriver(dl3021Spec);
+export const itechIT8800 = defineDriver(it8800Spec);

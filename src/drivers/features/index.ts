@@ -111,6 +111,9 @@ export {
   type OppTestResult,
   // Property mappings
   type LoadFeatureProperties,
+  // Method mappings for auto-composition
+  type LoadChannelFeatureMethodMap,
+  type LoadFeatureMethodMap,
 } from './load-features.js';
 
 // ─────────────────────────────────────────────────────────────────

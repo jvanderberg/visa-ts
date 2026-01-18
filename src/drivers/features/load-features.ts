@@ -192,3 +192,37 @@ export type LoadFeatureProperties = {
   oppTest: 'oppTestStart' | 'oppTestEnd' | 'oppTestStep';
   crcc: 'crccResistance' | 'crccCurrentLimit';
 };
+
+// ─────────────────────────────────────────────────────────────────
+// Feature String → Method Interface Mapping
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Maps load feature string literals to their CHANNEL-level method interfaces.
+ * Used by LoadChannelWithFeatures to automatically compose channel types.
+ *
+ * Note: OPP is an instrument-level feature (not per-channel), so OppMethods
+ * is not included here. Use `& OppMethods` on the instrument type when needed.
+ */
+export type LoadChannelFeatureMethodMap = {
+  cp: CpMethods;
+  battery: BatteryMethods;
+  led: LedMethods;
+  short: ShortMethods;
+  crcc: CrccMethods;
+};
+
+/**
+ * Maps load feature string literals to their method interfaces (all features).
+ * Includes both channel-level and instrument-level feature methods.
+ */
+export type LoadFeatureMethodMap = {
+  cp: CpMethods;
+  battery: BatteryMethods;
+  led: LedMethods;
+  short: ShortMethods;
+  opp: OppMethods;
+  ocpTest: OcpTestMethods;
+  oppTest: OppTestMethods;
+  crcc: CrccMethods;
+};
