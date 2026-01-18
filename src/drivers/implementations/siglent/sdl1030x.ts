@@ -14,17 +14,12 @@ import type { Result } from '../../../result.js';
 import { Ok, Err } from '../../../result.js';
 import {
   LoadMode,
-  type ElectronicLoad,
-  type ElectronicLoadChannel,
   type ListStep,
   type ListModeOptions,
+  type LoadChannelWithFeatures,
+  type LoadWithFeatures,
 } from '../../equipment/electronic-load.js';
-import type {
-  LoadFeatureId,
-  ShortMethods,
-  LedMethods,
-  OppMethods,
-} from '../../features/load-features.js';
+import type { LoadFeatureId, OppMethods } from '../../features/load-features.js';
 
 // ─────────────────────────────────────────────────────────────────
 // Constants
@@ -34,24 +29,24 @@ import type {
 const SLEW_RATE_FACTOR = 1_000_000;
 
 // ─────────────────────────────────────────────────────────────────
-// SDL1030X-specific interfaces
+// Features and Auto-Composed Types
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * SDL1030X channel interface with feature methods.
+ * Features supported by SDL1030X.
  */
-export interface SDL1030XChannel extends ElectronicLoadChannel, ShortMethods, LedMethods {}
+const sdlFeatures = ['cp', 'short', 'led', 'opp'] as const satisfies readonly LoadFeatureId[];
 
 /**
- * SDL1030X electronic load interface with features.
+ * SDL1030X channel type - automatically includes ShortMethods and LedMethods.
  */
-export interface SDL1030XLoad extends ElectronicLoad, OppMethods {
-  /** Access channel 1 (single channel load) */
-  channel(n: 1): SDL1030XChannel;
+export type SDL1030XChannel = LoadChannelWithFeatures<typeof sdlFeatures>;
 
-  /** Features supported by this driver */
-  readonly features: typeof sdlFeatures;
-}
+/**
+ * SDL1030X electronic load type - includes feature methods plus instrument-level OPP.
+ * Note: OPP is an instrument-level feature (not per-channel).
+ */
+export type SDL1030XLoad = LoadWithFeatures<typeof sdlFeatures> & OppMethods;
 
 // ─────────────────────────────────────────────────────────────────
 // Helper functions
@@ -192,11 +187,6 @@ async function stopList(
 // ─────────────────────────────────────────────────────────────────
 // Driver specification
 // ─────────────────────────────────────────────────────────────────
-
-/**
- * Features supported by SDL1030X.
- */
-const sdlFeatures = ['cp', 'short', 'led', 'opp'] as const satisfies readonly LoadFeatureId[];
 
 /**
  * Siglent SDL1030X driver specification.

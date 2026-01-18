@@ -14,12 +14,12 @@ import type { Result } from '../../../result.js';
 import { Ok, Err } from '../../../result.js';
 import {
   LoadMode,
-  type ElectronicLoad,
-  type ElectronicLoadChannel,
   type ListStep,
   type ListModeOptions,
+  type LoadChannelWithFeatures,
+  type LoadWithFeatures,
 } from '../../equipment/electronic-load.js';
-import type { LoadFeatureId, ShortMethods, LedMethods } from '../../features/load-features.js';
+import type { LoadFeatureId } from '../../features/load-features.js';
 
 // ─────────────────────────────────────────────────────────────────
 // Constants
@@ -29,24 +29,23 @@ import type { LoadFeatureId, ShortMethods, LedMethods } from '../../features/loa
 const SLEW_RATE_FACTOR = 1_000_000;
 
 // ─────────────────────────────────────────────────────────────────
-// BK8600-specific interfaces
+// Features and Auto-Composed Types
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * BK8600 channel interface with feature methods.
+ * Features supported by BK8600.
  */
-export interface BK8600Channel extends ElectronicLoadChannel, ShortMethods, LedMethods {}
+const bkFeatures = ['cp', 'short', 'led'] as const satisfies readonly LoadFeatureId[];
 
 /**
- * BK8600 electronic load interface with features.
+ * BK8600 channel type - automatically includes ShortMethods and LedMethods.
  */
-export interface BK8600Load extends ElectronicLoad {
-  /** Access channel 1 (single channel load) */
-  channel(n: 1): BK8600Channel;
+export type BK8600Channel = LoadChannelWithFeatures<typeof bkFeatures>;
 
-  /** Features supported by this driver */
-  readonly features: typeof bkFeatures;
-}
+/**
+ * BK8600 electronic load type - automatically includes feature methods.
+ */
+export type BK8600Load = LoadWithFeatures<typeof bkFeatures>;
 
 // ─────────────────────────────────────────────────────────────────
 // Helper functions
@@ -187,11 +186,6 @@ async function stopList(
 // ─────────────────────────────────────────────────────────────────
 // Driver specification
 // ─────────────────────────────────────────────────────────────────
-
-/**
- * Features supported by BK8600.
- */
-const bkFeatures = ['cp', 'short', 'led'] as const satisfies readonly LoadFeatureId[];
 
 /**
  * BK Precision 8600 driver specification.

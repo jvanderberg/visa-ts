@@ -6,6 +6,8 @@
 
 import type { Result } from '../../result.js';
 import type { BaseInstrument } from './base.js';
+import type { UnionToIntersection } from '../features/utils.js';
+import type { LoadFeatureId, LoadChannelFeatureMethodMap } from '../features/load-features.js';
 
 /**
  * Electronic load operating modes.
@@ -169,3 +171,69 @@ export interface ElectronicLoad extends BaseInstrument {
   /** Clear all protection trips (OVP, OCP, OPP, etc.) on all channels */
   clearAllProtection(): Promise<Result<void, Error>>;
 }
+
+// ─────────────────────────────────────────────────────────────────
+// Automatic Type Composition from Features
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Channel-level feature IDs (excludes instrument-level features like 'opp').
+ */
+type ChannelFeatureId = keyof LoadChannelFeatureMethodMap;
+
+/**
+ * Converts a tuple of load feature IDs to an intersection of their CHANNEL-level method interfaces.
+ * Instrument-level features (like 'opp') are filtered out automatically.
+ *
+ * @typeParam F - A readonly array of feature IDs
+ *
+ * @example
+ * ```typescript
+ * type Methods = LoadMethodsFromFeatures<['short', 'led', 'opp']>;
+ * // Methods = ShortMethods & LedMethods (opp is filtered out)
+ * ```
+ */
+export type LoadMethodsFromFeatures<F extends readonly LoadFeatureId[]> = UnionToIntersection<
+  LoadChannelFeatureMethodMap[Extract<F[number], ChannelFeatureId>]
+>;
+
+/**
+ * Electronic load channel with feature methods automatically composed.
+ *
+ * Use this instead of declaring explicit interfaces. The channel type is
+ * automatically computed from the features array.
+ *
+ * @typeParam F - A readonly tuple of feature IDs (use `as const`)
+ *
+ * @example
+ * ```typescript
+ * const features = ['short', 'led'] as const;
+ *
+ * // Automatically becomes: ElectronicLoadChannel & ShortMethods & LedMethods
+ * type MyChannel = LoadChannelWithFeatures<typeof features>;
+ * ```
+ */
+export type LoadChannelWithFeatures<F extends readonly LoadFeatureId[]> = ElectronicLoadChannel &
+  LoadMethodsFromFeatures<F>;
+
+/**
+ * Electronic load with feature methods and typed channel accessor.
+ *
+ * Use this to get a fully typed load interface from a features array.
+ *
+ * @typeParam F - A readonly tuple of feature IDs (use `as const`)
+ *
+ * @example
+ * ```typescript
+ * const features = ['cp', 'short', 'led'] as const;
+ *
+ * // Load with typed channel accessor that includes feature methods
+ * type MyLoad = LoadWithFeatures<typeof features>;
+ * ```
+ */
+export type LoadWithFeatures<F extends readonly LoadFeatureId[]> = ElectronicLoad & {
+  /** Access a channel with feature methods included */
+  channel(n: number): LoadChannelWithFeatures<F>;
+  /** Features supported by this driver */
+  readonly features: F;
+};

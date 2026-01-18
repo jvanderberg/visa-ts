@@ -16,37 +16,35 @@ import type { Result } from '../../../result.js';
 import { Ok } from '../../../result.js';
 import {
   LoadMode,
-  type ElectronicLoad,
   type ElectronicLoadChannel,
   type ListStep,
   type ListModeOptions,
+  type LoadWithFeatures,
 } from '../../equipment/electronic-load.js';
 import type { LoadFeatureId } from '../../features/load-features.js';
 
 // ─────────────────────────────────────────────────────────────────
-// N3300A-specific interfaces
+// Features and Auto-Composed Types
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * N3300A channel interface (base interface - no extra features).
- * Keysight loads don't have short circuit or LED modes.
+ * Features supported by N3300A (none - no CP, short, or LED modes).
+ */
+const n3300Features = [] as const satisfies readonly LoadFeatureId[];
+
+/**
+ * N3300A channel type - base interface only, no extra feature methods.
  */
 export type N3300AChannel = ElectronicLoadChannel;
 
 /**
- * N3300A electronic load interface.
+ * N3300A electronic load type with multi-channel selection.
  * Note: Can have 1-6 channels depending on installed modules.
  */
-export interface N3300ALoad extends ElectronicLoad {
-  /** Access a channel (1-6 for N3300A, 1 for EL34243A) */
-  channel(n: number): N3300AChannel;
-
-  /** Features supported by this driver */
-  readonly features: typeof n3300Features;
-
+export type N3300ALoad = LoadWithFeatures<typeof n3300Features> & {
   /** Select a channel for subsequent commands (N3300A multi-channel) */
   selectChannel(channel: number): Promise<Result<void, Error>>;
-}
+};
 
 // ─────────────────────────────────────────────────────────────────
 // Helper functions
@@ -169,11 +167,6 @@ async function stopList(
 // ─────────────────────────────────────────────────────────────────
 // Driver specification
 // ─────────────────────────────────────────────────────────────────
-
-/**
- * Features supported by N3300A (none beyond base - no CP, no short, no LED).
- */
-const n3300Features = [] as const satisfies readonly LoadFeatureId[];
 
 /**
  * Keysight N3300A driver specification.

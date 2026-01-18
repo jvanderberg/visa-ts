@@ -16,32 +16,31 @@ import type { Result } from '../../../result.js';
 import { Ok, Err } from '../../../result.js';
 import {
   LoadMode,
-  type ElectronicLoad,
-  type ElectronicLoadChannel,
   type ListStep,
   type ListModeOptions,
+  type LoadChannelWithFeatures,
+  type LoadWithFeatures,
 } from '../../equipment/electronic-load.js';
-import type { LoadFeatureId, ShortMethods, LedMethods } from '../../features/load-features.js';
+import type { LoadFeatureId } from '../../features/load-features.js';
 
 // ─────────────────────────────────────────────────────────────────
-// IT8812-specific interfaces
+// Features and Auto-Composed Types
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * IT8812 channel interface with feature methods.
+ * Features supported by IT8812.
  */
-export interface IT8812Channel extends ElectronicLoadChannel, ShortMethods, LedMethods {}
+const itechFeatures = ['cp', 'short', 'led'] as const satisfies readonly LoadFeatureId[];
 
 /**
- * IT8812 electronic load interface with features.
+ * IT8812 channel type - automatically includes ShortMethods and LedMethods.
  */
-export interface IT8812Load extends ElectronicLoad {
-  /** Access channel 1 (single channel load) */
-  channel(n: 1): IT8812Channel;
+export type IT8812Channel = LoadChannelWithFeatures<typeof itechFeatures>;
 
-  /** Features supported by this driver */
-  readonly features: typeof itechFeatures;
-}
+/**
+ * IT8812 electronic load type - automatically includes feature methods.
+ */
+export type IT8812Load = LoadWithFeatures<typeof itechFeatures>;
 
 // ─────────────────────────────────────────────────────────────────
 // Helper functions
@@ -176,11 +175,6 @@ async function stopList(
 // ─────────────────────────────────────────────────────────────────
 // Driver specification
 // ─────────────────────────────────────────────────────────────────
-
-/**
- * Features supported by IT8812.
- */
-const itechFeatures = ['cp', 'short', 'led'] as const satisfies readonly LoadFeatureId[];
 
 /**
  * ITECH IT8812 driver specification.
